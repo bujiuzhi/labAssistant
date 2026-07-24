@@ -1,4 +1,27 @@
 :root {
+  --color-shell: #f3f6fa;
+  --color-paper: #ffffff;
+  --color-paper-2: #f8fafc;
+  --color-paper-3: #eef2f7;
+  --color-ink: #111827;
+  --color-ink-2: #344054;
+  --color-muted: #667085;
+  --color-faint: #98a2b3;
+  --color-rule: #e4e9f0;
+  --color-rule-2: #ccd5e1;
+  --color-accent: #087cf0;
+  --color-accent-soft: #e5f2ff;
+  --color-focus: #0b6fd3;
+  --color-success-soft: #def7e7;
+  --color-warning-soft: #fff0d8;
+  --color-danger-soft: #fee8e6;
+  --color-traffic-red: #ff5958;
+  --color-traffic-yellow: #ffbd2e;
+  --color-traffic-green: #28c840;
+  --shadow-whisper: 0 1px 3px rgb(15 23 42 / 8%);
+  --font-display: "PingFang SC", "Source Han Sans SC", sans-serif;
+  --font-body: "Source Han Sans SC", "PingFang SC", sans-serif;
+  --font-outlier: "Avenir Next", "PingFang SC", sans-serif;
   --color-primary: #3157c8;
   --color-primary-hover: #2748aa;
   --color-primary-soft: #edf2ff;
@@ -22,7 +45,7 @@
   --header-height: 56px;
   --route-tabs-height: 36px;
   --font-ui:
-    Inter, "SF Pro Text", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system,
+    "PingFang SC", "Microsoft YaHei", Inter, "SF Pro Text", system-ui, -apple-system,
     sans-serif;
 }
 

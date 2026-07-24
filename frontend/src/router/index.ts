@@ -24,13 +24,22 @@ const router = createRouter({
           path: "dashboard",
           name: "dashboard",
           component: () => import("@/views/DashboardView.vue"),
-          meta: { title: "工作台" },
+          meta: { title: "项目总览" },
         },
         {
           path: "projects",
           name: "projects",
           component: () => import("@/views/projects/ProjectListView.vue"),
-          meta: { title: "项目管理" },
+          meta: { title: "项目数据" },
+        },
+        {
+          path: "eln",
+          name: "eln",
+          component: () => import("@/views/PlaceholderView.vue"),
+          meta: {
+            title: "电子实验记录本",
+            description: "电子实验记录本页面正在按原型复刻。",
+          },
         },
         {
           path: "projects/:projectId",
@@ -79,7 +88,7 @@ router.beforeEach((to) => {
 });
 
 router.afterEach((to) => {
-  document.title = `${String(to.meta.title ?? "材料实验助手")} · 材料实验助手`;
+  document.title = `${String(to.meta.title ?? "实验助手")} · 玄鉴`;
 });
 
 export default router;

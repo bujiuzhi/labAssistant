@@ -1,524 +1,536 @@
 <script setup lang="ts">
-import {
-  ArrowDown,
-  Bell,
-  Box,
-  DataAnalysis,
-  Expand,
-  Fold,
-  FolderOpened,
-  House,
-  Moon,
-  Notebook,
-  Setting,
-  Sunny,
-} from "@element-plus/icons-vue";
-import { computed, ref, watch } from "vue";
+import { Icon } from "@iconify/vue";
+import { computed, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { useSessionStore } from "@/stores/session";
 
-interface RouteTab {
-  path: string;
-  title: string;
-  closable: boolean;
+interface SideNavigationItem {
+  label: string;
+  icon: string;
+  active?: boolean;
+  badge?: string;
 }
 
 const route = useRoute();
 const router = useRouter();
 const sessionStore = useSessionStore();
+const sidebarCollapsed = ref(false);
 
-const collapsed = ref(false);
-const isDark = ref(localStorage.getItem("materials-lab-theme") === "dark");
-const tabs = ref<RouteTab[]>([
-  { path: "/dashboard", title: "工作台", closable: false },
-]);
-
-const menuItems = [
-  { path: "/dashboard", label: "工作台", icon: House },
-  { path: "/projects", label: "项目管理", icon: FolderOpened },
-  { path: "/experiments", label: "实验管理", icon: Notebook },
-  { path: "/testing", label: "检测管理", icon: DataAnalysis },
-  { path: "/materials", label: "基础资料", icon: Box },
-  { path: "/system", label: "系统管理", icon: Setting },
+const sideNavigation: SideNavigationItem[] = [
+  { label: "新对话", icon: "tabler:plus" },
+  { label: "技能广场", icon: "tabler:hammer" },
+  { label: "知识空间", icon: "tabler:notebook" },
+  { label: "多端协同", icon: "tabler:link" },
+  { label: "任务管理", icon: "tabler:clock", badge: "46" },
+  { label: "实验助手", icon: "tabler:tool", active: true },
+  { label: "科研数据", icon: "tabler:files" },
+  { label: "聚合物性质探索", icon: "tabler:cube" },
+  { label: "配方库", icon: "tabler:flask" },
 ];
 
-const activeMenu = computed(() => {
-  if (route.path.startsWith("/projects")) {
-    return "/projects";
-  }
-  return route.path;
+const historyItems = [
+  "人工智能产业链...",
+  "【综述生成】高...",
+  "【实验总结】请...",
+  "【实验图表生成...",
+  "【论文检索】请...",
+  "【性质预测】[*]...",
+];
+
+const productNavigation = [
+  { path: "/dashboard", label: "项目总览" },
+  { path: "/projects", label: "项目数据" },
+  { path: "/eln", label: "电子实验记录本" },
+];
+
+const prototypeUsers: Record<string, { displayName: string; roleName: string }> = {
+  admin: { displayName: "刘李园", roleName: "超级管理员" },
+  manager: { displayName: "张伟", roleName: "项目负责人" },
+  researcher: { displayName: "李娜", roleName: "研究人员" },
+  inspector: { displayName: "王强", roleName: "检验人员" },
+};
+
+const profile = computed(() => {
+  const username = sessionStore.user?.username ?? "";
+  return (
+    prototypeUsers[username] ?? {
+      displayName: sessionStore.displayName || "未登录用户",
+      roleName: "项目成员",
+    }
+  );
 });
 
-const currentTitle = computed(() => String(route.meta.title ?? "材料实验助手"));
+const profileInitial = computed(() => profile.value.displayName.slice(-1));
 
-function applyTheme(): void {
-  document.documentElement.classList.toggle("dark", isDark.value);
-  localStorage.setItem("materials-lab-theme", isDark.value ? "dark" : "light");
-}
-
-function toggleTheme(): void {
-  isDark.value = !isDark.value;
-  applyTheme();
-}
-
-async function handleUserCommand(command: string): Promise<void> {
-  if (command === "logout") {
-    await sessionStore.logout();
-    await router.replace("/login");
+function isProductRoute(path: string): boolean {
+  if (path === "/projects") {
+    return route.path.startsWith("/projects");
   }
+  return route.path === path;
 }
 
-function closeTab(tab: RouteTab): void {
-  const tabIndex = tabs.value.findIndex((item) => item.path === tab.path);
-  if (tabIndex < 0 || !tab.closable) {
-    return;
-  }
-  const isCurrent = route.path === tab.path;
-  tabs.value.splice(tabIndex, 1);
-  if (isCurrent) {
-    const fallbackTab = tabs.value[Math.max(0, tabIndex - 1)];
-    void router.push(fallbackTab.path);
-  }
+async function logout(): Promise<void> {
+  await sessionStore.logout();
+  await router.replace("/login");
 }
-
-watch(
-  () => route.fullPath,
-  () => {
-    if (!route.meta.title || route.path === "/login") {
-      return;
-    }
-    const existingTab = tabs.value.find((item) => item.path === route.fullPath);
-    if (!existingTab) {
-      tabs.value.push({
-        path: route.fullPath,
-        title: String(route.meta.title),
-        closable: route.path !== "/dashboard",
-      });
-    }
-  },
-  { immediate: true },
-);
-
-applyTheme();
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'is-collapsed': collapsed }">
-    <aside class="app-sidebar">
-      <div class="brand">
-        <div class="brand-mark" aria-hidden="true">
-          <DataAnalysis />
-        </div>
-        <div v-if="!collapsed" class="brand-copy">
-          <strong>材料实验助手</strong>
-          <span>Materials Lab</span>
-        </div>
+  <div class="prototype-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
+    <header class="window-bar">
+      <div class="traffic-lights" aria-hidden="true">
+        <i />
+        <i />
+        <i />
       </div>
-
-      <el-menu
-        :default-active="activeMenu"
-        :collapse="collapsed"
-        :collapse-transition="false"
-        router
-        class="sidebar-menu"
+      <RouterLink class="brand" to="/dashboard" aria-label="玄鉴首页">
+        <span class="brand-mark"><Icon icon="tabler:flask-2" /></span>
+        <strong>玄鉴</strong>
+      </RouterLink>
+      <button
+        class="icon-button collapse-button"
+        type="button"
+        :aria-label="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
+        @click="sidebarCollapsed = !sidebarCollapsed"
       >
-        <el-menu-item v-for="item in menuItems" :key="item.path" :index="item.path">
-          <el-icon><component :is="item.icon" /></el-icon>
-          <template #title>{{ item.label }}</template>
-        </el-menu-item>
-      </el-menu>
-
-      <button class="collapse-button" type="button" @click="collapsed = !collapsed">
-        <el-icon>
-          <Expand v-if="collapsed" />
-          <Fold v-else />
-        </el-icon>
-        <span v-if="!collapsed">收起导航</span>
+        <Icon
+          :icon="
+            sidebarCollapsed
+              ? 'tabler:layout-sidebar-left-expand'
+              : 'tabler:layout-sidebar-left-collapse'
+          "
+        />
       </button>
-    </aside>
+      <div class="window-actions">
+        <button class="text-button" type="button">
+          <Icon icon="tabler:message-circle-question" />
+          <span>问题反馈</span>
+        </button>
+        <span class="online"><Icon icon="tabler:robot" />在线</span>
+      </div>
+    </header>
 
-    <section class="app-workspace">
-      <header class="app-header">
-        <div class="header-context">
-          <el-breadcrumb separator="/">
-            <el-breadcrumb-item>材料实验助手</el-breadcrumb-item>
-            <el-breadcrumb-item>{{ currentTitle }}</el-breadcrumb-item>
-          </el-breadcrumb>
-        </div>
-
-        <div class="header-actions">
-          <el-tooltip :content="isDark ? '切换浅色主题' : '切换深色主题'">
-            <button class="icon-button" type="button" @click="toggleTheme">
-              <el-icon><Sunny v-if="isDark" /><Moon v-else /></el-icon>
-            </button>
-          </el-tooltip>
-          <el-tooltip content="通知">
-            <button class="icon-button" type="button" aria-label="通知">
-              <el-badge is-dot>
-                <el-icon><Bell /></el-icon>
-              </el-badge>
-            </button>
-          </el-tooltip>
-          <span class="header-divider" />
-          <el-dropdown trigger="click" @command="handleUserCommand">
-            <button class="user-menu" type="button">
-              <span class="user-avatar">{{ sessionStore.displayName.slice(0, 1) }}</span>
-              <span class="user-name">{{ sessionStore.displayName }}</span>
-              <el-icon><ArrowDown /></el-icon>
-            </button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="logout">退出登录</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-        </div>
-      </header>
-
-      <nav class="route-tabs" aria-label="已打开页面">
+    <aside class="sidebar" aria-label="玄鉴主导航">
+      <nav class="side-nav">
         <button
-          v-for="tab in tabs"
-          :key="tab.path"
-          class="route-tab"
-          :class="{ active: route.fullPath === tab.path }"
+          v-for="item in sideNavigation"
+          :key="item.label"
+          class="side-nav-item"
+          :class="{ active: item.active }"
           type="button"
-          @click="router.push(tab.path)"
         >
-          <span>{{ tab.title }}</span>
-          <span
-            v-if="tab.closable"
-            class="tab-close"
-            role="button"
-            tabindex="0"
-            aria-label="关闭页面"
-            @click.stop="closeTab(tab)"
-            @keydown.enter.stop="closeTab(tab)"
-          >
-            ×
-          </span>
+          <Icon :icon="item.icon" />
+          <span>{{ item.label }}</span>
+          <b v-if="item.badge" class="nav-badge">{{ item.badge }}</b>
         </button>
       </nav>
 
-      <main class="app-main">
-        <router-view />
-      </main>
-    </section>
+      <section class="history" aria-label="历史会话">
+        <p>历史会话</p>
+        <button v-for="item in historyItems" :key="item" type="button">
+          <Icon icon="tabler:pin" />
+          <span>{{ item }}</span>
+        </button>
+      </section>
+
+      <div class="profile">
+        <span class="profile-avatar">{{ profileInitial }}</span>
+        <span class="profile-copy">
+          <strong>{{ profile.displayName }}</strong>
+          <small>{{ profile.roleName }}</small>
+        </span>
+        <el-dropdown trigger="click">
+          <button class="icon-button profile-settings" type="button" aria-label="账户设置">
+            <Icon icon="tabler:chevrons-up" />
+          </button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item @click="logout">退出登录</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
+    </aside>
+
+    <main class="main-workspace">
+      <nav class="product-nav" aria-label="实验助手导航">
+        <RouterLink
+          v-for="item in productNavigation"
+          :key="item.path"
+          :to="item.path"
+          :class="{ active: isProductRoute(item.path) }"
+        >
+          {{ item.label }}
+        </RouterLink>
+      </nav>
+      <div class="route-content">
+        <RouterView />
+      </div>
+    </main>
   </div>
 </template>
 
 <style scoped>
-.app-shell {
+.prototype-shell {
   display: grid;
-  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   width: 100%;
   height: 100%;
-  background: var(--color-bg-page);
-  transition: grid-template-columns 160ms ease;
+  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-rows: 48px minmax(0, 1fr);
+  background: var(--color-shell);
+  transition: grid-template-columns 180ms ease;
 }
 
-.app-shell.is-collapsed {
-  grid-template-columns: var(--sidebar-collapsed-width) minmax(0, 1fr);
+.prototype-shell.sidebar-collapsed {
+  grid-template-columns: 72px minmax(0, 1fr);
 }
 
-.app-sidebar {
+.window-bar {
+  z-index: 2;
   display: flex;
-  flex-direction: column;
-  min-width: 0;
-  overflow: hidden;
-  color: #d8deea;
-  background: var(--color-bg-sidebar);
+  grid-column: 1 / -1;
+  align-items: center;
+  padding: 0 14px;
+  background: var(--color-paper-2);
+  border-bottom: 1px solid var(--color-rule);
+}
+
+.traffic-lights {
+  display: flex;
+  width: 86px;
+  gap: 10px;
+}
+
+.traffic-lights i {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+}
+
+.traffic-lights i:nth-child(1) {
+  background: var(--color-traffic-red);
+}
+
+.traffic-lights i:nth-child(2) {
+  background: var(--color-traffic-yellow);
+}
+
+.traffic-lights i:nth-child(3) {
+  background: var(--color-traffic-green);
 }
 
 .brand {
   display: flex;
-  flex: none;
   align-items: center;
-  height: var(--header-height);
-  padding: 0 15px;
-  border-bottom: 1px solid rgb(255 255 255 / 9%);
+  gap: 10px;
+  font-family: var(--font-outlier);
+  font-size: 18px;
 }
 
 .brand-mark {
   display: grid;
-  flex: none;
-  width: 34px;
-  height: 34px;
-  color: #fff;
-  background: #4169dd;
-  border-radius: 8px;
+  width: 22px;
+  height: 22px;
+  color: #ffffff;
+  background: var(--color-ink);
+  border-radius: 6px;
   place-items: center;
 }
 
-.brand-mark :deep(svg) {
-  width: 20px;
-  height: 20px;
-}
-
-.brand-copy {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  margin-left: 10px;
-}
-
-.brand-copy strong {
-  overflow: hidden;
-  color: #fff;
-  font-size: 14px;
-  font-weight: 650;
-  white-space: nowrap;
-}
-
-.brand-copy span {
-  color: #8692a6;
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.sidebar-menu {
-  flex: 1;
-  min-height: 0;
-  padding: 12px 8px;
-  overflow-x: hidden;
-  overflow-y: auto;
-  background: transparent;
-  border-right: 0;
-}
-
-.sidebar-menu:not(.el-menu--collapse) {
-  width: 220px;
-}
-
-.sidebar-menu :deep(.el-menu-item) {
-  height: 42px;
-  margin: 3px 0;
-  color: #aeb8c8;
-  font-size: 13px;
-  border-radius: 6px;
-}
-
-.sidebar-menu :deep(.el-menu-item .el-icon) {
-  font-size: 18px;
-}
-
-.sidebar-menu :deep(.el-menu-item:hover) {
-  color: #fff;
-  background: rgb(255 255 255 / 7%);
-}
-
-.sidebar-menu :deep(.el-menu-item.is-active) {
-  color: #fff;
-  background: #3157c8;
+.brand-mark svg {
+  width: 15px;
+  height: 15px;
 }
 
 .collapse-button {
+  margin-left: 14px;
+}
+
+.window-actions {
   display: flex;
-  flex: none;
   align-items: center;
-  height: 46px;
-  padding: 0 22px;
-  color: #8e9aae;
+  margin-left: auto;
+  gap: 22px;
+}
+
+.text-button,
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-ink-2);
   background: transparent;
   border: 0;
-  border-top: 1px solid rgb(255 255 255 / 8%);
   cursor: pointer;
 }
 
-.collapse-button:hover {
-  color: #fff;
+.text-button {
+  height: 36px;
+  gap: 7px;
 }
 
-.collapse-button span {
-  margin-left: 10px;
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.is-collapsed .collapse-button {
-  justify-content: center;
-  padding: 0;
-}
-
-.app-workspace {
-  display: grid;
-  grid-template-rows: var(--header-height) var(--route-tabs-height) minmax(0, 1fr);
-  min-width: 0;
-  min-height: 0;
-}
-
-.app-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 18px;
-  background: var(--color-bg-card);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.header-context :deep(.el-breadcrumb__inner) {
-  color: var(--color-text-secondary);
-  font-size: 13px;
-  font-weight: 400;
-}
-
-.header-context :deep(.el-breadcrumb__item:last-child .el-breadcrumb__inner) {
-  color: var(--color-text-primary);
-  font-weight: 550;
-}
-
-.header-actions,
-.user-menu {
-  display: flex;
-  align-items: center;
-}
-
-.header-actions {
-  gap: 5px;
+.text-button svg {
+  width: 17px;
+  height: 17px;
 }
 
 .icon-button {
-  display: grid;
   width: 34px;
   height: 34px;
-  color: var(--color-text-secondary);
+  border-radius: 6px;
+}
+
+.icon-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.online {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  color: #078545;
+  background: var(--color-success-soft);
+  border-radius: 999px;
+  gap: 7px;
+}
+
+.sidebar {
+  display: flex;
+  grid-row: 2;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-paper-2);
+  border-right: 1px solid var(--color-rule);
+}
+
+.side-nav {
+  display: grid;
+  flex: none;
+  padding: 16px 8px 10px;
+  gap: 3px;
+}
+
+.side-nav-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  overflow: hidden;
+  color: var(--color-ink-2);
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
   background: transparent;
   border: 0;
   border-radius: 6px;
   cursor: pointer;
-  place-items: center;
+  gap: 12px;
 }
 
-.icon-button:hover {
-  color: var(--color-text-primary);
-  background: var(--color-bg-page);
+.side-nav-item svg {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
 }
 
-.icon-button .el-icon {
-  font-size: 17px;
+.side-nav-item.active {
+  color: var(--color-accent);
+  background: #e2f0ff;
 }
 
-.header-divider {
-  width: 1px;
-  height: 22px;
-  margin: 0 7px;
-  background: var(--color-border);
+.nav-badge {
+  min-width: 24px;
+  padding: 1px 5px;
+  margin-left: auto;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  background: #edf1f6;
+  border-radius: 999px;
 }
 
-.user-menu {
-  gap: 8px;
-  padding: 2px 4px;
-  color: var(--color-text-primary);
+.history {
+  min-height: 0;
+  padding: 0 8px;
+  overflow: hidden;
+}
+
+.history p {
+  margin: 8px 4px 7px;
+  color: var(--color-faint);
+  font-size: 12px;
+}
+
+.history button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 6px 4px;
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
   background: transparent;
   border: 0;
   cursor: pointer;
+  gap: 8px;
 }
 
-.user-avatar {
+.history button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history svg {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+}
+
+.profile {
+  display: flex;
+  flex: none;
+  align-items: center;
+  min-height: 58px;
+  padding: 9px 12px;
+  margin-top: auto;
+  border-top: 1px solid var(--color-rule);
+  gap: 9px;
+}
+
+.profile-avatar {
   display: grid;
-  width: 30px;
-  height: 30px;
-  color: #fff;
-  font-size: 13px;
-  font-weight: 650;
-  background: #3157c8;
-  border-radius: 50%;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  background: #f1f5f9;
+  border: 1px solid var(--color-rule);
+  border-radius: 999px;
   place-items: center;
 }
 
-.user-name {
-  max-width: 100px;
+.profile-copy {
+  min-width: 0;
+}
+
+.profile-copy strong,
+.profile-copy small {
+  display: block;
   overflow: hidden;
-  font-size: 13px;
-  font-weight: 550;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.route-tabs {
+.profile-copy strong {
+  font-size: 13px;
+}
+
+.profile-copy small {
+  margin-top: 1px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.profile-settings {
+  margin-left: auto;
+}
+
+.main-workspace {
   display: flex;
-  align-items: flex-end;
-  min-width: 0;
-  padding: 0 14px;
-  overflow-x: auto;
-  background: var(--color-bg-card);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.route-tab {
-  position: relative;
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 7px;
-  height: 35px;
-  padding: 0 12px;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-}
-
-.route-tab:hover,
-.route-tab.active {
-  color: var(--color-primary);
-}
-
-.route-tab.active::after {
-  position: absolute;
-  right: 10px;
-  bottom: -1px;
-  left: 10px;
-  height: 2px;
-  background: var(--color-primary);
-  content: "";
-}
-
-.tab-close {
-  display: grid;
-  width: 16px;
-  height: 16px;
-  color: var(--color-text-tertiary);
-  font-size: 15px;
-  border-radius: 3px;
-  place-items: center;
-}
-
-.tab-close:hover {
-  color: var(--color-text-primary);
-  background: var(--color-border);
-}
-
-.app-main {
+  grid-row: 2;
   min-width: 0;
   min-height: 0;
-  padding: 16px;
+  flex-direction: column;
+  padding: 24px 20px 0;
   overflow: hidden;
 }
 
-@media (width <= 1279px) {
-  .app-shell {
-    grid-template-columns: var(--sidebar-collapsed-width) minmax(0, 1fr);
+.product-nav {
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: 44px;
+  padding: 0 20px;
+  background: var(--color-paper);
+  border-radius: 8px;
+  box-shadow: var(--shadow-whisper);
+  gap: 30px;
+}
+
+.product-nav a {
+  position: relative;
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  color: var(--color-muted);
+  font-weight: 650;
+}
+
+.product-nav a.active {
+  color: var(--color-ink);
+}
+
+.product-nav a.active::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--color-accent);
+  content: "";
+}
+
+.route-content {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.sidebar-collapsed .side-nav-item {
+  justify-content: center;
+  padding: 0;
+}
+
+.sidebar-collapsed .side-nav-item span,
+.sidebar-collapsed .nav-badge,
+.sidebar-collapsed .history,
+.sidebar-collapsed .profile-copy,
+.sidebar-collapsed .profile-settings {
+  display: none;
+}
+
+.sidebar-collapsed .profile {
+  justify-content: center;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .side-nav-item:hover,
+  .history button:hover,
+  .icon-button:hover,
+  .text-button:hover {
+    background: var(--color-paper-3);
   }
 
-  .brand-copy,
-  .collapse-button span {
+  .side-nav-item.active:hover {
+    background: #e2f0ff;
+  }
+}
+
+@media (max-width: 1180px) {
+  .history {
     display: none;
   }
 
-  .sidebar-menu:not(.el-menu--collapse) {
-    width: 64px;
-  }
-
-  .sidebar-menu :deep(.el-menu-item span) {
-    display: none;
-  }
-
-  .collapse-button {
-    justify-content: center;
-    padding: 0;
+  .main-workspace {
+    padding-inline: 14px;
   }
 }
 </style>
