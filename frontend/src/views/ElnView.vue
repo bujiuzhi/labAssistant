@@ -2,6 +2,7 @@
 import { Icon } from "@iconify/vue";
 import { ElMessage } from "element-plus";
 import { computed, nextTick, onMounted, reactive, ref } from "vue";
+import { useRoute } from "vue-router";
 
 import { experimentApi } from "@/api/experiments";
 import { getProblemDetail } from "@/api/http";
@@ -20,6 +21,7 @@ import type {
 } from "@/types/api";
 
 const sessionStore = useSessionStore();
+const route = useRoute();
 
 const statusOptions: Array<{ value: ExperimentStatus; label: string }> = [
   { value: "in_progress", label: "进行中" },
@@ -567,7 +569,13 @@ async function loadPage(): Promise<void> {
     ]);
     experiments.value = experimentResponse.data;
     projects.value = projectResponse.data;
+    const requestedExperiment = String(route.query.experiment ?? "");
     const initial =
+      experiments.value.find(
+        (item) =>
+          item.experiment_no === requestedExperiment ||
+          item.id === requestedExperiment,
+      ) ??
       experiments.value.find((item) => item.status === activeStatus.value) ??
       experiments.value[0];
     if (initial) {

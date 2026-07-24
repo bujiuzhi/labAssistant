@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 材料实验管理系统 API
-  version: 0.2.0
+  version: 0.3.0
   description: |
     项目 MVP 的机器可读接口基线。业务语义、分页、错误和并发规则见
     docs/07-api-and-integration-specification.md。
@@ -295,6 +295,93 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+  /projects/{project_id}/documents:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      tags: [Projects]
+      summary: 查询项目文档
+      operationId: listProjectDocuments
+      parameters:
+        - $ref: "#/components/parameters/Search"
+        - name: category
+          in: query
+          schema:
+            $ref: "#/components/schemas/ProjectDocumentCategory"
+        - name: file_type
+          in: query
+          schema:
+            type: string
+            enum: [word, pdf, excel, powerpoint, image]
+        - name: updated_range
+          in: query
+          schema:
+            type: string
+            enum: [week, month]
+      responses:
+        "200":
+          description: 项目文档列表、过滤数量与分类统计
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectDocumentListResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Projects]
+      summary: 上传项目文档
+      operationId: createProjectDocument
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/ProjectDocumentCreate"
+      responses:
+        "201":
+          description: 文档上传成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectDocumentResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /projects/{project_id}/documents/{document_id}/content:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/DocumentId"
+    get:
+      tags: [Projects]
+      summary: 预览或下载项目文档
+      operationId: getProjectDocumentContent
+      parameters:
+        - name: download
+          in: query
+          schema:
+            type: integer
+            enum: [0, 1]
+            default: 0
+      responses:
+        "200":
+          description: 原始文档内容；download=1 时按附件下载
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /experiments:
     x-implementation-status: implemented
     get:
@@ -943,6 +1030,13 @@ components:
           - type: string
             pattern: "^PRJ-[A-Z0-9-]+$"
       description: 项目 UUID 或项目业务编号
+    DocumentId:
+      name: document_id
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Uuid"
+      description: 项目文档 UUID
     ExperimentId:
       name: experiment_id
       in: path
@@ -1448,6 +1542,107 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ProjectMember"
+        request_id:
+          $ref: "#/components/schemas/Uuid"
+    ProjectDocumentCategory:
+      type: string
+      enum:
+        - project_plan
+        - literature
+        - experiment_plan
+        - stage_report
+        - meeting_minutes
+        - other
+    ProjectDocument:
+      type: object
+      required:
+        - id
+        - name
+        - extension
+        - mime_type
+        - file_size
+        - category
+        - category_label
+        - related_content
+        - version_label
+        - uploaded_by_name
+        - created_at
+        - updated_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        name:
+          type: string
+        extension:
+          type: string
+        mime_type:
+          type: string
+        file_size:
+          type: integer
+          minimum: 0
+        category:
+          $ref: "#/components/schemas/ProjectDocumentCategory"
+        category_label:
+          type: string
+        related_content:
+          type: string
+        version_label:
+          type: string
+        uploaded_by_name:
+          type: string
+        created_at:
+          $ref: "#/components/schemas/DateTime"
+        updated_at:
+          $ref: "#/components/schemas/DateTime"
+    ProjectDocumentCreate:
+      type: object
+      additionalProperties: false
+      required: [file, category]
+      properties:
+        file:
+          type: string
+          format: binary
+        category:
+          $ref: "#/components/schemas/ProjectDocumentCategory"
+        related_content:
+          type: string
+          default: 项目整体
+          maxLength: 200
+        version_label:
+          type: string
+          default: V1.0
+          pattern: "^[A-Za-z0-9._-]{1,32}$"
+    ProjectDocumentResponse:
+      type: object
+      required: [data, request_id]
+      properties:
+        data:
+          $ref: "#/components/schemas/ProjectDocument"
+        request_id:
+          $ref: "#/components/schemas/Uuid"
+    ProjectDocumentListResponse:
+      type: object
+      required: [data, meta, request_id]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectDocument"
+        meta:
+          type: object
+          required: [total, filtered_total, category_counts]
+          properties:
+            total:
+              type: integer
+              minimum: 0
+            filtered_total:
+              type: integer
+              minimum: 0
+            category_counts:
+              type: object
+              additionalProperties:
+                type: integer
+                minimum: 0
         request_id:
           $ref: "#/components/schemas/Uuid"
     ExperimentStatus:

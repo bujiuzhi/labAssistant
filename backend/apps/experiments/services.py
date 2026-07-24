@@ -9,6 +9,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from apps.common.exceptions import BusinessRuleConflict, ResourceVersionConflict
 from apps.identity.models import User
+from apps.projects.models import Project
 from apps.projects.selectors import projects_for_user
 
 from .models import (
@@ -31,6 +32,17 @@ RECORD_FIELDS = {
     "result_text",
     "result_files",
 }
+
+
+def _sync_project_experiment_count(project_id) -> None:
+    """同步项目实验计数。
+
+    Args:
+        project_id: 项目主键。
+    """
+    Project.objects.filter(id=project_id).update(
+        experiment_count=Experiment.objects.filter(project_id=project_id).count()
+    )
 
 
 def _resolve_participants(actor: User, participant_ids: list) -> list[User]:
@@ -188,6 +200,7 @@ def create_experiment(*, actor: User, validated_data: dict[str, Any]) -> Experim
         participant_users=_resolve_participants(actor, participant_ids),
         actor=actor,
     )
+    _sync_project_experiment_count(project.id)
     logger.info(
         "创建实验计划",
         extra={"experiment_no": experiment.experiment_no, "actor_id": str(actor.id)},
@@ -230,6 +243,7 @@ def update_experiment(
         raise ResourceVersionConflict()
     if experiment.status == ExperimentStatus.COMPLETED:
         raise BusinessRuleConflict("已完成实验不可编辑")
+    previous_project_id = experiment.project_id
     new_project = validated_data.get("project")
     if new_project and not projects_for_user(actor).filter(id=new_project.id).exists():
         raise PermissionDenied("无关联项目访问权限")
@@ -268,6 +282,9 @@ def update_experiment(
             participant_users=users,
             actor=actor,
         )
+    _sync_project_experiment_count(experiment.project_id)
+    if previous_project_id != experiment.project_id:
+        _sync_project_experiment_count(previous_project_id)
     logger.info(
         "更新实验记录",
         extra={"experiment_no": experiment.experiment_no, "actor_id": str(actor.id)},

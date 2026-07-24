@@ -2,8 +2,9 @@
 
 from django.contrib import admin
 
-from .models import BusinessNumberSequence, Project, ProjectMember
+from .models import BusinessNumberSequence, Project, ProjectDocument, ProjectMember
 
 admin.site.register(Project)
 admin.site.register(ProjectMember)
+admin.site.register(ProjectDocument)
 admin.site.register(BusinessNumberSequence)

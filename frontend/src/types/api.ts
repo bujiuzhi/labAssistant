@@ -157,6 +157,55 @@ export interface ProjectFilters {
   ordering?: string;
 }
 
+export type ProjectDocumentCategory =
+  | "project_plan"
+  | "literature"
+  | "experiment_plan"
+  | "stage_report"
+  | "meeting_minutes"
+  | "other";
+
+export interface ProjectDocument {
+  id: string;
+  name: string;
+  extension: string;
+  mime_type: string;
+  file_size: number;
+  category: ProjectDocumentCategory;
+  category_label: string;
+  related_content: string;
+  version_label: string;
+  uploaded_by_name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectDocumentFilters {
+  search?: string;
+  category?: ProjectDocumentCategory | "";
+  file_type?: "word" | "pdf" | "excel" | "powerpoint" | "image" | "";
+  updated_range?: "week" | "month" | "";
+}
+
+export interface ProjectDocumentListMeta {
+  total: number;
+  filtered_total: number;
+  category_counts: Record<ProjectDocumentCategory, number>;
+}
+
+export interface ProjectDocumentListResponse {
+  data: ProjectDocument[];
+  meta: ProjectDocumentListMeta;
+  request_id: string;
+}
+
+export interface ProjectDocumentUploadInput {
+  file: File;
+  category: ProjectDocumentCategory;
+  related_content: string;
+  version_label: string;
+}
+
 export type ExperimentStatus = "not_started" | "in_progress" | "completed";
 
 export interface FormulaColumn {

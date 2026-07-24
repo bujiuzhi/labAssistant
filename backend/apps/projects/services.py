@@ -3,6 +3,7 @@
 import hashlib
 import json
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 from django.db import transaction
@@ -16,6 +17,7 @@ from apps.identity.models import User
 from .models import (
     BusinessNumberSequence,
     Project,
+    ProjectDocument,
     ProjectMember,
     ProjectMemberRole,
     ProjectStatus,
@@ -283,3 +285,48 @@ def update_project(
         actor=actor,
     )
     return project
+
+
+@transaction.atomic
+def create_project_document(
+    *,
+    project: Project,
+    actor: User,
+    validated_data: dict[str, Any],
+) -> ProjectDocument:
+    """上传项目文档并同步项目文档计数。
+
+    Args:
+        project: 关联项目。
+        actor: 当前操作用户。
+        validated_data: 已校验上传字段。
+
+    Returns:
+        新建项目文档。
+
+    Raises:
+        PermissionDenied: 用户无上传权限。
+        BusinessRuleConflict: 项目已完成或归档。
+    """
+    if not actor.has_permission_code("document.upload"):
+        raise PermissionDenied("无项目文档上传权限")
+    if project.status in {ProjectStatus.COMPLETED, ProjectStatus.ARCHIVED}:
+        raise BusinessRuleConflict("已完成或归档项目不可上传文档")
+
+    upload = validated_data.pop("file")
+    extension = Path(upload.name).suffix.lower().lstrip(".") or "file"
+    document = ProjectDocument.objects.create(
+        organization_id=project.organization_id,
+        project=project,
+        name=upload.name,
+        file=upload,
+        extension=extension,
+        mime_type=getattr(upload, "content_type", "") or "",
+        file_size=upload.size,
+        uploaded_by=actor,
+        updated_by=actor,
+        **validated_data,
+    )
+    project.document_count = project.documents.count()
+    project.save(update_fields=["document_count", "updated_at"])
+    return document

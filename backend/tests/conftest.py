@@ -41,6 +41,8 @@ def manager_user(organization: Organization) -> User:
         "project.create",
         "project.update",
         "project.manage_members",
+        "document.view",
+        "document.upload",
         "experiment.view",
         "experiment.view_all",
         "experiment.create",
@@ -73,6 +75,8 @@ def researcher_user(organization: Organization, manager_user: User) -> User:
     )
     for permission_code in [
         "project.view",
+        "document.view",
+        "document.upload",
         "experiment.view",
         "experiment.create",
         "experiment.update",

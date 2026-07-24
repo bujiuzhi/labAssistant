@@ -7,6 +7,9 @@ import { useRoute, useRouter } from "vue-router";
 import { getProblemDetail } from "@/api/http";
 import { projectApi } from "@/api/projects";
 import { userApi } from "@/api/users";
+import ProjectDataAssetsTab from "@/components/projects/ProjectDataAssetsTab.vue";
+import ProjectDocumentsTab from "@/components/projects/ProjectDocumentsTab.vue";
+import ProjectExperimentsTab from "@/components/projects/ProjectExperimentsTab.vue";
 import { prototypeProjects, type PrototypeProject } from "@/data/prototype-dashboard";
 import { useSessionStore } from "@/stores/session";
 import type {
@@ -120,6 +123,24 @@ const canEdit = computed(
 );
 const canManageMembers = computed(() =>
   sessionStore.hasPermission("project.manage_members"),
+);
+const projectIsWritable = computed(
+  () =>
+    apiProject.value !== null &&
+    !["completed", "archived"].includes(apiProject.value.status),
+);
+const canUploadDocuments = computed(
+  () =>
+    projectIsWritable.value &&
+    sessionStore.hasPermission("document.upload"),
+);
+const canCreateExperiment = computed(
+  () =>
+    projectIsWritable.value &&
+    sessionStore.hasPermission("experiment.create"),
+);
+const canEditExperiment = computed(() =>
+  sessionStore.hasPermission("experiment.update"),
 );
 const projectTypeOptions = computed(() =>
   basicForm.projectTypeCode && !projectTypes.includes(basicForm.projectTypeCode)
@@ -643,19 +664,25 @@ watch(() => route.params.projectId, loadProject);
         </section>
       </div>
 
-      <section v-else class="detail-card module-placeholder">
-        <Icon
-          :icon="
-            activeProjectTab === '文档资料'
-              ? 'tabler:files'
-              : activeProjectTab === '数据资产'
-                ? 'tabler:database'
-                : 'tabler:flask'
-          "
-        />
-        <h2>{{ activeProjectTab }}</h2>
-        <p>该模块将继续按原型对应页面复刻。</p>
-      </section>
+      <ProjectDocumentsTab
+        v-else-if="activeProjectTab === '文档资料'"
+        :project-id="apiProject?.id ?? project.id"
+        :can-upload="canUploadDocuments"
+        @changed="loadProject"
+      />
+
+      <ProjectExperimentsTab
+        v-else-if="activeProjectTab === '实验管理'"
+        :project-id="apiProject?.id ?? project.id"
+        :project-name="project.name"
+        :owner-id="apiProject?.owner_id ?? ''"
+        :user-options="userOptions"
+        :can-create="canCreateExperiment"
+        :can-edit="canEditExperiment"
+        @changed="loadProject"
+      />
+
+      <ProjectDataAssetsTab v-else-if="activeProjectTab === '数据资产'" />
 
       <el-dialog v-model="editVisible" title="编辑项目基础信息" width="680px" align-center>
         <el-form label-position="top">

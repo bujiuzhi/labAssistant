@@ -42,6 +42,7 @@ erDiagram
     ROLE }o--o{ PERMISSION : "授予权限"
     ORGANIZATION ||--o{ PROJECT : "拥有项目"
     PROJECT ||--o{ PROJECT_MEMBER : "配置成员"
+    PROJECT ||--o{ PROJECT_DOCUMENT : "归集文档"
     PROJECT ||--o{ EXPERIMENT : "包含实验"
     EXPERIMENT ||--o{ EXPERIMENT_PARTICIPANT : "分配参与人"
     PROCESS_TEMPLATE ||--o{ PROCESS_TEMPLATE_STEP : "包含模板步骤"
@@ -201,6 +202,28 @@ erDiagram
 | `created_at` | `timestamptz` | 是 | `now()` | 关注时间 |
 
 唯一约束为 `(project_id, user_id)`，用于个人工作台，不影响访问权限。
+
+### 4.5 `project_document` 项目文档
+
+| 字段 | 类型 | 非空 | 约束/默认 | 说明 |
+|---|---|---:|---|---|
+| 通用时间字段 |  |  |  | `created_at/updated_at` |
+| `organization_id` | `uuid` | 是 | 外键 | 所属组织 |
+| `project_id` | `uuid` | 是 | 外键 | 关联项目 |
+| `name` | `varchar(255)` | 是 |  | 客户端原始文档名称 |
+| `file` | `varchar(500)` | 是 | 服务端生成路径 | 文档存储路径，不使用原始文件名拼接 |
+| `extension` | `varchar(20)` | 是 | 小写 | 文件扩展名 |
+| `mime_type` | `varchar(150)` | 否 |  | 客户端 MIME 类型 |
+| `file_size` | `bigint` | 是 | `0` | 文件大小，单位字节 |
+| `category` | `varchar(32)` | 是 | 枚举 | `project_plan/literature/experiment_plan/stage_report/meeting_minutes/other` |
+| `related_content` | `varchar(200)` | 是 | `项目整体` | 关联项目内容或实验编号 |
+| `version_label` | `varchar(32)` | 是 | `V1.0` | 业务版本标签 |
+| `uploaded_by_id` | `uuid` | 是 | 外键 | 上传用户 |
+| `updated_by_id` | `uuid` | 否 | 外键 | 最后更新用户 |
+
+按 `(project_id, category, updated_at DESC)` 和
+`(organization_id, extension, updated_at DESC)` 建立索引。项目文档上传成功后由领域服务同步
+`project.document_count`；已完成、已归档项目禁止继续上传。
 
 ## 5. 基础资料与工艺模板
 

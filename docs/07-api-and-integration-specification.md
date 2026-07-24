@@ -143,6 +143,13 @@ X-CSRFToken: <csrf-token>
 | `PATCH/DELETE` | `/projects/{id}/members/{member_id}` | 调整角色/移除成员 |
 | `GET/POST` | `/projects/{id}/milestones` | 查询/创建里程碑 |
 | `POST/DELETE` | `/projects/{id}/follow` | 关注/取消关注 |
+| `GET` | `/projects/{project_key}/documents` | 查询文档；支持 `search/category/file_type/updated_range` 并返回分类统计 |
+| `POST` | `/projects/{project_key}/documents` | 以 `multipart/form-data` 上传文档；最大 25 MB |
+| `GET` | `/projects/{project_key}/documents/{document_id}/content` | 内联预览原文件；`download=1` 时按附件下载 |
+
+项目文档列表响应的 `meta` 包含 `total`、`filtered_total` 和 `category_counts`。文档访问同时校验
+`document.view` 权限、组织范围与项目对象范围；上传还需 `document.upload`，且项目状态不能为
+`completed/archived`。
 
 ### 6.3 实验与 ELN
 

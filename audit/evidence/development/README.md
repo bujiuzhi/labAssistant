@@ -7,6 +7,9 @@
 | `materials-lab-dashboard-2026-07-24.png` | 工作台 | 登录态、固定导航、指标与最近项目 |
 | `materials-lab-project-list-2026-07-24.png` | 项目列表 | 查询、筛选、中文项目类型、新建入口 |
 | `materials-lab-project-detail-2026-07-24.png` | 项目详情 | 项目字段、状态、负责人、编辑入口 |
+| `materials-lab-project-documents-2026-07-24.png` | 项目文档资料 | 分类统计、组合筛选、文档列表和上传入口 |
+| `materials-lab-project-experiments-2026-07-24.png` | 项目实验管理 | 状态分组、实验详情、配方、流程和 ELN 入口 |
+| `materials-lab-project-data-assets-2026-07-24.png` | 项目数据资产 | 按原型保留研发中占位 |
 
 ## 生成边界
 

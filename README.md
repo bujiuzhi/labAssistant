@@ -4,9 +4,9 @@
 
 材料实验助手是面向材料研发团队的独立 Web 系统，围绕“项目管理、实验计划、电子实验记录、检测结果、报告归档”形成可追溯业务闭环。
 
-当前已完成组织内登录、超级管理员用户管理、工作台、项目管理与电子实验记录本纵向切片。
-ELN 已接通实验列表、项目/状态筛选、计划新增与复制、动态配方表、过程图片、结果附件、
-暂存、开始实验、完成状态只读和乐观锁更新。正式开发以 `docs/` 中批准的规范为依据。
+当前已完成组织内登录、超级管理员用户管理、工作台、项目管理、项目文档与电子实验记录本纵向切片。
+项目详情已接通文档分类、检索、筛选、上传、预览、下载，以及项目内实验筛选、详情、计划编辑和
+电子实验记录本定位。数据资产页签按当前原型保持“研发中，敬请期待”。正式开发以 `docs/` 中批准的规范为依据。
 
 ## 目录结构
 
@@ -66,6 +66,7 @@ conda run -n materials-lab-assistant python3 backend/manage.py migrate
 conda run -n materials-lab-assistant python3 backend/manage.py bootstrap_development
 conda run -n materials-lab-assistant python3 backend/manage.py seed_development_projects
 conda run -n materials-lab-assistant python3 backend/manage.py seed_development_experiments
+conda run -n materials-lab-assistant python3 backend/manage.py seed_development_documents
 
 conda run -n materials-lab-assistant python3 backend/manage.py runserver 0.0.0.0:8000
 conda run -n materials-lab-assistant pnpm --dir frontend install

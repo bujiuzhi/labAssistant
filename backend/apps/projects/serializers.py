@@ -4,7 +4,7 @@ from rest_framework import serializers
 
 from apps.identity.models import User, UserStatus
 
-from .models import Project
+from .models import Project, ProjectDocument, ProjectDocumentCategory
 
 
 class ProjectMilestoneSerializer(serializers.Serializer):
@@ -166,3 +166,63 @@ class ProjectUpdateSerializer(ProjectWriteSerializer):
         if not attrs:
             raise serializers.ValidationError("至少提供一个待更新字段")
         return attrs
+
+
+class ProjectDocumentSerializer(serializers.ModelSerializer):
+    """项目文档读取结构。"""
+
+    category_label = serializers.CharField(source="get_category_display", read_only=True)
+    uploaded_by_name = serializers.CharField(
+        source="uploaded_by.display_name",
+        read_only=True,
+    )
+
+    class Meta:
+        """序列化字段。"""
+
+        model = ProjectDocument
+        fields = [
+            "id",
+            "name",
+            "extension",
+            "mime_type",
+            "file_size",
+            "category",
+            "category_label",
+            "related_content",
+            "version_label",
+            "uploaded_by_name",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class ProjectDocumentCreateSerializer(serializers.Serializer):
+    """项目文档上传请求。"""
+
+    file = serializers.FileField()
+    category = serializers.ChoiceField(choices=ProjectDocumentCategory.choices)
+    related_content = serializers.CharField(
+        max_length=200,
+        default="项目整体",
+        allow_blank=False,
+    )
+    version_label = serializers.RegexField(
+        regex=r"^[A-Za-z0-9._-]{1,32}$",
+        default="V1.0",
+    )
+
+    def validate_file(self, value):
+        """校验文件大小和名称。
+
+        Args:
+            value: 上传文件。
+
+        Returns:
+            校验后的上传文件。
+        """
+        if value.size > 25 * 1024 * 1024:
+            raise serializers.ValidationError("单个文档不得超过 25 MB")
+        if not value.name or len(value.name) > 255:
+            raise serializers.ValidationError("文件名长度必须为 1–255 个字符")
+        return value

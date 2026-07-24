@@ -20,6 +20,8 @@ PERMISSIONS = [
     ("project.create", "创建项目", "projects"),
     ("project.update", "更新项目", "projects"),
     ("project.manage_members", "管理项目成员", "projects"),
+    ("document.view", "查看项目文档", "documents"),
+    ("document.upload", "上传项目文档", "documents"),
     ("experiment.view", "查看实验记录", "experiments"),
     ("experiment.view_all", "查看组织全部实验", "experiments"),
     ("experiment.create", "创建实验计划", "experiments"),
@@ -32,12 +34,14 @@ ROLE_PERMISSIONS = {
     "project_manager": [code for code, _, _ in PERMISSIONS],
     "researcher": [
         "project.view",
+        "document.view",
+        "document.upload",
         "experiment.view",
         "experiment.create",
         "experiment.update",
         "experiment.execute",
     ],
-    "inspector": ["project.view", "experiment.view"],
+    "inspector": ["project.view", "document.view", "experiment.view"],
 }
 
 ROLE_NAMES = {
