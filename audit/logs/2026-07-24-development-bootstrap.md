@@ -64,3 +64,11 @@
 - 清理开发数据时，只处理
   `/home/bujiu/work/data/docker/materials-lab-assistant`，不得扩大到其父目录；
 - 数据库物理结构以 migrations 为唯一正式来源，开发种子数据以两个 management command 为边界。
+
+## 7. 空白页故障处置
+
+- 现象：新浏览器打开 Vite 开发地址后只显示空白页面；
+- 原因：删除 `vue-tsc` 误生成的同名 JavaScript 文件后，既有 Vite 进程仍缓存旧模块解析结果；
+- 处置：为前端 TypeScript 配置启用 `noEmit`，删除生成文件，并重启 Vite 清空模块缓存；
+- 复验：全新浏览器会话可正常渲染登录页，控制台无 warning 或 error；
+- 运行加固：本机 SSH 隧道启用 `ExitOnForwardFailure` 和定时保活。
