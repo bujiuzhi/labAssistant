@@ -4,14 +4,30 @@ export interface SessionUser {
   username: string;
   display_name: string;
   permissions: string[];
+  role_codes: string[];
+  role_names: string[];
 }
 
 export type ProjectStatus =
   | "draft"
+  | "not_started"
   | "active"
+  | "at_risk"
   | "suspended"
   | "completed"
   | "archived";
+
+export interface ProjectMilestone {
+  date: string;
+  name: string;
+  state: "todo" | "current" | "done";
+}
+
+export interface ProjectMember {
+  user_id: string;
+  display_name: string;
+  member_role: "owner" | "researcher" | "inspector" | "viewer";
+}
 
 export interface Project {
   id: string;
@@ -19,9 +35,17 @@ export interface Project {
   name: string;
   project_type_code: string;
   description: string;
+  current_stage: string;
+  progress_percent: number;
+  document_count: number;
+  experiment_count: number;
+  data_resource_count: number;
+  objectives: string[];
+  milestones: ProjectMilestone[];
   status: ProjectStatus;
   owner_id: string;
   owner_display_name: string;
+  members: ProjectMember[];
   planned_start_date: string | null;
   planned_end_date: string | null;
   actual_end_at: string | null;
@@ -66,6 +90,16 @@ export interface ProjectCreateInput {
   owner_id: string;
   planned_start_date: string | null;
   planned_end_date: string | null;
+  current_stage?: string;
+  objectives?: string[];
+  milestones?: ProjectMilestone[];
+  member_ids?: string[];
+}
+
+export interface OrganizationUserOption {
+  id: string;
+  username: string;
+  display_name: string;
 }
 
 export interface ProjectFilters {

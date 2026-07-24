@@ -10,7 +10,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .authentication import CsrfEnforcedSessionAuthentication
-from .serializers import LoginSerializer, SessionUserSerializer
+from .models import User, UserStatus
+from .serializers import (
+    LoginSerializer,
+    OrganizationUserOptionSerializer,
+    SessionUserSerializer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +118,33 @@ class SessionView(APIView):
         return Response(
             {
                 "data": SessionUserSerializer(request.user).data,
+                "request_id": getattr(request, "request_id", None),
+            }
+        )
+
+
+class OrganizationUserOptionsView(APIView):
+    """查询当前组织可选项目人员。"""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request) -> Response:
+        """返回当前组织有效用户。
+
+        Args:
+            request: 当前请求。
+
+        Returns:
+            用户选择项列表。
+        """
+        users = User.objects.filter(
+            organization_id=request.user.organization_id,
+            status=UserStatus.ACTIVE,
+            is_active=True,
+        ).order_by("display_name", "username")
+        return Response(
+            {
+                "data": OrganizationUserOptionSerializer(users, many=True).data,
                 "request_id": getattr(request, "request_id", None),
             }
         )

@@ -13,7 +13,9 @@ class ProjectStatus(models.TextChoices):
     """项目状态。"""
 
     DRAFT = "draft", "草稿"
+    NOT_STARTED = "not_started", "待开始"
     ACTIVE = "active", "进行中"
+    AT_RISK = "at_risk", "有风险"
     SUSPENDED = "suspended", "已暂停"
     COMPLETED = "completed", "已完成"
     ARCHIVED = "archived", "已归档"
@@ -78,6 +80,23 @@ class Project(TimeStampedModel):
     name = models.CharField(max_length=200, db_comment="项目名称")
     project_type_code = models.CharField(max_length=64, db_comment="项目类型字典代码")
     description = models.TextField(blank=True, db_comment="项目目标和范围说明")
+    current_stage = models.CharField(
+        max_length=64,
+        default="方案设计",
+        db_comment="当前研发阶段",
+    )
+    progress_percent = models.PositiveSmallIntegerField(
+        default=0,
+        db_comment="项目进度百分比",
+    )
+    document_count = models.PositiveIntegerField(default=0, db_comment="关联文档数量")
+    experiment_count = models.PositiveIntegerField(default=0, db_comment="关联实验数量")
+    data_resource_count = models.PositiveIntegerField(
+        default=0,
+        db_comment="关联数据资源数量",
+    )
+    objectives = models.JSONField(default=list, blank=True, db_comment="研发总体目标列表")
+    milestones = models.JSONField(default=list, blank=True, db_comment="重点里程碑列表")
     status = models.CharField(
         max_length=24,
         choices=ProjectStatus.choices,
@@ -129,6 +148,11 @@ class Project(TimeStampedModel):
                     | models.Q(planned_end_date__gte=models.F("planned_start_date"))
                 ),
                 name="ck_project_planned_date_order",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(progress_percent__gte=0)
+                & models.Q(progress_percent__lte=100),
+                name="ck_project_progress_percent_range",
             ),
         ]
         indexes = [

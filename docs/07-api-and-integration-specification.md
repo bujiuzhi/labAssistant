@@ -122,7 +122,7 @@ X-CSRFToken: <csrf-token>
 | `GET` | `/auth/session` | 获取当前会话、用户和权限摘要 |
 | `POST` | `/auth/login` | 登录并轮换会话 |
 | `POST` | `/auth/logout` | 注销当前会话 |
-| `GET` | `/users` | 按权限查询用户 |
+| `GET` | `/auth/users/options` | 查询当前组织有效用户，供负责人和成员选择 |
 | `GET/POST` | `/materials` | 查询/创建材料 |
 | `GET/PATCH` | `/materials/{id}` | 查看/更新材料 |
 | `GET/POST` | `/materials/{id}/batches` | 查询/创建材料批次 |
@@ -135,7 +135,7 @@ X-CSRFToken: <csrf-token>
 | 方法 | 路径 | 权限/说明 |
 |---|---|---|
 | `GET/POST` | `/projects` | 查询可见项目/创建项目 |
-| `GET/PATCH` | `/projects/{id}` | 项目详情/更新草稿或活动项目 |
+| `GET/PATCH` | `/projects/{project_key}` | 按 UUID 或业务编号查询详情；更新草稿、待开始、活动、风险或暂停项目 |
 | `POST` | `/projects/{id}/activate` | 激活项目 |
 | `POST` | `/projects/{id}/complete` | 完成项目 |
 | `POST` | `/projects/{id}/archive` | 归档项目 |

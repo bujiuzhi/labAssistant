@@ -1,5 +1,7 @@
 """项目列表、创建、详情和更新接口。"""
 
+import uuid
+
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status
@@ -134,41 +136,46 @@ class ProjectListCreateView(APIView):
 class ProjectDetailView(APIView):
     """项目详情和更新。"""
 
-    def get_object(self, request, project_id) -> Project:
+    def get_object(self, request, project_key: str) -> Project:
         """获取当前用户可见项目。
 
         Args:
             request: 当前请求。
-            project_id: 项目主键。
+            project_key: 项目 UUID 或业务编号。
 
         Returns:
             项目对象。
         """
-        return get_object_or_404(projects_for_user(request.user), id=project_id)
+        filters = Q(project_no=project_key)
+        try:
+            filters |= Q(id=uuid.UUID(project_key))
+        except ValueError:
+            pass
+        return get_object_or_404(projects_for_user(request.user), filters)
 
-    def get(self, request, project_id) -> Response:
+    def get(self, request, project_key: str) -> Response:
         """获取项目详情。
 
         Args:
             request: 当前请求。
-            project_id: 项目主键。
+            project_key: 项目 UUID 或业务编号。
 
         Returns:
             项目详情。
         """
-        return _project_response(self.get_object(request, project_id), request)
+        return _project_response(self.get_object(request, project_key), request)
 
-    def patch(self, request, project_id) -> Response:
+    def patch(self, request, project_key: str) -> Response:
         """部分更新项目。
 
         Args:
             request: 当前请求。
-            project_id: 项目主键。
+            project_key: 项目 UUID 或业务编号。
 
         Returns:
             更新后的项目。
         """
-        current_project = self.get_object(request, project_id)
+        current_project = self.get_object(request, project_key)
         if not request.user.has_permission_code("project.update"):
             raise PermissionDenied("无项目更新权限")
         serializer = ProjectUpdateSerializer(
@@ -177,7 +184,7 @@ class ProjectDetailView(APIView):
         )
         serializer.is_valid(raise_exception=True)
         project = update_project(
-            project_id=project_id,
+            project_id=current_project.id,
             actor=request.user,
             validated_data=serializer.validated_data,
             expected_version=_parse_if_match(request),

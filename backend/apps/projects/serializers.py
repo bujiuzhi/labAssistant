@@ -7,11 +7,20 @@ from apps.identity.models import User, UserStatus
 from .models import Project
 
 
+class ProjectMilestoneSerializer(serializers.Serializer):
+    """项目里程碑写入结构。"""
+
+    date = serializers.DateField()
+    name = serializers.CharField(min_length=1, max_length=500)
+    state = serializers.ChoiceField(choices=["todo", "current", "done"])
+
+
 class ProjectSerializer(serializers.ModelSerializer):
     """项目读取结构。"""
 
     owner_id = serializers.UUIDField(read_only=True)
     owner_display_name = serializers.CharField(source="owner.display_name", read_only=True)
+    members = serializers.SerializerMethodField()
 
     class Meta:
         """序列化字段。"""
@@ -23,9 +32,17 @@ class ProjectSerializer(serializers.ModelSerializer):
             "name",
             "project_type_code",
             "description",
+            "current_stage",
+            "progress_percent",
+            "document_count",
+            "experiment_count",
+            "data_resource_count",
+            "objectives",
+            "milestones",
             "status",
             "owner_id",
             "owner_display_name",
+            "members",
             "planned_start_date",
             "planned_end_date",
             "actual_end_at",
@@ -35,6 +52,27 @@ class ProjectSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    def get_members(self, instance: Project) -> list[dict[str, str]]:
+        """返回项目成员摘要。
+
+        Args:
+            instance: 项目对象。
+
+        Returns:
+            项目成员列表。
+        """
+        return [
+            {
+                "user_id": str(member.user_id),
+                "display_name": member.user.display_name,
+                "member_role": member.member_role,
+            }
+            for member in sorted(
+                instance.members.all(),
+                key=lambda item: (item.member_role != "owner", item.user.display_name),
+            )
+        ]
+
 
 class ProjectWriteSerializer(serializers.Serializer):
     """项目创建和更新字段。"""
@@ -42,6 +80,20 @@ class ProjectWriteSerializer(serializers.Serializer):
     name = serializers.CharField(min_length=1, max_length=200, required=False)
     project_type_code = serializers.CharField(min_length=1, max_length=64, required=False)
     description = serializers.CharField(max_length=10000, allow_blank=True, required=False)
+    current_stage = serializers.CharField(max_length=64, required=False)
+    objectives = serializers.ListField(
+        child=serializers.CharField(max_length=1000),
+        required=False,
+    )
+    milestones = serializers.ListField(
+        child=ProjectMilestoneSerializer(),
+        required=False,
+    )
+    member_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=True,
+        required=False,
+    )
     owner_id = serializers.PrimaryKeyRelatedField(
         source="owner",
         queryset=User.objects.filter(status=UserStatus.ACTIVE),
@@ -68,6 +120,21 @@ class ProjectWriteSerializer(serializers.Serializer):
         if start_date and end_date and end_date < start_date:
             raise serializers.ValidationError(
                 {"planned_end_date": ["计划结束日期不能早于开始日期"]}
+            )
+        milestones = attrs.get("milestones")
+        if milestones and sum(item["state"] == "current" for item in milestones) > 1:
+            raise serializers.ValidationError(
+                {"milestones": ["只能设置一个当前阶段里程碑"]}
+            )
+        if milestones is not None:
+            attrs["milestones"] = [
+                {**item, "date": item["date"].isoformat()}
+                for item in milestones
+            ]
+        member_ids = attrs.get("member_ids")
+        if member_ids is not None and len(member_ids) != len(set(member_ids)):
+            raise serializers.ValidationError(
+                {"member_ids": ["项目成员不能重复"]}
             )
         return attrs
 

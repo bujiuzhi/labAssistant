@@ -124,6 +124,20 @@ paths:
           description: 注销成功
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /auth/users/options:
+    get:
+      tags: [Auth]
+      summary: 查询当前组织可选项目人员
+      operationId: listOrganizationUserOptions
+      responses:
+        "200":
+          description: 当前组织有效用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationUserOptionListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /projects:
     get:
       tags: [Projects]
@@ -885,7 +899,11 @@ components:
       in: path
       required: true
       schema:
-        $ref: "#/components/schemas/Uuid"
+        oneOf:
+          - $ref: "#/components/schemas/Uuid"
+          - type: string
+            pattern: "^PRJ-[A-Z0-9-]+$"
+      description: 项目 UUID 或项目业务编号
     ExperimentId:
       name: experiment_id
       in: path
@@ -1070,7 +1088,7 @@ components:
           maxLength: 256
     SessionUser:
       type: object
-      required: [id, organization_id, username, display_name, permissions]
+      required: [id, organization_id, username, display_name, permissions, role_codes, role_names]
       properties:
         id:
           $ref: "#/components/schemas/Uuid"
@@ -1086,6 +1104,16 @@ components:
           items:
             type: string
             pattern: "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+        role_codes:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+        role_names:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
     SessionResponse:
       type: object
       required: [data, request_id]
@@ -1109,7 +1137,7 @@ components:
           $ref: "#/components/schemas/Uuid"
     ProjectStatus:
       type: string
-      enum: [draft, active, suspended, completed, archived]
+      enum: [draft, not_started, active, at_risk, suspended, completed, archived]
     Project:
       type: object
       required:
@@ -1117,8 +1145,17 @@ components:
         - project_no
         - name
         - project_type_code
+        - current_stage
+        - progress_percent
+        - document_count
+        - experiment_count
+        - data_resource_count
+        - objectives
+        - milestones
         - status
         - owner_id
+        - owner_display_name
+        - members
         - version
         - created_at
         - updated_at
@@ -1132,11 +1169,57 @@ components:
         project_type_code:
           type: string
         description:
-          type: [string, "null"]
+          type: string
+        current_stage:
+          type: string
+        progress_percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+        document_count:
+          type: integer
+          minimum: 0
+        experiment_count:
+          type: integer
+          minimum: 0
+        data_resource_count:
+          type: integer
+          minimum: 0
+        objectives:
+          type: array
+          items:
+            type: string
+        milestones:
+          type: array
+          items:
+            type: object
+            required: [date, name, state]
+            properties:
+              date:
+                type: string
+                format: date
+              name:
+                type: string
+              state:
+                type: string
         status:
           $ref: "#/components/schemas/ProjectStatus"
         owner_id:
           $ref: "#/components/schemas/Uuid"
+        owner_display_name:
+          type: string
+        members:
+          type: array
+          items:
+            type: object
+            required: [user_id, display_name, member_role]
+            properties:
+              user_id:
+                $ref: "#/components/schemas/Uuid"
+              display_name:
+                type: string
+              member_role:
+                $ref: "#/components/schemas/ProjectMemberRole"
         planned_start_date:
           type: [string, "null"]
           format: date
@@ -1174,8 +1257,25 @@ components:
         description:
           type: string
           maxLength: 10000
+        current_stage:
+          type: string
+          maxLength: 64
+        objectives:
+          type: array
+          items:
+            type: string
+            maxLength: 1000
+        milestones:
+          type: array
+          items:
+            type: object
         owner_id:
           $ref: "#/components/schemas/Uuid"
+        member_ids:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/Uuid"
         planned_start_date:
           type: string
           format: date
@@ -1198,8 +1298,25 @@ components:
         description:
           type: [string, "null"]
           maxLength: 10000
+        current_stage:
+          type: string
+          maxLength: 64
+        objectives:
+          type: array
+          items:
+            type: string
+            maxLength: 1000
+        milestones:
+          type: array
+          items:
+            type: object
         owner_id:
           $ref: "#/components/schemas/Uuid"
+        member_ids:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/Uuid"
         planned_start_date:
           type: [string, "null"]
           format: date
@@ -1229,6 +1346,26 @@ components:
     ProjectMemberRole:
       type: string
       enum: [owner, researcher, inspector, viewer]
+    OrganizationUserOption:
+      type: object
+      required: [id, username, display_name]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        username:
+          type: string
+        display_name:
+          type: string
+    OrganizationUserOptionListResponse:
+      type: object
+      required: [data, request_id]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrganizationUserOption"
+        request_id:
+          $ref: "#/components/schemas/Uuid"
     ProjectMember:
       type: object
       required: [id, project_id, user_id, member_role, joined_at]

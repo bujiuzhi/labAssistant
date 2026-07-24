@@ -9,7 +9,7 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
-from apps.common.exceptions import ResourceVersionConflict
+from apps.common.exceptions import BusinessRuleConflict, ResourceVersionConflict
 from apps.common.models import IdempotencyRequest
 from apps.identity.models import User
 
@@ -20,6 +20,74 @@ from .models import (
     ProjectMemberRole,
     ProjectStatus,
 )
+
+
+def _resolve_member_users(actor: User, member_ids: list) -> list[User]:
+    """解析并校验项目成员。
+
+    Args:
+        actor: 当前操作用户。
+        member_ids: 待设置的成员用户 ID。
+
+    Returns:
+        同组织的有效用户列表。
+
+    Raises:
+        ValidationError: 用户不存在、已停用或跨组织。
+    """
+    users = list(
+        User.objects.filter(
+            organization_id=actor.organization_id,
+            id__in=member_ids,
+            is_active=True,
+        )
+    )
+    if len(users) != len(set(member_ids)):
+        raise ValidationError({"member_ids": ["项目成员必须是当前组织的有效用户"]})
+    return users
+
+
+def _sync_project_members(
+    *,
+    project: Project,
+    owner: User,
+    member_users: list[User],
+    actor: User,
+) -> None:
+    """同步项目负责人和成员关系。
+
+    Args:
+        project: 待同步项目。
+        owner: 项目负责人。
+        member_users: 普通项目成员。
+        actor: 当前操作用户。
+    """
+    selected_users = {user.id: user for user in member_users}
+    selected_users[owner.id] = owner
+    ProjectMember.objects.filter(project=project).exclude(
+        user_id__in=selected_users.keys()
+    ).delete()
+
+    existing_members = {
+        member.user_id: member
+        for member in ProjectMember.objects.filter(project=project)
+    }
+    for user_id, user in selected_users.items():
+        existing = existing_members.get(user_id)
+        member_role = ProjectMemberRole.OWNER if user_id == owner.id else (
+            existing.member_role
+            if existing and existing.member_role != ProjectMemberRole.OWNER
+            else ProjectMemberRole.RESEARCHER
+        )
+        ProjectMember.objects.update_or_create(
+            project=project,
+            user=user,
+            defaults={
+                "organization_id": project.organization_id,
+                "member_role": member_role,
+                "created_by": actor,
+            },
+        )
 
 
 def _canonical_request_hash(data: dict[str, Any]) -> str:
@@ -80,12 +148,17 @@ def create_project(
     if not actor.has_permission_code("project.create"):
         raise PermissionDenied("无项目创建权限")
 
+    member_ids = validated_data.pop("member_ids", [])
+    if member_ids and not actor.has_permission_code("project.manage_members"):
+        raise PermissionDenied("无项目成员管理权限")
     owner = validated_data["owner"]
     if owner.organization_id != actor.organization_id:
         raise ValidationError({"owner_id": ["项目负责人必须属于当前组织"]})
 
     route_key = "POST:/api/v1/projects"
-    request_hash = _canonical_request_hash(validated_data)
+    request_hash = _canonical_request_hash(
+        {**validated_data, "member_ids": member_ids}
+    )
     existing = (
         IdempotencyRequest.objects.select_for_update()
         .filter(
@@ -119,12 +192,12 @@ def create_project(
         updated_by=actor,
         **validated_data,
     )
-    ProjectMember.objects.create(
-        organization_id=actor.organization_id,
+    member_users = _resolve_member_users(actor, member_ids)
+    _sync_project_members(
         project=project,
-        user=owner,
-        member_role=ProjectMemberRole.OWNER,
-        created_by=actor,
+        owner=owner,
+        member_users=member_users,
+        actor=actor,
     )
     idempotency_record.status = IdempotencyRequest.Status.COMPLETED
     idempotency_record.response_status = 201
@@ -171,32 +244,42 @@ def update_project(
         raise ResourceVersionConflict()
     if project.status not in {
         ProjectStatus.DRAFT,
+        ProjectStatus.NOT_STARTED,
         ProjectStatus.ACTIVE,
+        ProjectStatus.AT_RISK,
         ProjectStatus.SUSPENDED,
     }:
-        raise ValidationError({"status": ["当前项目状态不可编辑"]})
+        raise BusinessRuleConflict("当前项目状态不可编辑")
+    member_ids = validated_data.pop("member_ids", None)
+    if member_ids is not None and not actor.has_permission_code(
+        "project.manage_members"
+    ):
+        raise PermissionDenied("无项目成员管理权限")
     owner = validated_data.get("owner")
     if owner and owner.organization_id != actor.organization_id:
         raise ValidationError({"owner_id": ["项目负责人必须属于当前组织"]})
 
-    previous_owner_id = project.owner_id
+    previous_member_users = [
+        member.user
+        for member in ProjectMember.objects.select_related("user").filter(
+            project=project
+        )
+    ]
     for field_name, value in validated_data.items():
         setattr(project, field_name, value)
     project.updated_by = actor
     project.version += 1
     project.save()
-    if owner and owner.id != previous_owner_id:
-        ProjectMember.objects.filter(
-            project=project,
-            member_role=ProjectMemberRole.OWNER,
-        ).update(member_role=ProjectMemberRole.RESEARCHER)
-        ProjectMember.objects.update_or_create(
-            project=project,
-            user=owner,
-            defaults={
-                "organization_id": actor.organization_id,
-                "member_role": ProjectMemberRole.OWNER,
-                "created_by": actor,
-            },
-        )
+    effective_owner = owner or project.owner
+    member_users = (
+        _resolve_member_users(actor, member_ids)
+        if member_ids is not None
+        else previous_member_users
+    )
+    _sync_project_members(
+        project=project,
+        owner=effective_owner,
+        member_users=member_users,
+        actor=actor,
+    )
     return project

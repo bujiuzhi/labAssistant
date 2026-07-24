@@ -40,6 +40,7 @@ def manager_user(organization: Organization) -> User:
         "project.view_all",
         "project.create",
         "project.update",
+        "project.manage_members",
     ]:
         permission = Permission.objects.create(
             permission_code=permission_code,

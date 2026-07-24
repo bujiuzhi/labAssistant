@@ -1,14 +1,19 @@
 <script setup lang="ts">
 import { Icon } from "@iconify/vue";
 import { ElMessage } from "element-plus";
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { getProblemDetail } from "@/api/http";
 import { projectApi } from "@/api/projects";
+import { userApi } from "@/api/users";
 import { prototypeProjects, type PrototypeProject } from "@/data/prototype-dashboard";
 import { useSessionStore } from "@/stores/session";
-import type { Project } from "@/types/api";
+import type {
+  OrganizationUserOption,
+  Project,
+  ProjectMilestone,
+} from "@/types/api";
 
 interface MilestoneStage {
   stage: string;
@@ -21,9 +26,26 @@ const route = useRoute();
 const router = useRouter();
 const sessionStore = useSessionStore();
 const editVisible = ref(false);
+const milestoneEditVisible = ref(false);
 const loading = ref(false);
+const submitting = ref(false);
 const loadError = ref("");
 const apiProject = ref<Project | null>(null);
+const userOptions = ref<OrganizationUserOption[]>([]);
+
+const projectTypes = ["聚酰亚胺", "环氧树脂", "新能源材料", "绿色化工", "功能材料"];
+const editableStatuses = ["draft", "not_started", "active", "at_risk", "suspended"];
+
+const basicForm = reactive({
+  name: "",
+  projectTypeCode: "",
+  ownerId: "",
+  startDate: "",
+  endDate: "",
+  memberIds: [] as string[],
+  objectives: "",
+});
+const milestoneForm = ref<ProjectMilestone[]>([]);
 
 interface ExtendedProjectFields {
   current_stage: string;
@@ -82,16 +104,41 @@ const prototypeProject = computed(() =>
 );
 
 const project = computed<PrototypeProject | null>(() => {
-  if (prototypeProject.value) {
-    return prototypeProject.value;
+  if (apiProject.value) {
+    return adaptApiProject(apiProject.value);
   }
-  return apiProject.value ? adaptApiProject(apiProject.value) : null;
+  return prototypeProject.value ?? null;
 });
 
 const projectTabs = ["概览", "文档资料", "实验管理", "数据资产"];
 const activeProjectTab = ref("概览");
+const canEdit = computed(
+  () =>
+    sessionStore.hasPermission("project.update") &&
+    apiProject.value !== null &&
+    editableStatuses.includes(apiProject.value.status),
+);
+const canManageMembers = computed(() =>
+  sessionStore.hasPermission("project.manage_members"),
+);
+const projectTypeOptions = computed(() =>
+  basicForm.projectTypeCode && !projectTypes.includes(basicForm.projectTypeCode)
+    ? [...projectTypes, basicForm.projectTypeCode]
+    : projectTypes,
+);
+const memberOptions = computed(() =>
+  userOptions.value.filter((user) => user.id !== basicForm.ownerId),
+);
 
 const milestones = computed<MilestoneStage[]>(() => {
+  if (apiProject.value?.milestones.length) {
+    return apiProject.value.milestones.map((item, index) => ({
+      stage: `阶段 ${String(index + 1).padStart(2, "0")}`,
+      name: item.name,
+      date: item.date,
+      state: item.state,
+    }));
+  }
   const currentProject = project.value;
   if (!currentProject) {
     return [];
@@ -153,11 +200,21 @@ const milestones = computed<MilestoneStage[]>(() => {
 });
 
 const memberNames = computed(() => {
+  if (apiProject.value?.members.length) {
+    return apiProject.value.members.map((member) => member.display_name);
+  }
   if (!project.value) {
     return [];
   }
   const allMembers = [project.value.owner, "李娜", "赵敏", "刘洋"];
   return [...new Set(allMembers)].slice(0, 3);
+});
+
+const objectiveItems = computed(() => {
+  if (apiProject.value?.objectives.length) {
+    return apiProject.value.objectives;
+  }
+  return project.value?.objective ? [project.value.objective] : [];
 });
 
 const statusLabel = computed(() => {
@@ -171,15 +228,9 @@ const statusLabel = computed(() => {
 /**
  * 根据路由参数加载项目详情
  *
- * 原型业务编号从保真数据读取；数据库 UUID 从项目 API 读取。
+ * 项目 UUID 和业务编号均从真实项目 API 读取，接口不可用时保留原型只读兜底。
  */
 async function loadProject(): Promise<void> {
-  if (prototypeProject.value) {
-    apiProject.value = null;
-    loadError.value = "";
-    return;
-  }
-
   loading.value = true;
   loadError.value = "";
   apiProject.value = null;
@@ -188,13 +239,194 @@ async function loadProject(): Promise<void> {
   } catch (error) {
     const problem = getProblemDetail(error);
     loadError.value = problem?.detail ?? "项目详情加载失败";
-    ElMessage.error(loadError.value);
+    if (!prototypeProject.value) {
+      ElMessage.error(loadError.value);
+    }
   } finally {
     loading.value = false;
   }
 }
 
-onMounted(loadProject);
+/**
+ * 加载当前组织可选的负责人和项目成员
+ */
+async function loadUserOptions(): Promise<void> {
+  try {
+    userOptions.value = await userApi.listOptions();
+  } catch (error) {
+    const problem = getProblemDetail(error);
+    ElMessage.error(problem?.detail ?? "组织人员加载失败");
+  }
+}
+
+/**
+ * 打开项目基础信息编辑弹窗
+ */
+function openBasicEditor(): void {
+  if (!canEdit.value || !apiProject.value) {
+    ElMessage.warning("当前账号或项目状态不允许编辑");
+    return;
+  }
+  basicForm.name = apiProject.value.name;
+  basicForm.projectTypeCode = apiProject.value.project_type_code;
+  basicForm.ownerId = apiProject.value.owner_id;
+  basicForm.startDate = apiProject.value.planned_start_date ?? "";
+  basicForm.endDate = apiProject.value.planned_end_date ?? "";
+  basicForm.memberIds = apiProject.value.members
+    .filter((member) => member.user_id !== apiProject.value?.owner_id)
+    .map((member) => member.user_id);
+  basicForm.objectives = (
+    apiProject.value.objectives.length
+      ? apiProject.value.objectives
+      : [apiProject.value.description]
+  )
+    .filter(Boolean)
+    .join("\n");
+  editVisible.value = true;
+}
+
+/**
+ * 保存项目基础信息
+ */
+async function submitBasicEdit(): Promise<void> {
+  if (!apiProject.value || submitting.value) {
+    return;
+  }
+  const objectives = basicForm.objectives
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (
+    !basicForm.name.trim() ||
+    !basicForm.projectTypeCode ||
+    !basicForm.ownerId ||
+    !basicForm.startDate ||
+    !basicForm.endDate ||
+    !objectives.length
+  ) {
+    ElMessage.warning("请填写全部必填项");
+    return;
+  }
+  if (basicForm.endDate < basicForm.startDate) {
+    ElMessage.warning("结束时间不能早于开始时间");
+    return;
+  }
+
+  submitting.value = true;
+  try {
+    apiProject.value = await projectApi.update(
+      apiProject.value.id,
+      apiProject.value.version,
+      {
+        name: basicForm.name.trim(),
+        project_type_code: basicForm.projectTypeCode,
+        owner_id: basicForm.ownerId,
+        planned_start_date: basicForm.startDate,
+        planned_end_date: basicForm.endDate,
+        description: objectives.join("；"),
+        objectives,
+        ...(canManageMembers.value ? { member_ids: basicForm.memberIds } : {}),
+      },
+    );
+    editVisible.value = false;
+    ElMessage.success("项目基础信息已更新");
+  } catch (error) {
+    const problem = getProblemDetail(error);
+    if (problem?.status === 412) {
+      ElMessage.warning("项目已被其他人修改，正在刷新最新数据");
+      await loadProject();
+    } else {
+      ElMessage.error(problem?.detail ?? "项目更新失败");
+    }
+  } finally {
+    submitting.value = false;
+  }
+}
+
+/**
+ * 打开项目里程碑编辑弹窗
+ */
+function openMilestoneEditor(): void {
+  if (!canEdit.value || !apiProject.value) {
+    ElMessage.warning("当前账号或项目状态不允许编辑");
+    return;
+  }
+  milestoneForm.value = apiProject.value.milestones.length
+    ? apiProject.value.milestones.map((item) => ({ ...item }))
+    : [
+        {
+          date: apiProject.value.planned_end_date ?? "",
+          name: "完成当前阶段评审",
+          state: "current",
+        },
+      ];
+  milestoneEditVisible.value = true;
+}
+
+/**
+ * 新增一个空里程碑编辑行
+ */
+function addMilestone(): void {
+  milestoneForm.value.push({ date: "", name: "", state: "todo" });
+}
+
+/**
+ * 删除指定里程碑编辑行
+ *
+ * @param index 里程碑行索引
+ */
+function removeMilestone(index: number): void {
+  if (milestoneForm.value.length === 1) {
+    ElMessage.warning("至少保留一个里程碑");
+    return;
+  }
+  milestoneForm.value.splice(index, 1);
+}
+
+/**
+ * 保存项目里程碑
+ */
+async function submitMilestones(): Promise<void> {
+  if (!apiProject.value || submitting.value) {
+    return;
+  }
+  if (milestoneForm.value.some((item) => !item.name.trim() || !item.date)) {
+    ElMessage.warning("请完整填写每个里程碑的目标和计划时间");
+    return;
+  }
+  if (milestoneForm.value.filter((item) => item.state === "current").length > 1) {
+    ElMessage.warning("只能设置一个当前阶段里程碑");
+    return;
+  }
+
+  const milestonesToSave = milestoneForm.value
+    .map((item) => ({ ...item, name: item.name.trim() }))
+    .sort((left, right) => left.date.localeCompare(right.date));
+  submitting.value = true;
+  try {
+    apiProject.value = await projectApi.update(
+      apiProject.value.id,
+      apiProject.value.version,
+      { milestones: milestonesToSave },
+    );
+    milestoneEditVisible.value = false;
+    ElMessage.success("项目里程碑已更新");
+  } catch (error) {
+    const problem = getProblemDetail(error);
+    if (problem?.status === 412) {
+      ElMessage.warning("项目已被其他人修改，正在刷新最新数据");
+      await loadProject();
+    } else {
+      ElMessage.error(problem?.detail ?? "里程碑更新失败");
+    }
+  } finally {
+    submitting.value = false;
+  }
+}
+
+onMounted(async () => {
+  await Promise.all([loadProject(), loadUserOptions()]);
+});
 watch(() => route.params.projectId, loadProject);
 </script>
 
@@ -202,9 +434,9 @@ watch(() => route.params.projectId, loadProject);
   <section v-loading="loading" class="project-overview-page">
     <template v-if="project">
       <p class="breadcrumb">
-      <button type="button" @click="router.push('/projects')">项目数据</button>
-      <span>/</span>
-      {{ project.name }}
+        <button type="button" @click="router.push('/projects')">项目数据</button>
+        <span>/</span>
+        {{ project.name }}
       </p>
 
       <header class="project-hero">
@@ -236,120 +468,236 @@ watch(() => route.params.projectId, loadProject);
       </nav>
 
       <div v-if="activeProjectTab === '概览'" class="overview-content">
-      <section class="detail-card basic-card">
-        <header>
-          <h2>基础信息</h2>
-          <button
-            v-if="sessionStore.hasPermission('project.update')"
-            class="edit-button"
-            type="button"
-            @click="editVisible = true"
-          >
-            <Icon icon="tabler:edit" />编辑
-          </button>
-        </header>
-        <div class="basic-grid">
-          <dl>
-            <div><dt>项目类型</dt><dd>{{ project.type }}</dd></div>
-            <div><dt>项目周期</dt><dd>{{ project.startDate }} 至 {{ project.endDate }}</dd></div>
-            <div><dt>项目经理</dt><dd>{{ project.owner }}</dd></div>
-            <div>
-              <dt>人员组成</dt>
-              <dd class="member-list">
-                <span v-for="member in memberNames" :key="member">
-                  <i>{{ member.slice(0, 1) }}</i>{{ member }}
-                </span>
-              </dd>
-            </div>
-          </dl>
-          <section class="objective">
-            <span>研发总体目标</span>
-            <ul>
-              <li>{{ project.objective }}</li>
-              <li v-if="project.id === 'PRJ-2026-PI-005'">
-                优化流延与亚胺化参数，完成性能验证及百米级中试。
-              </li>
-            </ul>
-          </section>
-        </div>
-      </section>
-
-      <section class="detail-card milestone-card">
-        <header>
-          <h2>项目里程碑</h2>
-          <button
-            v-if="sessionStore.hasPermission('project.update')"
-            class="edit-button"
-            type="button"
-            @click="editVisible = true"
-          >
-            <Icon icon="tabler:edit" />编辑
-          </button>
-        </header>
-        <div class="milestone-scroll">
-          <div class="milestone-grid" :style="{ '--stage-count': milestones.length }">
-            <article v-for="item in milestones" :key="item.stage" :class="item.state">
-              <span>{{ item.stage }}</span>
-              <strong>{{ item.name }}</strong>
-            </article>
-            <div
-              v-for="item in milestones"
-              :key="`${item.stage}-bar`"
-              class="stage-progress"
-              :class="item.state"
+        <section class="detail-card basic-card">
+          <header>
+            <h2>基础信息</h2>
+            <button
+              v-if="canEdit"
+              class="edit-button"
+              type="button"
+              @click="openBasicEditor"
             >
-              <i />
-              <b />
-            </div>
-            <time v-for="item in milestones" :key="`${item.stage}-date`">{{ item.date }}</time>
+              <Icon icon="tabler:edit" />编辑
+            </button>
+            <span
+              v-else-if="apiProject && sessionStore.hasPermission('project.update')"
+              class="readonly-hint"
+            >
+              当前状态只读
+            </span>
+          </header>
+          <div class="basic-grid">
+            <dl>
+              <div><dt>项目类型</dt><dd>{{ project.type }}</dd></div>
+              <div>
+                <dt>项目周期</dt>
+                <dd>{{ project.startDate }} 至 {{ project.endDate }}</dd>
+              </div>
+              <div><dt>项目经理</dt><dd>{{ project.owner }}</dd></div>
+              <div>
+                <dt>人员组成</dt>
+                <dd class="member-list">
+                  <span v-for="member in memberNames" :key="member">
+                    <i>{{ member.slice(0, 1) }}</i>{{ member }}
+                  </span>
+                </dd>
+              </div>
+            </dl>
+            <section class="objective">
+              <span>研发总体目标</span>
+              <ul>
+                <li v-for="item in objectiveItems" :key="item">{{ item }}</li>
+              </ul>
+            </section>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section class="detail-card progress-card">
-        <header><h2>项目进展</h2></header>
-        <div class="progress-summary">
-          <strong>{{ project.progress }}%</strong>
-          <i><b :style="{ width: `${project.progress}%` }" /></i>
-          <span>当前阶段：{{ project.stage }}</span>
-          <dl>
-            <div><dt>文档</dt><dd>{{ project.documentCount }}</dd></div>
-            <div><dt>实验</dt><dd>{{ project.experimentCount }}</dd></div>
-            <div><dt>数据资源</dt><dd>{{ project.resourceCount }}</dd></div>
-          </dl>
-        </div>
-      </section>
+        <section class="detail-card milestone-card">
+          <header>
+            <h2>项目里程碑</h2>
+            <button
+              v-if="canEdit"
+              class="edit-button"
+              type="button"
+              @click="openMilestoneEditor"
+            >
+              <Icon icon="tabler:edit" />编辑
+            </button>
+          </header>
+          <div class="milestone-scroll">
+            <div class="milestone-grid" :style="{ '--stage-count': milestones.length }">
+              <article v-for="item in milestones" :key="item.stage" :class="item.state">
+                <span>{{ item.stage }}</span>
+                <strong>{{ item.name }}</strong>
+              </article>
+              <div
+                v-for="item in milestones"
+                :key="`${item.stage}-bar`"
+                class="stage-progress"
+                :class="item.state"
+              >
+                <i />
+                <b />
+              </div>
+              <time v-for="item in milestones" :key="`${item.stage}-date`">
+                {{ item.date }}
+              </time>
+            </div>
+          </div>
+        </section>
+
+        <section class="detail-card progress-card">
+          <header><h2>项目进展</h2></header>
+          <div class="progress-summary">
+            <strong>{{ project.progress }}%</strong>
+            <i><b :style="{ width: `${project.progress}%` }" /></i>
+            <span>当前阶段：{{ project.stage }}</span>
+            <dl>
+              <div><dt>文档</dt><dd>{{ project.documentCount }}</dd></div>
+              <div><dt>实验</dt><dd>{{ project.experimentCount }}</dd></div>
+              <div><dt>数据资源</dt><dd>{{ project.resourceCount }}</dd></div>
+            </dl>
+          </div>
+        </section>
       </div>
 
       <section v-else class="detail-card module-placeholder">
-      <Icon
-        :icon="
-          activeProjectTab === '文档资料'
-            ? 'tabler:files'
-            : activeProjectTab === '数据资产'
-              ? 'tabler:database'
-              : 'tabler:flask'
-        "
-      />
-      <h2>{{ activeProjectTab }}</h2>
-      <p>该模块将继续按原型对应页面复刻。</p>
+        <Icon
+          :icon="
+            activeProjectTab === '文档资料'
+              ? 'tabler:files'
+              : activeProjectTab === '数据资产'
+                ? 'tabler:database'
+                : 'tabler:flask'
+          "
+        />
+        <h2>{{ activeProjectTab }}</h2>
+        <p>该模块将继续按原型对应页面复刻。</p>
       </section>
 
-      <el-dialog v-model="editVisible" title="编辑项目" width="560px" align-center>
-      <el-form label-position="top">
-        <el-form-item label="项目名称"><el-input :model-value="project.name" /></el-form-item>
-        <div class="dialog-grid">
-          <el-form-item label="项目类型"><el-input :model-value="project.type" /></el-form-item>
-          <el-form-item label="项目经理"><el-input :model-value="project.owner" /></el-form-item>
+      <el-dialog v-model="editVisible" title="编辑项目基础信息" width="680px" align-center>
+        <el-form label-position="top">
+          <el-form-item label="项目名称" required>
+            <el-input v-model="basicForm.name" maxlength="200" show-word-limit />
+          </el-form-item>
+          <div class="dialog-grid">
+            <el-form-item label="项目类型" required>
+              <el-select v-model="basicForm.projectTypeCode" style="width: 100%">
+                <el-option
+                  v-for="item in projectTypeOptions"
+                  :key="item"
+                  :label="item"
+                  :value="item"
+                />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="项目经理" required>
+              <el-select
+                v-model="basicForm.ownerId"
+                filterable
+                style="width: 100%"
+                placeholder="选择项目经理"
+              >
+                <el-option
+                  v-for="user in userOptions"
+                  :key="user.id"
+                  :label="user.display_name"
+                  :value="user.id"
+                />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="开始时间" required>
+              <el-date-picker
+                v-model="basicForm.startDate"
+                type="date"
+                value-format="YYYY-MM-DD"
+                style="width: 100%"
+              />
+            </el-form-item>
+            <el-form-item label="结束时间" required>
+              <el-date-picker
+                v-model="basicForm.endDate"
+                type="date"
+                value-format="YYYY-MM-DD"
+                style="width: 100%"
+              />
+            </el-form-item>
+          </div>
+          <el-form-item v-if="canManageMembers" label="人员组成">
+            <el-checkbox-group v-model="basicForm.memberIds" class="member-checkboxes">
+              <el-checkbox v-for="user in memberOptions" :key="user.id" :value="user.id">
+                {{ user.display_name }}
+              </el-checkbox>
+            </el-checkbox-group>
+          </el-form-item>
+          <el-form-item label="指标性研发目标" required>
+            <el-input
+              v-model="basicForm.objectives"
+              type="textarea"
+              :rows="5"
+              maxlength="5000"
+              show-word-limit
+              placeholder="每行填写一项目标"
+            />
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <el-button @click="editVisible = false">取消</el-button>
+          <el-button type="primary" :loading="submitting" @click="submitBasicEdit">
+            保存修改
+          </el-button>
+        </template>
+      </el-dialog>
+
+      <el-dialog
+        v-model="milestoneEditVisible"
+        title="编辑项目里程碑"
+        width="820px"
+        align-center
+      >
+        <div class="milestone-editor">
+          <div class="milestone-editor-head">
+            <span>里程碑目标描述</span>
+            <span>计划时间</span>
+            <span>状态</span>
+            <span />
+          </div>
+          <div
+            v-for="(item, index) in milestoneForm"
+            :key="index"
+            class="milestone-editor-row"
+          >
+            <el-input v-model="item.name" placeholder="输入阶段目标" maxlength="500" />
+            <el-date-picker
+              v-model="item.date"
+              type="date"
+              value-format="YYYY-MM-DD"
+              style="width: 100%"
+            />
+            <el-select v-model="item.state" style="width: 100%">
+              <el-option label="未开始" value="todo" />
+              <el-option label="当前阶段" value="current" />
+              <el-option label="已完成" value="done" />
+            </el-select>
+            <button
+              class="milestone-remove"
+              type="button"
+              aria-label="删除里程碑"
+              @click="removeMilestone(index)"
+            >
+              <Icon icon="tabler:trash" />
+            </button>
+          </div>
+          <button class="milestone-add" type="button" @click="addMilestone">
+            <Icon icon="tabler:plus" />新增里程碑
+          </button>
         </div>
-        <el-form-item label="研发总体目标">
-          <el-input :model-value="project.objective" type="textarea" :rows="4" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="editVisible = false">取消</el-button>
-        <el-button type="primary" @click="editVisible = false">保存修改</el-button>
-      </template>
+        <template #footer>
+          <el-button @click="milestoneEditVisible = false">取消</el-button>
+          <el-button type="primary" :loading="submitting" @click="submitMilestones">
+            保存里程碑
+          </el-button>
+        </template>
       </el-dialog>
     </template>
 
@@ -525,6 +873,11 @@ watch(() => route.params.projectId, loadProject);
 
 .edit-button svg {
   width: 15px;
+}
+
+.readonly-hint {
+  color: var(--color-muted);
+  font-size: 12px;
 }
 
 .basic-card {
@@ -766,6 +1119,67 @@ watch(() => route.params.projectId, loadProject);
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.member-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+}
+
+.milestone-editor {
+  display: grid;
+  gap: 10px;
+}
+
+.milestone-editor-head,
+.milestone-editor-row {
+  display: grid;
+  align-items: center;
+  grid-template-columns: minmax(220px, 1.6fr) 170px 140px 34px;
+  gap: 10px;
+}
+
+.milestone-editor-head {
+  padding: 0 2px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.milestone-remove,
+.milestone-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-ink-2);
+  background: var(--color-paper);
+  border: 1px solid var(--color-rule-2);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.milestone-remove {
+  width: 34px;
+  height: 34px;
+}
+
+.milestone-remove:hover {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.milestone-add {
+  width: fit-content;
+  height: 34px;
+  padding: 0 12px;
+  color: var(--color-accent);
+  gap: 5px;
+}
+
+.milestone-remove svg,
+.milestone-add svg {
+  width: 16px;
+  height: 16px;
 }
 
 @media (max-width: 1180px) {

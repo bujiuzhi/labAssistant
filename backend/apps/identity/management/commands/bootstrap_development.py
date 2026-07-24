@@ -30,7 +30,7 @@ ROLE_PERMISSIONS = {
 }
 
 ROLE_NAMES = {
-    "system_admin": "系统管理员",
+    "system_admin": "超级管理员",
     "project_manager": "项目负责人",
     "researcher": "研究人员",
     "inspector": "检测人员",
@@ -39,9 +39,9 @@ ROLE_NAMES = {
 DEFAULT_DEVELOPMENT_PASSWORD = "00000000"
 
 DEVELOPMENT_USERS = [
-    ("manager", "项目负责人", "project_manager"),
-    ("researcher", "研究人员", "researcher"),
-    ("inspector", "检测人员", "inspector"),
+    ("manager", "张伟", "project_manager"),
+    ("researcher", "李娜", "researcher"),
+    ("inspector", "王强", "inspector"),
 ]
 
 
@@ -59,7 +59,7 @@ class Command(BaseCommand):
         parser.add_argument("--organization-code", default="LAB")
         parser.add_argument("--organization-name", default="材料研发中心")
         parser.add_argument("--admin-username", default="admin")
-        parser.add_argument("--admin-display-name", default="系统管理员")
+        parser.add_argument("--admin-display-name", default="刘李园")
         parser.add_argument(
             "--password-environment",
             default="MATERIALS_LAB_DEVELOPMENT_PASSWORD",
