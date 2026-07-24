@@ -1,42 +1,13 @@
 <script setup lang="ts">
 import { Icon } from "@iconify/vue";
-import { computed, ref } from "vue";
+import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { useSessionStore } from "@/stores/session";
 
-interface SideNavigationItem {
-  label: string;
-  icon: string;
-  active?: boolean;
-  badge?: string;
-}
-
 const route = useRoute();
 const router = useRouter();
 const sessionStore = useSessionStore();
-const sidebarCollapsed = ref(false);
-
-const sideNavigation: SideNavigationItem[] = [
-  { label: "新对话", icon: "tabler:plus" },
-  { label: "技能广场", icon: "tabler:hammer" },
-  { label: "知识空间", icon: "tabler:notebook" },
-  { label: "多端协同", icon: "tabler:link" },
-  { label: "任务管理", icon: "tabler:clock", badge: "46" },
-  { label: "实验助手", icon: "tabler:tool", active: true },
-  { label: "科研数据", icon: "tabler:files" },
-  { label: "聚合物性质探索", icon: "tabler:cube" },
-  { label: "配方库", icon: "tabler:flask" },
-];
-
-const historyItems = [
-  "人工智能产业链...",
-  "【综述生成】高...",
-  "【实验总结】请...",
-  "【实验图表生成...",
-  "【论文检索】请...",
-  "【性质预测】[*]...",
-];
 
 const productNavigation = [
   { path: "/dashboard", label: "项目总览" },
@@ -53,16 +24,22 @@ const prototypeUsers: Record<string, { displayName: string; roleName: string }> 
 
 const profile = computed(() => {
   const username = sessionStore.user?.username ?? "";
-  return (
-    prototypeUsers[username] ?? {
-      displayName: sessionStore.displayName || "未登录用户",
-      roleName: "项目成员",
-    }
-  );
+  const fallbackProfile = prototypeUsers[username];
+  return {
+    displayName:
+      sessionStore.displayName || fallbackProfile?.displayName || "未登录用户",
+    roleName: fallbackProfile?.roleName ?? "项目成员",
+  };
 });
 
 const profileInitial = computed(() => profile.value.displayName.slice(-1));
 
+/**
+ * 判断当前业务路由是否属于指定一级导航
+ *
+ * @param path 一级导航路由
+ * @returns 是否应显示为选中状态
+ */
 function isProductRoute(path: string): boolean {
   if (path === "/projects") {
     return route.path.startsWith("/projects");
@@ -70,6 +47,9 @@ function isProductRoute(path: string): boolean {
   return route.path === path;
 }
 
+/**
+ * 退出当前会话并返回登录页
+ */
 async function logout(): Promise<void> {
   await sessionStore.logout();
   await router.replace("/login");
@@ -77,83 +57,13 @@ async function logout(): Promise<void> {
 </script>
 
 <template>
-  <div class="prototype-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
-    <header class="window-bar">
-      <div class="traffic-lights" aria-hidden="true">
-        <i />
-        <i />
-        <i />
-      </div>
-      <RouterLink class="brand" to="/dashboard" aria-label="玄鉴首页">
+  <div class="assistant-shell">
+    <header class="assistant-header">
+      <RouterLink class="assistant-brand" to="/dashboard" aria-label="实验助手首页">
         <span class="brand-mark"><Icon icon="tabler:flask-2" /></span>
-        <strong>玄鉴</strong>
+        <strong>实验助手</strong>
       </RouterLink>
-      <button
-        class="icon-button collapse-button"
-        type="button"
-        :aria-label="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
-        @click="sidebarCollapsed = !sidebarCollapsed"
-      >
-        <Icon
-          :icon="
-            sidebarCollapsed
-              ? 'tabler:layout-sidebar-left-expand'
-              : 'tabler:layout-sidebar-left-collapse'
-          "
-        />
-      </button>
-      <div class="window-actions">
-        <button class="text-button" type="button">
-          <Icon icon="tabler:message-circle-question" />
-          <span>问题反馈</span>
-        </button>
-        <span class="online"><Icon icon="tabler:robot" />在线</span>
-      </div>
-    </header>
 
-    <aside class="sidebar" aria-label="玄鉴主导航">
-      <nav class="side-nav">
-        <button
-          v-for="item in sideNavigation"
-          :key="item.label"
-          class="side-nav-item"
-          :class="{ active: item.active }"
-          type="button"
-        >
-          <Icon :icon="item.icon" />
-          <span>{{ item.label }}</span>
-          <b v-if="item.badge" class="nav-badge">{{ item.badge }}</b>
-        </button>
-      </nav>
-
-      <section class="history" aria-label="历史会话">
-        <p>历史会话</p>
-        <button v-for="item in historyItems" :key="item" type="button">
-          <Icon icon="tabler:pin" />
-          <span>{{ item }}</span>
-        </button>
-      </section>
-
-      <div class="profile">
-        <span class="profile-avatar">{{ profileInitial }}</span>
-        <span class="profile-copy">
-          <strong>{{ profile.displayName }}</strong>
-          <small>{{ profile.roleName }}</small>
-        </span>
-        <el-dropdown trigger="click">
-          <button class="icon-button profile-settings" type="button" aria-label="账户设置">
-            <Icon icon="tabler:chevrons-up" />
-          </button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item @click="logout">退出登录</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-      </div>
-    </aside>
-
-    <main class="main-workspace">
       <nav class="product-nav" aria-label="实验助手导航">
         <RouterLink
           v-for="item in productNavigation"
@@ -164,327 +74,201 @@ async function logout(): Promise<void> {
           {{ item.label }}
         </RouterLink>
       </nav>
-      <div class="route-content">
-        <RouterView />
-      </div>
+
+      <el-dropdown class="profile-dropdown" trigger="click">
+        <button class="profile-button" type="button" aria-label="打开账户菜单">
+          <span class="profile-avatar">{{ profileInitial }}</span>
+          <span class="profile-copy">
+            <strong>{{ profile.displayName }}</strong>
+            <small>{{ profile.roleName }}</small>
+          </span>
+          <Icon class="profile-chevron" icon="tabler:chevron-down" />
+        </button>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item @click="logout">
+              <Icon icon="tabler:logout" />
+              <span>退出登录</span>
+            </el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+    </header>
+
+    <main class="route-content">
+      <RouterView />
     </main>
   </div>
 </template>
 
 <style scoped>
-.prototype-shell {
-  display: grid;
+.assistant-shell {
+  display: flex;
   width: 100%;
   height: 100%;
-  grid-template-columns: 220px minmax(0, 1fr);
-  grid-template-rows: 48px minmax(0, 1fr);
+  min-width: 960px;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--color-ink);
   background: var(--color-shell);
-  transition: grid-template-columns 180ms ease;
 }
 
-.prototype-shell.sidebar-collapsed {
-  grid-template-columns: 72px minmax(0, 1fr);
-}
-
-.window-bar {
+.assistant-header {
   z-index: 2;
   display: flex;
-  grid-column: 1 / -1;
+  height: 64px;
+  flex: 0 0 64px;
   align-items: center;
-  padding: 0 14px;
+  padding: 0 24px;
   background: var(--color-paper-2);
   border-bottom: 1px solid var(--color-rule);
+  box-shadow: 0 1px 4px rgb(15 23 42 / 4%);
 }
 
-.traffic-lights {
-  display: flex;
-  width: 86px;
-  gap: 10px;
-}
-
-.traffic-lights i {
-  width: 14px;
-  height: 14px;
-  border-radius: 999px;
-}
-
-.traffic-lights i:nth-child(1) {
-  background: var(--color-traffic-red);
-}
-
-.traffic-lights i:nth-child(2) {
-  background: var(--color-traffic-yellow);
-}
-
-.traffic-lights i:nth-child(3) {
-  background: var(--color-traffic-green);
-}
-
-.brand {
-  display: flex;
+.assistant-brand {
+  display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 10px;
+  color: var(--color-ink);
   font-family: var(--font-outlier);
-  font-size: 18px;
+  font-size: 19px;
+  letter-spacing: 0.01em;
+  text-decoration: none;
 }
 
 .brand-mark {
   display: grid;
-  width: 22px;
-  height: 22px;
+  width: 32px;
+  height: 32px;
   color: #ffffff;
-  background: var(--color-ink);
-  border-radius: 6px;
+  background: var(--color-accent);
+  border-radius: 9px;
+  box-shadow: 0 4px 12px rgb(37 99 235 / 18%);
   place-items: center;
 }
 
 .brand-mark svg {
-  width: 15px;
-  height: 15px;
-}
-
-.collapse-button {
-  margin-left: 14px;
-}
-
-.window-actions {
-  display: flex;
-  align-items: center;
-  margin-left: auto;
-  gap: 22px;
-}
-
-.text-button,
-.icon-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-ink-2);
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-}
-
-.text-button {
-  height: 36px;
-  gap: 7px;
-}
-
-.text-button svg {
-  width: 17px;
-  height: 17px;
-}
-
-.icon-button {
-  width: 34px;
-  height: 34px;
-  border-radius: 6px;
-}
-
-.icon-button svg {
-  width: 18px;
-  height: 18px;
-}
-
-.online {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 10px;
-  color: #078545;
-  background: var(--color-success-soft);
-  border-radius: 999px;
-  gap: 7px;
-}
-
-.sidebar {
-  display: flex;
-  grid-row: 2;
-  min-width: 0;
-  min-height: 0;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--color-paper-2);
-  border-right: 1px solid var(--color-rule);
-}
-
-.side-nav {
-  display: grid;
-  flex: none;
-  padding: 16px 8px 10px;
-  gap: 3px;
-}
-
-.side-nav-item {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  height: 36px;
-  padding: 0 12px;
-  overflow: hidden;
-  color: var(--color-ink-2);
-  font-weight: 600;
-  text-align: left;
-  white-space: nowrap;
-  background: transparent;
-  border: 0;
-  border-radius: 6px;
-  cursor: pointer;
-  gap: 12px;
-}
-
-.side-nav-item svg {
-  flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
-}
-
-.side-nav-item.active {
-  color: var(--color-accent);
-  background: #e2f0ff;
-}
-
-.nav-badge {
-  min-width: 24px;
-  padding: 1px 5px;
-  margin-left: auto;
-  color: var(--color-muted);
-  font-size: 11px;
-  font-weight: 700;
-  text-align: center;
-  background: #edf1f6;
-  border-radius: 999px;
-}
-
-.history {
-  min-height: 0;
-  padding: 0 8px;
-  overflow: hidden;
-}
-
-.history p {
-  margin: 8px 4px 7px;
-  color: var(--color-faint);
-  font-size: 12px;
-}
-
-.history button {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  padding: 6px 4px;
-  overflow: hidden;
-  color: var(--color-muted);
-  font-size: 12px;
-  text-align: left;
-  white-space: nowrap;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  gap: 8px;
-}
-
-.history button span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.history svg {
-  flex: 0 0 auto;
-  width: 13px;
-  height: 13px;
-}
-
-.profile {
-  display: flex;
-  flex: none;
-  align-items: center;
-  min-height: 58px;
-  padding: 9px 12px;
-  margin-top: auto;
-  border-top: 1px solid var(--color-rule);
-  gap: 9px;
-}
-
-.profile-avatar {
-  display: grid;
-  flex: 0 0 auto;
-  width: 32px;
-  height: 32px;
-  background: #f1f5f9;
-  border: 1px solid var(--color-rule);
-  border-radius: 999px;
-  place-items: center;
-}
-
-.profile-copy {
-  min-width: 0;
-}
-
-.profile-copy strong,
-.profile-copy small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.profile-copy strong {
-  font-size: 13px;
-}
-
-.profile-copy small {
-  margin-top: 1px;
-  color: var(--color-muted);
-  font-size: 11px;
-}
-
-.profile-settings {
-  margin-left: auto;
-}
-
-.main-workspace {
-  display: flex;
-  grid-row: 2;
-  min-width: 0;
-  min-height: 0;
-  flex-direction: column;
-  padding: 24px 20px 0;
-  overflow: hidden;
+  width: 20px;
+  height: 20px;
 }
 
 .product-nav {
   display: flex;
-  flex: none;
-  align-items: center;
-  height: 44px;
-  padding: 0 20px;
-  background: var(--color-paper);
-  border-radius: 8px;
-  box-shadow: var(--shadow-whisper);
-  gap: 30px;
+  height: 100%;
+  align-items: stretch;
+  margin-left: 48px;
+  gap: 34px;
 }
 
 .product-nav a {
   position: relative;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  align-self: stretch;
-  color: var(--color-muted);
-  font-weight: 650;
+  color: var(--color-ink-3);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  transition:
+    color 160ms ease,
+    font-weight 160ms ease;
+}
+
+.product-nav a::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  background: transparent;
+  border-radius: 999px 999px 0 0;
+  content: "";
+}
+
+.product-nav a:hover,
+.product-nav a.active {
+  color: var(--color-accent);
 }
 
 .product-nav a.active {
-  color: var(--color-ink);
+  font-weight: 600;
 }
 
 .product-nav a.active::after {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 2px;
   background: var(--color-accent);
-  content: "";
+}
+
+.profile-dropdown {
+  margin-left: auto;
+}
+
+.profile-button {
+  display: inline-flex;
+  min-width: 156px;
+  height: 46px;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 4px 8px;
+  color: var(--color-ink);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  gap: 10px;
+  text-align: left;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease;
+}
+
+.profile-button:hover {
+  background: var(--color-paper-3);
+  border-color: var(--color-rule);
+}
+
+.profile-avatar {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  color: #ffffff;
+  background: var(--color-accent);
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 600;
+  place-items: center;
+}
+
+.profile-copy {
+  display: flex;
+  min-width: 72px;
+  flex-direction: column;
+  line-height: 1.35;
+}
+
+.profile-copy strong {
+  overflow: hidden;
+  max-width: 96px;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-copy small {
+  overflow: hidden;
+  max-width: 96px;
+  color: var(--color-ink-4);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-chevron {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  color: var(--color-ink-4);
 }
 
 .route-content {
@@ -492,45 +276,21 @@ async function logout(): Promise<void> {
   min-height: 0;
   flex: 1;
   overflow: hidden;
-}
-
-.sidebar-collapsed .side-nav-item {
-  justify-content: center;
-  padding: 0;
-}
-
-.sidebar-collapsed .side-nav-item span,
-.sidebar-collapsed .nav-badge,
-.sidebar-collapsed .history,
-.sidebar-collapsed .profile-copy,
-.sidebar-collapsed .profile-settings {
-  display: none;
-}
-
-.sidebar-collapsed .profile {
-  justify-content: center;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .side-nav-item:hover,
-  .history button:hover,
-  .icon-button:hover,
-  .text-button:hover {
-    background: var(--color-paper-3);
-  }
-
-  .side-nav-item.active:hover {
-    background: #e2f0ff;
-  }
+  padding: 0 24px;
 }
 
 @media (max-width: 1180px) {
-  .history {
-    display: none;
+  .assistant-header {
+    padding: 0 18px;
   }
 
-  .main-workspace {
-    padding-inline: 14px;
+  .product-nav {
+    margin-left: 30px;
+    gap: 24px;
+  }
+
+  .route-content {
+    padding: 0 18px;
   }
 }
 </style>

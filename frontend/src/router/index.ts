@@ -88,7 +88,7 @@ router.beforeEach((to) => {
 });
 
 router.afterEach((to) => {
-  document.title = `${String(to.meta.title ?? "实验助手")} · 玄鉴`;
+  document.title = `${String(to.meta.title ?? "实验助手")} · 实验助手`;
 });
 
 export default router;
