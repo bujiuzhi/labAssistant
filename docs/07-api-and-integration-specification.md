@@ -123,6 +123,10 @@ X-CSRFToken: <csrf-token>
 | `POST` | `/auth/login` | 登录并轮换会话 |
 | `POST` | `/auth/logout` | 注销当前会话 |
 | `GET` | `/auth/users/options` | 查询当前组织有效用户，供负责人和成员选择 |
+| `GET/POST` | `/auth/users` | 超级管理员分页查询/创建当前组织用户 |
+| `GET/PATCH` | `/auth/users/{user_id}` | 超级管理员查看/更新普通用户、状态和角色 |
+| `POST` | `/auth/users/{user_id}/reset-password` | 超级管理员重置普通用户密码 |
+| `GET` | `/auth/roles/options` | 超级管理员查询可分配系统角色 |
 | `GET/POST` | `/materials` | 查询/创建材料 |
 | `GET/PATCH` | `/materials/{id}` | 查看/更新材料 |
 | `GET/POST` | `/materials/{id}/batches` | 查询/创建材料批次 |

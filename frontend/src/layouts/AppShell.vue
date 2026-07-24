@@ -9,11 +9,17 @@ const route = useRoute();
 const router = useRouter();
 const sessionStore = useSessionStore();
 
-const productNavigation = [
+const baseProductNavigation = [
   { path: "/dashboard", label: "项目总览" },
   { path: "/projects", label: "项目数据" },
   { path: "/eln", label: "电子实验记录本" },
 ];
+const productNavigation = computed(() => [
+  ...baseProductNavigation,
+  ...(sessionStore.isSuperAdmin
+    ? [{ path: "/system/users", label: "用户管理" }]
+    : []),
+]);
 
 const prototypeUsers: Record<string, { displayName: string; roleName: string }> = {
   admin: { displayName: "刘李园", roleName: "超级管理员" },
@@ -28,7 +34,10 @@ const profile = computed(() => {
   return {
     displayName:
       sessionStore.displayName || fallbackProfile?.displayName || "未登录用户",
-    roleName: fallbackProfile?.roleName ?? "项目成员",
+    roleName:
+      sessionStore.user?.role_names[0] ??
+      fallbackProfile?.roleName ??
+      "项目成员",
   };
 });
 
@@ -43,6 +52,9 @@ const profileInitial = computed(() => profile.value.displayName.slice(-1));
 function isProductRoute(path: string): boolean {
   if (path === "/projects") {
     return route.path.startsWith("/projects");
+  }
+  if (path === "/system/users") {
+    return route.path.startsWith("/system");
   }
   return route.path === path;
 }

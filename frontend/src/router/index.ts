@@ -68,8 +68,14 @@ const router = createRouter({
         {
           path: "system",
           name: "system",
-          component: () => import("@/views/PlaceholderView.vue"),
-          meta: { title: "系统管理", description: "用户、角色和审计查询将在后续迭代实现。" },
+          redirect: "/system/users",
+          meta: { requiresSuperAdmin: true },
+        },
+        {
+          path: "system/users",
+          name: "system-users",
+          component: () => import("@/views/system/UserManagementView.vue"),
+          meta: { title: "用户管理", requiresSuperAdmin: true },
         },
       ],
     },
@@ -82,6 +88,9 @@ router.beforeEach((to) => {
     return { name: "login", query: { redirect: to.fullPath } };
   }
   if (to.name === "login" && sessionStore.isAuthenticated) {
+    return { name: "dashboard" };
+  }
+  if (to.meta.requiresSuperAdmin && !sessionStore.isSuperAdmin) {
     return { name: "dashboard" };
   }
   return true;

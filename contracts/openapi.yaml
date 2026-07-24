@@ -13,6 +13,8 @@ tags:
     description: 健康检查
   - name: Auth
     description: 会话认证
+  - name: Identity
+    description: 超级管理员用户与角色管理
   - name: Projects
     description: 项目管理
   - name: Experiments
@@ -138,6 +140,145 @@ paths:
                 $ref: "#/components/schemas/OrganizationUserOptionListResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /auth/users:
+    get:
+      tags: [Identity]
+      summary: 超级管理员分页查询当前组织用户
+      operationId: listManagedUsers
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/Search"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/ManagedUserStatus"
+        - name: role_code
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 当前组织用户分页结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedUserListResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Identity]
+      summary: 超级管理员创建组织用户
+      operationId: createManagedUser
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManagedUserCreateRequest"
+      responses:
+        "201":
+          description: 用户创建成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedUserResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /auth/users/{user_id}:
+    parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/Uuid"
+    get:
+      tags: [Identity]
+      summary: 超级管理员查询组织用户详情
+      operationId: getManagedUser
+      responses:
+        "200":
+          description: 组织用户详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedUserResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Identity]
+      summary: 超级管理员更新普通用户
+      operationId: updateManagedUser
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManagedUserUpdateRequest"
+      responses:
+        "200":
+          description: 用户更新成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedUserResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /auth/users/{user_id}/reset-password:
+    post:
+      tags: [Identity]
+      summary: 超级管理员重置普通用户密码
+      operationId: resetManagedUserPassword
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManagedUserPasswordResetRequest"
+      responses:
+        "204":
+          description: 密码重置成功
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /auth/roles/options:
+    get:
+      tags: [Identity]
+      summary: 超级管理员查询可分配系统角色
+      operationId: listManagedRoleOptions
+      responses:
+        "200":
+          description: 可分配角色列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedRoleOptionListResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /projects:
     get:
       tags: [Projects]
@@ -1088,7 +1229,7 @@ components:
           maxLength: 256
     SessionUser:
       type: object
-      required: [id, organization_id, username, display_name, permissions, role_codes, role_names]
+      required: [id, organization_id, username, display_name, is_super_admin, permissions, role_codes, role_names]
       properties:
         id:
           $ref: "#/components/schemas/Uuid"
@@ -1098,6 +1239,8 @@ components:
           type: string
         display_name:
           type: string
+        is_super_admin:
+          type: boolean
         permissions:
           type: array
           uniqueItems: true
@@ -1114,6 +1257,154 @@ components:
           uniqueItems: true
           items:
             type: string
+    ManagedUserStatus:
+      type: string
+      enum: [active, locked, disabled]
+    ManagedUser:
+      type: object
+      required:
+        - id
+        - username
+        - display_name
+        - email
+        - status
+        - is_active
+        - is_super_admin
+        - role_codes
+        - role_names
+        - created_at
+        - updated_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        username:
+          type: string
+        display_name:
+          type: string
+        email:
+          type: string
+          format: email
+        status:
+          $ref: "#/components/schemas/ManagedUserStatus"
+        is_active:
+          type: boolean
+        is_super_admin:
+          type: boolean
+        role_codes:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+        role_names:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+        last_login:
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ManagedUserCreateRequest:
+      type: object
+      required: [username, display_name, password, status, role_codes]
+      properties:
+        username:
+          type: string
+          pattern: "^[A-Za-z0-9._-]{3,64}$"
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+        status:
+          $ref: "#/components/schemas/ManagedUserStatus"
+        role_codes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+    ManagedUserUpdateRequest:
+      type: object
+      minProperties: 1
+      properties:
+        username:
+          type: string
+          pattern: "^[A-Za-z0-9._-]{3,64}$"
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        email:
+          type: string
+          format: email
+        status:
+          $ref: "#/components/schemas/ManagedUserStatus"
+        role_codes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+    ManagedUserPasswordResetRequest:
+      type: object
+      required: [password]
+      properties:
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+    ManagedUserResponse:
+      type: object
+      required: [data, request_id]
+      properties:
+        data:
+          $ref: "#/components/schemas/ManagedUser"
+        request_id:
+          $ref: "#/components/schemas/Uuid"
+    ManagedUserListResponse:
+      type: object
+      required: [data, meta, request_id]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManagedUser"
+        meta:
+          $ref: "#/components/schemas/PageMeta"
+        request_id:
+          $ref: "#/components/schemas/Uuid"
+    ManagedRoleOption:
+      type: object
+      required: [role_code, name, description]
+      properties:
+        role_code:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+    ManagedRoleOptionListResponse:
+      type: object
+      required: [data, request_id]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManagedRoleOption"
+        request_id:
+          $ref: "#/components/schemas/Uuid"
     SessionResponse:
       type: object
       required: [data, request_id]

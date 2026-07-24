@@ -11,6 +11,7 @@ export const useSessionStore = defineStore("session", () => {
 
   const isAuthenticated = computed(() => user.value !== null);
   const displayName = computed(() => user.value?.display_name ?? "");
+  const isSuperAdmin = computed(() => user.value?.is_super_admin ?? false);
 
   function hasPermission(permissionCode: string): boolean {
     return user.value?.permissions.includes(permissionCode) ?? false;
@@ -49,6 +50,7 @@ export const useSessionStore = defineStore("session", () => {
     initialized,
     isAuthenticated,
     displayName,
+    isSuperAdmin,
     hasPermission,
     initialize,
     login,

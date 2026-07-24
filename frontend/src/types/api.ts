@@ -3,6 +3,7 @@ export interface SessionUser {
   organization_id: string;
   username: string;
   display_name: string;
+  is_super_admin: boolean;
   permissions: string[];
   role_codes: string[];
   role_names: string[];
@@ -101,6 +102,51 @@ export interface OrganizationUserOption {
   username: string;
   display_name: string;
 }
+
+export type ManagedUserStatus = "active" | "locked" | "disabled";
+
+export interface ManagedUser {
+  id: string;
+  username: string;
+  display_name: string;
+  email: string;
+  status: ManagedUserStatus;
+  is_active: boolean;
+  is_super_admin: boolean;
+  role_codes: string[];
+  role_names: string[];
+  last_login: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ManagedRoleOption {
+  role_code: string;
+  name: string;
+  description: string;
+}
+
+export interface ManagedUserFilters {
+  page?: number;
+  page_size?: number;
+  search?: string;
+  status?: ManagedUserStatus | "";
+  role_code?: string;
+}
+
+export interface ManagedUserCreateInput {
+  username: string;
+  display_name: string;
+  email: string;
+  password: string;
+  status: ManagedUserStatus;
+  role_codes: string[];
+}
+
+export type ManagedUserUpdateInput = Omit<
+  ManagedUserCreateInput,
+  "password"
+>;
 
 export interface ProjectFilters {
   page?: number;
