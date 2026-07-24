@@ -14,6 +14,8 @@ from apps.projects.selectors import projects_for_user
 
 from .models import (
     Experiment,
+    ExperimentAttachment,
+    ExperimentAttachmentKind,
     ExperimentParticipant,
     ExperimentParticipantRole,
     ExperimentRecord,
@@ -32,6 +34,45 @@ RECORD_FIELDS = {
     "result_text",
     "result_files",
 }
+
+
+@transaction.atomic
+def create_experiment_attachment(
+    *,
+    experiment: Experiment,
+    actor: User,
+    validated_data: dict[str, Any],
+) -> ExperimentAttachment:
+    """保存电子实验记录的真实附件文件。"""
+    if not actor.has_permission_code("experiment.update"):
+        raise PermissionDenied("无实验记录编辑权限")
+    if experiment.status == ExperimentStatus.COMPLETED:
+        raise BusinessRuleConflict("已完成实验不可上传附件")
+    if (
+        not actor.has_permission_code("experiment.view_all")
+        and experiment.owner_id != actor.id
+        and not experiment.participants.filter(user=actor).exists()
+    ):
+        raise PermissionDenied("只能为本人参与的实验上传附件")
+    upload = validated_data["file"]
+    kind = validated_data["kind"]
+    if kind == ExperimentAttachmentKind.PROCESS_IMAGE and getattr(upload, "content_type", "") not in {"image/jpeg", "image/png", "image/webp"}:
+        raise ValidationError({"file": ["过程图片仅支持 JPG、PNG、WEBP"]})
+    attachment = ExperimentAttachment.objects.create(
+        organization_id=experiment.organization_id,
+        experiment=experiment,
+        kind=kind,
+        name=upload.name,
+        file=upload,
+        mime_type=getattr(upload, "content_type", "") or "",
+        file_size=upload.size,
+        uploaded_by=actor,
+    )
+    logger.info(
+        "上传实验附件",
+        extra={"experiment_no": experiment.experiment_no, "attachment_id": str(attachment.id), "actor_id": str(actor.id)},
+    )
+    return attachment
 
 
 def _sync_project_experiment_count(project_id) -> None:

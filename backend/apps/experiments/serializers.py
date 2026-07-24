@@ -5,7 +5,13 @@ from rest_framework import serializers
 from apps.identity.models import User, UserStatus
 from apps.projects.models import Project
 
-from .models import Experiment, ExperimentRecord, ExperimentStatus
+from .models import (
+    Experiment,
+    ExperimentAttachment,
+    ExperimentAttachmentKind,
+    ExperimentRecord,
+    ExperimentStatus,
+)
 
 
 class FormulaColumnSerializer(serializers.Serializer):
@@ -45,6 +51,21 @@ class ResultFileSerializer(serializers.Serializer):
 
     name = serializers.CharField(min_length=1, max_length=255)
     size = serializers.CharField(max_length=40, allow_blank=True)
+
+
+class ExperimentAttachmentUploadSerializer(serializers.Serializer):
+    """实验附件上传请求。"""
+
+    file = serializers.FileField()
+    kind = serializers.ChoiceField(choices=ExperimentAttachmentKind.choices)
+
+    def validate_file(self, value):
+        """按文件用途校验真实上传文件。"""
+        if value.size > 25 * 1024 * 1024:
+            raise serializers.ValidationError("单个附件不得超过 25 MB")
+        if not value.name or len(value.name) > 255:
+            raise serializers.ValidationError("文件名长度必须为 1–255 个字符")
+        return value
 
 
 class ExperimentRecordWriteSerializer(serializers.Serializer):
@@ -186,15 +207,31 @@ class ExperimentSerializer(serializers.ModelSerializer):
                 "result_text": "",
                 "result_files": [],
             }
+        attachments = list(instance.attachments.all())
+        def attachment_data(item: ExperimentAttachment) -> dict:
+            return {
+                "id": str(item.id),
+                "name": item.name,
+                "size": f"{item.file_size} B",
+                "url": f"/api/v1/experiments/{instance.experiment_no}/attachments/{item.id}/content",
+            }
         return {
             "formula_columns": record.formula_columns,
             "formula_rows": record.formula_rows,
             "extra_tables": record.extra_tables,
             "process_text": record.process_text,
             "extra_processes": record.extra_processes,
-            "process_images": record.process_images,
+            "process_images": [
+                attachment_data(item)
+                for item in attachments
+                if item.kind == ExperimentAttachmentKind.PROCESS_IMAGE
+            ],
             "result_text": record.result_text,
-            "result_files": record.result_files,
+            "result_files": [
+                attachment_data(item)
+                for item in attachments
+                if item.kind == ExperimentAttachmentKind.RESULT_FILE
+            ],
         }
 
 

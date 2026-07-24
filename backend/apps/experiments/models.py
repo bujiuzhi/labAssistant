@@ -1,6 +1,7 @@
 """实验计划、参与人员与电子实验记录模型。"""
 
 import uuid
+from pathlib import Path
 
 from django.conf import settings
 from django.db import models
@@ -9,6 +10,15 @@ from django.db.models import Q
 from apps.common.models import TimeStampedModel
 from apps.identity.models import Organization
 from apps.projects.models import Project
+
+
+def experiment_attachment_upload_to(instance: "ExperimentAttachment", filename: str) -> str:
+    """生成实验附件的组织和实验隔离路径。"""
+    suffix = Path(filename).suffix.lower()
+    return (
+        f"experiment-attachments/{instance.organization_id}/{instance.experiment_id}/"
+        f"{uuid.uuid4().hex}{suffix}"
+    )
 
 
 class ExperimentStatus(models.TextChoices):
@@ -179,6 +189,65 @@ class ExperimentRecord(TimeStampedModel):
     def __str__(self) -> str:
         """返回关联实验编号。"""
         return f"{self.experiment.experiment_no} 实验记录"
+
+
+class ExperimentAttachmentKind(models.TextChoices):
+    """实验附件用途。"""
+
+    PROCESS_IMAGE = "process_image", "过程图片"
+    RESULT_FILE = "result_file", "结果附件"
+
+
+class ExperimentAttachment(TimeStampedModel):
+    """电子实验记录的真实文件附件。"""
+
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="experiment_attachments",
+        db_comment="所属组织",
+    )
+    experiment = models.ForeignKey(
+        Experiment,
+        on_delete=models.CASCADE,
+        related_name="attachments",
+        db_comment="关联实验",
+    )
+    kind = models.CharField(
+        max_length=24,
+        choices=ExperimentAttachmentKind.choices,
+        db_comment="附件用途",
+    )
+    name = models.CharField(max_length=255, db_comment="原始文件名")
+    file = models.FileField(
+        upload_to=experiment_attachment_upload_to,
+        max_length=500,
+        db_comment="附件存储路径",
+    )
+    mime_type = models.CharField(max_length=120, blank=True, db_comment="MIME 类型")
+    file_size = models.PositiveBigIntegerField(db_comment="文件字节数")
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="uploaded_experiment_attachments",
+        db_comment="上传用户",
+    )
+
+    class Meta:
+        """实验附件表配置。"""
+
+        db_table = "experiment_attachment"
+        db_table_comment = "实验记录附件"
+        indexes = [
+            models.Index(
+                fields=["organization", "experiment", "kind", "-created_at"],
+                name="idx_exp_attachment_scope",
+            )
+        ]
+
+    def __str__(self) -> str:
+        """返回实验附件名称。"""
+        return f"{self.experiment.experiment_no} {self.name}"
 
 
 class ExperimentParticipant(models.Model):

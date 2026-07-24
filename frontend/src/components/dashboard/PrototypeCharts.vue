@@ -2,6 +2,7 @@
 import { Icon } from "@iconify/vue";
 import { LineChart, PieChart } from "echarts/charts";
 import {
+  GraphicComponent,
   GridComponent,
   LegendComponent,
   TooltipComponent,
@@ -9,17 +10,13 @@ import {
 import * as echarts from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 import type { ECharts, EChartsCoreOption } from "echarts/core";
-import { onBeforeUnmount, onMounted, ref } from "vue";
-
-import {
-  projectTypeDistribution,
-  trendDates,
-  trendSeries,
-} from "@/data/prototype-dashboard";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import type { DashboardTrendSeries, DashboardTypeDistributionItem } from "@/types/api";
 
 echarts.use([
   PieChart,
   LineChart,
+  GraphicComponent,
   GridComponent,
   LegendComponent,
   TooltipComponent,
@@ -30,6 +27,20 @@ const projectChartElement = ref<HTMLDivElement>();
 const experimentChartElement = ref<HTMLDivElement>();
 const trendChartElement = ref<HTMLDivElement>();
 const selectedType = ref("all");
+const props = defineProps<{
+  typeDistribution: DashboardTypeDistributionItem[];
+  trend: { dates: string[]; series: DashboardTrendSeries[] };
+}>();
+const palette = ["#2563eb", "#0f9b8e", "#f59e0b", "#7c3aed", "#e11d48", "#0891b2"];
+const typeDistribution = computed(() =>
+  props.typeDistribution.map((item, index) => ({ ...item, color: palette[index % palette.length] })),
+);
+const trendRange = computed(() => {
+  const dates = props.trend.dates;
+  if (dates.length === 0) return "暂无数据";
+  const format = (value: string) => value.slice(5).replace("-", "/");
+  return `${format(dates[0])}–${format(dates[dates.length - 1])}`;
+});
 
 let projectChart: ECharts | undefined;
 let experimentChart: ECharts | undefined;
@@ -38,9 +49,9 @@ let resizeObserver: ResizeObserver | undefined;
 
 function createDonutOption(mode: "project" | "experiment"): EChartsCoreOption {
   const isProject = mode === "project";
-  const values = projectTypeDistribution.map((item) => ({
+  const values = typeDistribution.value.map((item) => ({
     name: item.name,
-    value: isProject ? item.projectCount : item.experimentCount,
+    value: isProject ? item.project_count : item.experiment_count,
     itemStyle: { color: item.color },
   }));
   const total = values.reduce((sum, item) => sum + item.value, 0);
@@ -106,11 +117,11 @@ function createDonutOption(mode: "project" | "experiment"): EChartsCoreOption {
 function createTrendOption(): EChartsCoreOption {
   const visibleSeries =
     selectedType.value === "all"
-      ? trendSeries
-      : trendSeries.filter((item) => item.name === selectedType.value);
+      ? props.trend.series
+      : props.trend.series.filter((item) => item.name === selectedType.value);
 
   return {
-    color: projectTypeDistribution.map((item) => item.color),
+    color: typeDistribution.value.map((item) => item.color),
     animationDuration: 420,
     grid: { left: 42, right: 18, top: 24, bottom: 54 },
     tooltip: {
@@ -129,7 +140,7 @@ function createTrendOption(): EChartsCoreOption {
     xAxis: {
       type: "category",
       boundaryGap: false,
-      data: trendDates,
+      data: props.trend.dates.map((item) => item.slice(5).replace("-", "/")),
       axisLine: { show: false },
       axisTick: { show: false },
       axisLabel: {
@@ -166,6 +177,19 @@ function createTrendOption(): EChartsCoreOption {
 function updateTrend(): void {
   trendChart?.setOption(createTrendOption(), true);
 }
+
+watch(
+  () => [props.typeDistribution, props.trend] as const,
+  () => {
+    if (selectedType.value !== "all" && !props.typeDistribution.some((item) => item.name === selectedType.value)) {
+      selectedType.value = "all";
+    }
+    projectChart?.setOption(createDonutOption("project"), true);
+    experimentChart?.setOption(createDonutOption("experiment"), true);
+    updateTrend();
+  },
+  { deep: true },
+);
 
 onMounted(() => {
   if (!projectChartElement.value || !experimentChartElement.value || !trendChartElement.value) {
@@ -218,7 +242,7 @@ onBeforeUnmount(() => {
           </section>
         </div>
         <ul class="type-legend" aria-label="项目类型图例">
-          <li v-for="item in projectTypeDistribution" :key="item.name">
+          <li v-for="item in typeDistribution" :key="item.name">
             <i :style="{ backgroundColor: item.color }" />
             <span>{{ item.name }}</span>
           </li>
@@ -235,14 +259,14 @@ onBeforeUnmount(() => {
         <label class="trend-select">
           <select v-model="selectedType" aria-label="筛选趋势项目类型" @change="updateTrend">
             <option value="all">全部类型</option>
-            <option v-for="item in projectTypeDistribution" :key="item.name" :value="item.name">
+            <option v-for="item in typeDistribution" :key="item.name" :value="item.name">
               {{ item.name }}
             </option>
           </select>
           <Icon icon="tabler:chevron-down" aria-hidden="true" />
         </label>
       </header>
-      <span class="chart-date-range">06/21–07/20</span>
+      <span class="chart-date-range">{{ trendRange }}</span>
       <div ref="trendChartElement" class="trend-chart" aria-label="近30天实验趋势折线图" />
     </article>
   </section>

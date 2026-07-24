@@ -1,6 +1,7 @@
 """电子实验记录本接口核心路径测试。"""
 
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 from apps.experiments.models import (
     Experiment,
     ExperimentParticipant,
@@ -215,3 +216,36 @@ def test_completed_experiment_is_read_only(
     )
 
     assert response.status_code == 409
+
+
+@pytest.mark.django_db
+def test_upload_experiment_result_attachment(
+    api_client,
+    researcher_user,
+    visible_project,
+) -> None:
+    """结果附件应保存真实文件并可通过受控地址读取。"""
+    api_client.force_authenticate(researcher_user)
+    created = api_client.post(
+        "/api/v1/experiments",
+        experiment_payload(visible_project.id),
+        format="json",
+    ).json()["data"]
+    upload = api_client.post(
+        f"/api/v1/experiments/{created['experiment_no']}/attachments",
+        {
+            "kind": "result_file",
+            "file": SimpleUploadedFile(
+                "result.csv",
+                b"sample,value\nA,1.2\n",
+                content_type="text/csv",
+            ),
+        },
+    )
+
+    assert upload.status_code == 201
+    attachment = upload.json()["data"]["record"]["result_files"][0]
+    assert attachment["name"] == "result.csv"
+    content = api_client.get(attachment["url"])
+    assert content.status_code == 200
+    assert b"sample,value" in b"".join(content.streaming_content)

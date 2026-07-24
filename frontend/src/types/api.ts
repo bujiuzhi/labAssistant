@@ -206,6 +206,51 @@ export interface ProjectDocumentUploadInput {
   version_label: string;
 }
 
+export interface DashboardMetrics {
+  total: number;
+  active?: number;
+  archived?: number;
+  at_risk?: number;
+  in_progress?: number;
+  completed?: number;
+}
+
+export interface DashboardTypeDistributionItem {
+  name: string;
+  project_count: number;
+  experiment_count: number;
+}
+
+export interface DashboardTrendSeries {
+  name: string;
+  values: number[];
+}
+
+export interface DashboardActiveProject {
+  id: string;
+  project_no: string;
+  name: string;
+  project_type: string;
+  owner_name: string;
+  objectives: string[];
+  planned_start_date: string | null;
+  planned_end_date: string | null;
+  milestone: ProjectMilestone | null;
+  progress_percent: number;
+  is_followed: boolean;
+}
+
+export interface DashboardSummary {
+  project_metrics: DashboardMetrics;
+  experiment_metrics: DashboardMetrics;
+  type_distribution: DashboardTypeDistributionItem[];
+  trend: {
+    dates: string[];
+    series: DashboardTrendSeries[];
+  };
+  active_projects: DashboardActiveProject[];
+}
+
 export type ExperimentStatus = "not_started" | "in_progress" | "completed";
 
 export interface FormulaColumn {
@@ -227,14 +272,17 @@ export interface ExtraProcess {
 }
 
 export interface ProcessImage {
+  id?: string;
   name: string;
   url: string;
   size?: string;
 }
 
 export interface ResultFile {
+  id?: string;
   name: string;
   size: string;
+  url?: string;
 }
 
 export interface ExperimentRecord {

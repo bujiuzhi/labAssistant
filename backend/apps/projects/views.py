@@ -4,6 +4,7 @@ import uuid
 from datetime import timedelta
 
 from django.db.models import Count, Q
+from django.db.models.functions import TruncDate
 from django.http import FileResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -14,7 +15,13 @@ from rest_framework.views import APIView
 
 from apps.common.pagination import EnvelopePageNumberPagination
 
-from .models import Project, ProjectDocument, ProjectDocumentCategory, ProjectStatus
+from .models import (
+    Project,
+    ProjectDocument,
+    ProjectDocumentCategory,
+    ProjectFollow,
+    ProjectStatus,
+)
 from .selectors import documents_for_project, projects_for_user
 from .serializers import (
     ProjectCreateSerializer,
@@ -208,6 +215,135 @@ class ProjectDetailView(APIView):
             expected_version=_parse_if_match(request),
         )
         return _project_response(project, request)
+
+
+class DashboardSummaryView(APIView):
+    """返回当前用户范围内的实时总览统计。"""
+
+    def get(self, request) -> Response:
+        """查询实时项目、实验、类型分布与近 30 天趋势。"""
+        if not request.user.has_permission_code("project.view"):
+            raise PermissionDenied("无项目查看权限")
+
+        from apps.experiments.selectors import experiments_for_user
+        from apps.experiments.models import ExperimentStatus
+
+        projects = projects_for_user(request.user)
+        experiments = experiments_for_user(request.user)
+        followed_ids = set(
+            ProjectFollow.objects.filter(user=request.user).values_list("project_id", flat=True)
+        )
+        project_status_counts = {
+            row["status"]: row["total"]
+            for row in projects.values("status").annotate(total=Count("id"))
+        }
+        experiment_status_counts = {
+            row["status"]: row["total"]
+            for row in experiments.values("status").annotate(total=Count("id"))
+        }
+        type_names = sorted(
+            set(projects.values_list("project_type_code", flat=True))
+            | set(experiments.values_list("project__project_type_code", flat=True))
+        )
+        project_type_counts = {
+            row["project_type_code"]: row["total"]
+            for row in projects.values("project_type_code").annotate(total=Count("id"))
+        }
+        experiment_type_counts = {
+            row["project__project_type_code"]: row["total"]
+            for row in experiments.values("project__project_type_code").annotate(total=Count("id"))
+        }
+        today = timezone.localdate()
+        start_date = today - timedelta(days=29)
+        labels = [start_date + timedelta(days=offset) for offset in range(30)]
+        trend_rows = (
+            experiments.filter(created_at__date__gte=start_date)
+            .annotate(day=TruncDate("created_at"))
+            .values("day", "project__project_type_code")
+            .annotate(total=Count("id"))
+        )
+        trend_map = {
+            (row["day"], row["project__project_type_code"]): row["total"]
+            for row in trend_rows
+        }
+        recent_projects = []
+        for project in projects.filter(status=ProjectStatus.ACTIVE).order_by("planned_end_date", "-updated_at")[:6]:
+            milestone = next(
+                (item for item in project.milestones if item.get("state") == "current"),
+                next((item for item in project.milestones if item.get("state") == "todo"), None),
+            )
+            recent_projects.append(
+                {
+                    "id": str(project.id),
+                    "project_no": project.project_no,
+                    "name": project.name,
+                    "project_type": project.project_type_code,
+                    "owner_name": project.owner.display_name,
+                    "objectives": project.objectives,
+                    "planned_start_date": project.planned_start_date,
+                    "planned_end_date": project.planned_end_date,
+                    "milestone": milestone,
+                    "progress_percent": project.progress_percent,
+                    "is_followed": project.id in followed_ids,
+                }
+            )
+        return Response(
+            {
+                "data": {
+                    "project_metrics": {
+                        "total": projects.count(),
+                        "active": project_status_counts.get(ProjectStatus.ACTIVE, 0),
+                        "archived": project_status_counts.get(ProjectStatus.ARCHIVED, 0),
+                        "at_risk": project_status_counts.get(ProjectStatus.AT_RISK, 0),
+                    },
+                    "experiment_metrics": {
+                        "total": experiments.count(),
+                        "in_progress": experiment_status_counts.get(ExperimentStatus.IN_PROGRESS, 0),
+                        "completed": experiment_status_counts.get(ExperimentStatus.COMPLETED, 0),
+                    },
+                    "type_distribution": [
+                        {
+                            "name": type_name,
+                            "project_count": project_type_counts.get(type_name, 0),
+                            "experiment_count": experiment_type_counts.get(type_name, 0),
+                        }
+                        for type_name in type_names
+                    ],
+                    "trend": {
+                        "dates": [item.isoformat() for item in labels],
+                        "series": [
+                            {
+                                "name": type_name,
+                                "values": [trend_map.get((item, type_name), 0) for item in labels],
+                            }
+                            for type_name in type_names
+                        ],
+                    },
+                    "active_projects": recent_projects,
+                },
+                "request_id": getattr(request, "request_id", None),
+            }
+        )
+
+
+class ProjectFollowView(APIView):
+    """新增或取消当前用户对项目的关注。"""
+
+    def post(self, request, project_key: str) -> Response:
+        """关注项目。"""
+        project = _visible_project(request, project_key)
+        ProjectFollow.objects.get_or_create(
+            organization_id=request.user.organization_id,
+            project=project,
+            user=request.user,
+        )
+        return Response({"data": {"is_followed": True}})
+
+    def delete(self, request, project_key: str) -> Response:
+        """取消关注项目。"""
+        project = _visible_project(request, project_key)
+        ProjectFollow.objects.filter(project=project, user=request.user).delete()
+        return Response({"data": {"is_followed": False}})
 
 
 class ProjectDocumentListCreateView(APIView):

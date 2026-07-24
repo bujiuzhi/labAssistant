@@ -1,30 +1,83 @@
 <script setup lang="ts">
 import { Icon } from "@iconify/vue";
+import { ElMessage } from "element-plus";
+import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 
 import projectApprovalIcon from "@/assets/prototype/project-approval.svg";
 import laboratoryIcon from "@/assets/prototype/laboratory.svg";
 import PrototypeCharts from "@/components/dashboard/PrototypeCharts.vue";
-import { dashboardProjects } from "@/data/prototype-dashboard";
+import { getProblemDetail } from "@/api/http";
+import { projectApi } from "@/api/projects";
+import type { DashboardSummary } from "@/types/api";
 
 const router = useRouter();
+const loading = ref(true);
+const summary = ref<DashboardSummary | null>(null);
+
+const projects = computed(() => summary.value?.active_projects ?? []);
+const projectMetrics = computed(() => summary.value?.project_metrics);
+const experimentMetrics = computed(() => summary.value?.experiment_metrics);
+
+/** 加载当前用户可见范围内的实时汇总数据。 */
+async function loadDashboard(): Promise<void> {
+  loading.value = true;
+  try {
+    summary.value = await projectApi.dashboard();
+  } catch (error) {
+    const problem = getProblemDetail(error);
+    ElMessage.error(problem?.detail ?? "总览数据加载失败");
+  } finally {
+    loading.value = false;
+  }
+}
+
+/** 格式化空日期，避免展示虚构计划。 */
+function formatDate(value: string | null): string {
+  return value || "未设置";
+}
+
+/** 计算里程碑到期提示。 */
+function milestoneHint(date: string | undefined): string {
+  if (!date) return "未设置";
+  const target = new Date(`${date}T00:00:00+08:00`);
+  const today = new Date();
+  const days = Math.ceil((target.getTime() - today.getTime()) / 86_400_000);
+  if (days < 0) return `已逾期 ${Math.abs(days)} 天`;
+  if (days === 0) return "今日到期";
+  return `剩余 ${days} 天`;
+}
+
+/** 切换项目关注状态并立即反映到真实总览数据。 */
+async function toggleFollow(projectId: string, isFollowed: boolean): Promise<void> {
+  try {
+    const nextValue = await projectApi.setFollow(projectId, !isFollowed);
+    const item = projects.value.find((project) => project.id === projectId);
+    if (item) item.is_followed = nextValue;
+  } catch (error) {
+    const problem = getProblemDetail(error);
+    ElMessage.error(problem?.detail ?? "项目关注状态更新失败");
+  }
+}
+
+onMounted(loadDashboard);
 </script>
 
 <template>
-  <section class="overview-page">
+  <section v-loading="loading" class="overview-page">
     <section class="metric-groups" aria-label="项目与实验关键指标">
       <section class="metric-group metric-group-projects" aria-label="项目数据">
         <div class="metric-grid metric-grid-projects">
           <article class="metric-primary">
             <span class="metric-value">
               <img :src="projectApprovalIcon" alt="" />
-              <strong>20</strong>
+              <strong>{{ projectMetrics?.total ?? 0 }}</strong>
             </span>
             <span>项目总数</span>
           </article>
-          <article><strong>10</strong><span>进行中</span></article>
-          <article><strong>3</strong><span>已归档</span></article>
-          <article class="metric-risk"><strong>1</strong><span>风险项目</span></article>
+          <article><strong>{{ projectMetrics?.active ?? 0 }}</strong><span>进行中</span></article>
+          <article><strong>{{ projectMetrics?.archived ?? 0 }}</strong><span>已归档</span></article>
+          <article class="metric-risk"><strong>{{ projectMetrics?.at_risk ?? 0 }}</strong><span>风险项目</span></article>
         </div>
       </section>
 
@@ -33,17 +86,20 @@ const router = useRouter();
           <article class="metric-primary">
             <span class="metric-value">
               <img :src="laboratoryIcon" alt="" />
-              <strong>92</strong>
+              <strong>{{ experimentMetrics?.total ?? 0 }}</strong>
             </span>
             <span>实验总数</span>
           </article>
-          <article><strong>18</strong><span>进行中</span></article>
-          <article><strong>50</strong><span>已完成</span></article>
+          <article><strong>{{ experimentMetrics?.in_progress ?? 0 }}</strong><span>进行中</span></article>
+          <article><strong>{{ experimentMetrics?.completed ?? 0 }}</strong><span>已完成</span></article>
         </div>
       </section>
     </section>
 
-    <PrototypeCharts />
+    <PrototypeCharts
+      :type-distribution="summary?.type_distribution ?? []"
+      :trend="summary?.trend ?? { dates: [], series: [] }"
+    />
 
     <section class="project-section">
       <header class="project-section-heading">
@@ -55,12 +111,12 @@ const router = useRouter();
 
       <div class="project-grid">
         <article
-          v-for="project in dashboardProjects"
+          v-for="project in projects"
           :key="project.id"
           class="project-card"
           :class="{
-            'project-card-overdue': project.urgency === 'overdue',
-            'project-card-warning': project.urgency === 'warning',
+            'project-card-overdue': project.planned_end_date && new Date(project.planned_end_date) < new Date(),
+            'project-card-warning': project.milestone?.date && milestoneHint(project.milestone.date).startsWith('剩余'),
           }"
           tabindex="0"
           @click="router.push(`/projects/${project.id}`)"
@@ -71,32 +127,32 @@ const router = useRouter();
             <h3>{{ project.name }}</h3>
             <button
               type="button"
-              aria-label="关注项目"
-              title="关注项目"
-              @click.stop
+              :aria-label="project.is_followed ? '取消关注项目' : '关注项目'"
+              :title="project.is_followed ? '取消关注' : '关注项目'"
+              @click.stop="toggleFollow(project.id, project.is_followed)"
             >
-              <Icon icon="ri:star-line" />
+              <Icon :icon="project.is_followed ? 'ri:star-fill' : 'ri:star-line'" />
             </button>
           </header>
 
           <p class="project-field project-dates">
             <Icon icon="ri:calendar-line" />
-            <time>{{ project.startDate }}</time>
+            <time>{{ formatDate(project.planned_start_date) }}</time>
             <span>—</span>
-            <time>{{ project.endDate }}</time>
+            <time>{{ formatDate(project.planned_end_date) }}</time>
           </p>
 
           <dl class="project-meta project-field">
             <Icon icon="ri:price-tag-3-line" />
-            <div><dt>类型：</dt><dd>{{ project.type }}</dd></div>
-            <div><dt>负责人：</dt><dd>{{ project.owner }}</dd></div>
+            <div><dt>类型：</dt><dd>{{ project.project_type }}</dd></div>
+            <div><dt>负责人：</dt><dd>{{ project.owner_name }}</dd></div>
           </dl>
 
           <section class="project-objective project-field">
             <Icon icon="ri:focus-3-line" />
             <div>
               <span>目标：</span>
-              <p>{{ project.objective }}</p>
+              <p>{{ project.objectives[0] || '未设置项目目标' }}</p>
             </div>
           </section>
 
@@ -106,13 +162,16 @@ const router = useRouter();
               <span>里程碑</span>
               <div
                 class="milestone-due"
-                :class="`milestone-due-${project.urgency}`"
+                :class="{
+                  'milestone-due-overdue': project.milestone?.date && milestoneHint(project.milestone.date).startsWith('已逾期'),
+                  'milestone-due-warning': project.milestone?.date && milestoneHint(project.milestone.date).startsWith('剩余'),
+                }"
               >
                 <div>
-                  <strong>{{ project.milestoneName }}</strong>
-                  <time>{{ project.milestoneDate }}</time>
+                  <strong>{{ project.milestone?.name || '未设置里程碑' }}</strong>
+                  <time>{{ project.milestone?.date || '—' }}</time>
                 </div>
-                <b>{{ project.countdownText }}</b>
+                <b>{{ milestoneHint(project.milestone?.date) }}</b>
               </div>
             </div>
           </section>

@@ -1,6 +1,7 @@
 import { http } from "./http";
 import type {
   DataResponse,
+  DashboardSummary,
   PageResponse,
   Project,
   ProjectCreateInput,
@@ -12,6 +13,12 @@ import type {
 } from "@/types/api";
 
 export const projectApi = {
+  /** 查询当前用户数据范围内的实时总览。 */
+  async dashboard(): Promise<DashboardSummary> {
+    const response = await http.get<DataResponse<DashboardSummary>>("/dashboard");
+    return response.data.data;
+  },
+
   async list(filters: ProjectFilters = {}): Promise<PageResponse<Project>> {
     const response = await http.get<PageResponse<Project>>("/projects", {
       params: filters,
@@ -80,5 +87,13 @@ export const projectApi = {
       projectId,
     )}/documents/${encodeURIComponent(documentId)}/content`;
     return download ? `${base}?download=1` : base;
+  },
+
+  /** 关注或取消关注项目。 */
+  async setFollow(projectId: string, isFollowed: boolean): Promise<boolean> {
+    const response = isFollowed
+      ? await http.post<DataResponse<{ is_followed: boolean }>>(`/projects/${projectId}/follow`)
+      : await http.delete<DataResponse<{ is_followed: boolean }>>(`/projects/${projectId}/follow`);
+    return response.data.data.is_followed;
   },
 };

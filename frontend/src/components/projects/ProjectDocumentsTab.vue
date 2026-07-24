@@ -409,39 +409,13 @@ onMounted(loadDocuments);
           :src="projectApi.documentContentUrl(projectId, previewDocument.id)"
           :alt="previewDocument.name"
         />
-        <article v-else-if="previewKind === 'pdf'" class="pdf-preview">
-          <span>1 / 12</span>
-          <h2>{{ previewDocument.name.replace(/\.pdf$/i, "") }}</h2>
-          <h3>摘要</h3>
-          <p>
-            本文梳理项目相关材料体系的制备方法、结构调控机制及性能评价指标，
-            并结合阶段实验目标提出材料筛选与工艺优化建议。
-          </p>
-          <h3>关键词</h3>
-          <p>材料研发；配方筛选；结构调控；性能评价</p>
-        </article>
-        <div v-else-if="previewKind === 'sheet'" class="sheet-preview">
-          <table>
-            <thead>
-              <tr>
-                <th>配方编号</th><th>PLA / phr</th><th>PBAT / phr</th>
-                <th>相容剂 / phr</th><th>拉伸强度 / MPa</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr><td>F-301</td><td>70</td><td>30</td><td>2.0</td><td>48.6</td></tr>
-              <tr><td>F-302</td><td>65</td><td>35</td><td>2.5</td><td>46.9</td></tr>
-              <tr><td>F-303</td><td>60</td><td>40</td><td>3.0</td><td>44.7</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <article v-else-if="previewKind === 'slide'" class="slide-preview">
-          <span>项目中期汇报</span>
-          <h2>{{ previewDocument.related_content }}</h2>
-          <p>阶段研究进展与性能验证</p>
-          <small>{{ previewDocument.version_label }}</small>
-        </article>
-        <article v-else class="word-preview">
+        <iframe
+          v-else-if="previewKind === 'pdf'"
+          class="pdf-frame"
+          :src="projectApi.documentContentUrl(projectId, previewDocument.id)"
+          :title="`${previewDocument.name} 原文件预览`"
+        />
+        <article v-else class="file-preview-unavailable">
           <h2>{{ previewDocument.name }}</h2>
           <dl>
             <div><dt>文档分类</dt><dd>{{ previewDocument.category_label }}</dd></div>
@@ -449,11 +423,7 @@ onMounted(loadDocuments);
             <div><dt>业务版本</dt><dd>{{ previewDocument.version_label }}</dd></div>
             <div><dt>更新人员</dt><dd>{{ previewDocument.uploaded_by_name }}</dd></div>
           </dl>
-          <h3>项目实施方案</h3>
-          <p>
-            围绕材料性能、加工稳定性与实验可追溯性开展方案验证，形成标准化实验流程、
-            阶段成果及完整的数据链路。
-          </p>
+          <p>该格式暂不在浏览器内解析。为避免展示与原文件不一致的模拟内容，请下载原文件查看。</p>
         </article>
       </div>
       <template #footer>
@@ -750,6 +720,43 @@ onMounted(loadDocuments);
   background: #ffffff;
   border: 0;
 }
+
+.pdf-frame {
+  width: min(980px, 100%);
+  min-height: 62vh;
+  border: 0;
+  background: #fff;
+}
+
+.file-preview-unavailable {
+  width: min(820px, 100%);
+  min-height: 320px;
+  padding: 48px 54px;
+  background: #fff;
+  box-shadow: 0 12px 36px rgb(20 32 50 / 12%);
+}
+
+.file-preview-unavailable h2 {
+  margin: 0 0 28px;
+  text-align: center;
+}
+
+.file-preview-unavailable dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 18px;
+  background: #f8fafc;
+  gap: 14px;
+}
+
+.file-preview-unavailable dl div {
+  display: flex;
+  gap: 10px;
+}
+
+.file-preview-unavailable dt { color: var(--color-muted); }
+.file-preview-unavailable dd { margin: 0; }
+.file-preview-unavailable p { color: var(--color-ink-2); line-height: 1.9; }
 
 .word-preview,
 .pdf-preview,

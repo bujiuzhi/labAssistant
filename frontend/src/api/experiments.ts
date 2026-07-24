@@ -9,6 +9,22 @@ import type {
 } from "@/types/api";
 
 export const experimentApi = {
+  /** 上传电子实验记录的真实文件附件。 */
+  async uploadAttachment(
+    experimentNo: string,
+    file: File,
+    kind: "process_image" | "result_file",
+  ): Promise<Experiment> {
+    const body = new FormData();
+    body.append("file", file);
+    body.append("kind", kind);
+    const response = await http.post<DataResponse<Experiment>>(
+      `/experiments/${experimentNo}/attachments`,
+      body,
+    );
+    return response.data.data;
+  },
+
   /**
    * 查询当前用户可见实验
    *

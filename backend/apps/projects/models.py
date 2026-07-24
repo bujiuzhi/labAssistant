@@ -267,6 +267,58 @@ class ProjectMember(models.Model):
         return f"{self.project} - {self.user}"
 
 
+class ProjectFollow(models.Model):
+    """用户关注的项目。"""
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="主键",
+    )
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="project_follows",
+        db_comment="所属组织",
+    )
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="follows",
+        db_comment="关注项目",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="followed_projects",
+        db_comment="关注用户",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_comment="关注时间")
+
+    class Meta:
+        """项目关注表配置。"""
+
+        db_table = "project_follow"
+        db_table_comment = "项目关注"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "user"],
+                name="uk_project_follow_project_user",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["organization", "user", "-created_at"],
+                name="idx_project_follow_org_user",
+            )
+        ]
+
+    def __str__(self) -> str:
+        """返回项目关注关系。"""
+        return f"{self.user} 关注 {self.project}"
+
+
 class ProjectDocument(TimeStampedModel):
     """项目文档及其可追溯元数据。"""
 

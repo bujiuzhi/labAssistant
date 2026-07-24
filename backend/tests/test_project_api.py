@@ -31,6 +31,37 @@ def project_payload(owner_id) -> dict:
 
 
 @pytest.mark.django_db
+def test_dashboard_returns_realtime_counts_and_follow_state(api_client, manager_user) -> None:
+    """总览统计与项目关注状态必须来自真实数据库。"""
+    project = Project.objects.create(
+        organization=manager_user.organization,
+        project_no="PRJ-2026-DASH-001",
+        name="实时总览测试项目",
+        project_type_code="功能材料",
+        status=ProjectStatus.ACTIVE,
+        owner=manager_user,
+        created_by=manager_user,
+        updated_by=manager_user,
+    )
+    ProjectMember.objects.create(
+        organization=manager_user.organization,
+        project=project,
+        user=manager_user,
+        member_role=ProjectMemberRole.OWNER,
+        created_by=manager_user,
+    )
+    api_client.force_authenticate(manager_user)
+
+    summary = api_client.get("/api/v1/dashboard")
+    assert summary.status_code == 200
+    assert summary.json()["data"]["project_metrics"]["total"] == 1
+    follow = api_client.post(f"/api/v1/projects/{project.project_no}/follow", {}, format="json")
+    assert follow.status_code == 200
+    refreshed = api_client.get("/api/v1/dashboard").json()["data"]
+    assert refreshed["active_projects"][0]["is_followed"] is True
+
+
+@pytest.mark.django_db
 def test_create_project_is_idempotent(api_client, manager_user) -> None:
     """重复幂等请求只创建一个项目。"""
     api_client.force_authenticate(manager_user)

@@ -3,6 +3,7 @@
 import uuid
 
 from django.db.models import Q
+from django.http import FileResponse
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -11,16 +12,18 @@ from rest_framework.views import APIView
 
 from apps.common.pagination import EnvelopePageNumberPagination
 
-from .models import Experiment, ExperimentStatus
+from .models import Experiment, ExperimentAttachment, ExperimentStatus
 from .selectors import experiments_for_user
 from .serializers import (
     ExperimentCreateSerializer,
+    ExperimentAttachmentUploadSerializer,
     ExperimentSerializer,
     ExperimentStatusSerializer,
     ExperimentUpdateSerializer,
 )
 from .services import (
     copy_experiment,
+    create_experiment_attachment,
     create_experiment,
     transition_experiment,
     update_experiment,
@@ -192,6 +195,42 @@ class ExperimentDetailView(ExperimentObjectMixin, APIView):
             expected_version=_parse_if_match(request),
         )
         return _experiment_response(experiment, request)
+
+
+class ExperimentAttachmentListCreateView(ExperimentObjectMixin, APIView):
+    """上传电子实验记录的真实附件。"""
+
+    def post(self, request, experiment_key: str) -> Response:
+        """保存过程图片或结果附件，并返回最新实验记录。"""
+        experiment = self.get_object(request, experiment_key)
+        serializer = ExperimentAttachmentUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        create_experiment_attachment(
+            experiment=experiment,
+            actor=request.user,
+            validated_data=serializer.validated_data,
+        )
+        return _experiment_response(experiment, request, status.HTTP_201_CREATED)
+
+
+class ExperimentAttachmentContentView(ExperimentObjectMixin, APIView):
+    """读取或下载电子实验记录附件。"""
+
+    def get(self, request, experiment_key: str, attachment_id) -> FileResponse:
+        """按当前用户可见范围返回真实附件文件流。"""
+        experiment = self.get_object(request, experiment_key)
+        attachment = get_object_or_404(
+            ExperimentAttachment,
+            id=attachment_id,
+            experiment=experiment,
+            organization_id=request.user.organization_id,
+        )
+        return FileResponse(
+            attachment.file.open("rb"),
+            as_attachment=request.query_params.get("download") == "1",
+            filename=attachment.name,
+            content_type=attachment.mime_type or "application/octet-stream",
+        )
 
 
 class ExperimentCopyView(ExperimentObjectMixin, APIView):

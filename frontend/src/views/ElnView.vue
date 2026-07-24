@@ -395,53 +395,55 @@ function addExtraProcess(): void {
   });
 }
 
-function fileSizeLabel(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
-async function readFileDataUrl(file: File): Promise<string> {
-  return await new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
-
 async function addProcessImages(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement;
   const files = Array.from(input.files ?? []);
-  for (const file of files) {
-    if (file.size > 10 * 1024 * 1024) {
-      ElMessage.warning(`${file.name} 超过 10 MB，未添加`);
-      continue;
-    }
-    if (editor.process_images.length >= 20) {
-      ElMessage.warning("过程图片最多 20 张");
-      break;
-    }
-    editor.process_images.push({
-      name: file.name,
-      url: await readFileDataUrl(file),
-      size: fileSizeLabel(file.size),
-    });
+  const current = selectedExperiment.value;
+  if (!current) {
+    ElMessage.warning("请先创建实验计划后再上传真实过程图片");
+    input.value = "";
+    return;
   }
-  input.value = "";
+  try {
+    for (const file of files) {
+      if (file.size > 10 * 1024 * 1024) {
+        ElMessage.warning(`${file.name} 超过 10 MB，未添加`);
+        continue;
+      }
+      const updated = await experimentApi.uploadAttachment(current.experiment_no, file, "process_image");
+      replaceExperiment(updated);
+      replaceEditor(recordToEditor(updated));
+    }
+    ElMessage.success("过程图片已真实上传");
+  } catch (error) {
+    const problem = getProblemDetail(error);
+    ElMessage.error(problem?.detail ?? "过程图片上传失败");
+  } finally {
+    input.value = "";
+  }
 }
 
-function addResultFiles(event: Event): void {
+async function addResultFiles(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement;
-  Array.from(input.files ?? []).forEach((file) => {
-    if (editor.result_files.length < 30) {
-      editor.result_files.push({
-        name: file.name,
-        size: fileSizeLabel(file.size),
-      });
+  const current = selectedExperiment.value;
+  if (!current) {
+    ElMessage.warning("请先创建实验计划后再上传真实结果附件");
+    input.value = "";
+    return;
+  }
+  try {
+    for (const file of Array.from(input.files ?? [])) {
+      const updated = await experimentApi.uploadAttachment(current.experiment_no, file, "result_file");
+      replaceExperiment(updated);
+      replaceEditor(recordToEditor(updated));
     }
-  });
-  input.value = "";
+    ElMessage.success("结果附件已真实上传");
+  } catch (error) {
+    const problem = getProblemDetail(error);
+    ElMessage.error(problem?.detail ?? "结果附件上传失败");
+  } finally {
+    input.value = "";
+  }
 }
 
 function payloadFromEditor(): ExperimentWriteInput {
@@ -460,9 +462,7 @@ function payloadFromEditor(): ExperimentWriteInput {
     extra_tables: clone(editor.extra_tables),
     process_text: editor.process_text,
     extra_processes: clone(editor.extra_processes),
-    process_images: clone(editor.process_images),
     result_text: editor.result_text,
-    result_files: clone(editor.result_files),
   };
 }
 
@@ -1092,8 +1092,8 @@ onMounted(loadPage);
               </div>
               <div class="image-grid">
                 <figure
-                  v-for="(image, imageIndex) in editor.process_images"
-                  :key="`${image.name}-${imageIndex}`"
+                  v-for="image in editor.process_images"
+                  :key="image.id ?? image.url"
                   class="image-item"
                 >
                   <button
@@ -1103,15 +1103,6 @@ onMounted(loadPage);
                     @click="previewImage = image"
                   >
                     <img :src="image.url" :alt="image.name" />
-                  </button>
-                  <button
-                    v-if="canEdit"
-                    class="remove-media"
-                    type="button"
-                    aria-label="移除图片"
-                    @click="editor.process_images.splice(imageIndex, 1)"
-                  >
-                    <Icon icon="tabler:x" />
                   </button>
                   <span>{{ image.name }}</span>
                 </figure>
@@ -1147,21 +1138,14 @@ onMounted(loadPage);
             </div>
             <div class="file-list">
               <div
-                v-for="(file, fileIndex) in editor.result_files"
-                :key="`${file.name}-${fileIndex}`"
+                v-for="file in editor.result_files"
+                :key="file.id ?? file.name"
                 class="file-chip"
               >
                 <Icon icon="tabler:file-spreadsheet" />
-                <span>{{ file.name }}</span>
+                <a v-if="file.url" :href="file.url" :download="file.name">{{ file.name }}</a>
+                <span v-else>{{ file.name }}</span>
                 <small>{{ file.size }}</small>
-                <button
-                  v-if="canEdit"
-                  type="button"
-                  aria-label="移除附件"
-                  @click="editor.result_files.splice(fileIndex, 1)"
-                >
-                  <Icon icon="tabler:x" />
-                </button>
               </div>
             </div>
             <label v-if="canEdit" class="upload-file">

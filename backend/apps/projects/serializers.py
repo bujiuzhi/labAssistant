@@ -1,5 +1,7 @@
 """项目接口序列化器。"""
 
+from pathlib import Path
+
 from rest_framework import serializers
 
 from apps.identity.models import User, UserStatus
@@ -225,4 +227,11 @@ class ProjectDocumentCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError("单个文档不得超过 25 MB")
         if not value.name or len(value.name) > 255:
             raise serializers.ValidationError("文件名长度必须为 1–255 个字符")
+        extension = Path(value.name).suffix.lower().lstrip(".")
+        allowed_extensions = {
+            "doc", "docx", "pdf", "xls", "xlsx", "csv", "txt", "ppt", "pptx",
+            "png", "jpg", "jpeg", "webp",
+        }
+        if extension not in allowed_extensions:
+            raise serializers.ValidationError("不支持该文件格式")
         return value
