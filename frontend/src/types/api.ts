@@ -156,3 +156,97 @@ export interface ProjectFilters {
   owner_id?: string;
   ordering?: string;
 }
+
+export type ExperimentStatus = "not_started" | "in_progress" | "completed";
+
+export interface FormulaColumn {
+  id: string;
+  label: string;
+}
+
+export interface ExtraFormulaTable {
+  id: string;
+  name: string;
+  columns: FormulaColumn[];
+  rows: Record<string, string>[];
+}
+
+export interface ExtraProcess {
+  id: string;
+  name: string;
+  content: string;
+}
+
+export interface ProcessImage {
+  name: string;
+  url: string;
+  size?: string;
+}
+
+export interface ResultFile {
+  name: string;
+  size: string;
+}
+
+export interface ExperimentRecord {
+  formula_columns: FormulaColumn[];
+  formula_rows: Record<string, string>[];
+  extra_tables: ExtraFormulaTable[];
+  process_text: string;
+  extra_processes: ExtraProcess[];
+  process_images: ProcessImage[];
+  result_text: string;
+  result_files: ResultFile[];
+}
+
+export interface Experiment {
+  id: string;
+  experiment_no: string;
+  name: string;
+  project_id: string;
+  project_no: string;
+  project_name: string;
+  experiment_type: string;
+  phase: string;
+  status: ExperimentStatus;
+  purpose: string;
+  estimated_start: string | null;
+  estimated_end: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  owner_id: string;
+  owner_display_name: string;
+  participant_ids: string[];
+  participant_names: string[];
+  record: ExperimentRecord;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExperimentFilters {
+  page?: number;
+  page_size?: number;
+  search?: string;
+  status?: ExperimentStatus | "";
+  project_id?: string;
+}
+
+export interface ExperimentWriteInput {
+  project_id?: string;
+  name?: string;
+  experiment_type?: string;
+  purpose?: string;
+  estimated_start?: string | null;
+  estimated_end?: string | null;
+  owner_id?: string;
+  participant_ids?: string[];
+  formula_columns?: FormulaColumn[];
+  formula_rows?: Record<string, string>[];
+  extra_tables?: ExtraFormulaTable[];
+  process_text?: string;
+  extra_processes?: ExtraProcess[];
+  process_images?: ProcessImage[];
+  result_text?: string;
+  result_files?: ResultFile[];
+}

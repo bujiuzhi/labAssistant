@@ -144,7 +144,14 @@ erDiagram
 | `name` | `varchar(200)` | 是 |  | 项目名称 |
 | `project_type_code` | `varchar(64)` | 是 |  | 项目类型字典代码 |
 | `description` | `text` | 否 |  | 目标和范围说明 |
-| `status` | `varchar(24)` | 是 | `draft` | `draft/active/suspended/completed/archived` |
+| `current_stage` | `varchar(64)` | 是 | `方案设计` | 当前研发阶段 |
+| `progress_percent` | `smallint` | 是 | `0`，范围 0–100 | 由里程碑和实验聚合后物化的项目进度 |
+| `document_count` | `integer` | 是 | `0` | 关联文档数量缓存 |
+| `experiment_count` | `integer` | 是 | `0` | 关联实验数量缓存 |
+| `data_resource_count` | `integer` | 是 | `0` | 关联数据资源数量缓存 |
+| `objectives` | `jsonb` | 是 | `[]` | 研发总体目标字符串列表 |
+| `milestones` | `jsonb` | 是 | `[]` | 首期里程碑快照，元素含 `date/name/state` |
+| `status` | `varchar(24)` | 是 | `draft` | `draft/not_started/active/at_risk/suspended/completed/archived` |
 | `owner_id` | `uuid` | 是 | 外键用户 | 项目负责人 |
 | `planned_start_date` | `date` | 否 |  | 计划开始日期 |
 | `planned_end_date` | `date` | 否 | 不早于开始日期 | 计划结束日期 |
@@ -152,7 +159,9 @@ erDiagram
 | `archived_at` | `timestamptz` | 否 |  | 归档时间 |
 | `version` | `integer` | 是 | `1` | 乐观锁版本 |
 
-项目进度由里程碑和实验状态计算，不保存可被任意修改的 `progress` 字段。
+`progress_percent` 和三个数量字段是只读物化值，由领域服务根据里程碑、文档、实验和数据资源更新，
+不接受普通项目编辑接口直接修改。首期为对齐原型将里程碑保存在 `milestones` JSON；
+进入审批和归档流程前迁移到 4.3 的规范化表，迁移完成后移除 JSON 字段。
 
 ### 4.2 `project_member` 项目成员
 
@@ -304,22 +313,20 @@ MVP 阶段剩余数量用于记录，不实现仓储级强一致扣减；如启�
 | `organization_id` | `uuid` | 是 | 外键 | 所属组织 |
 | `experiment_no` | `varchar(32)` | 是 | 组织内唯一 | 实验编号 |
 | `project_id` | `uuid` | 是 | 外键 | 所属项目 |
-| `title` | `varchar(200)` | 是 |  | 实验标题 |
-| `experiment_type_code` | `varchar(64)` | 是 |  | 实验类型字典代码 |
-| `objective` | `text` | 是 |  | 实验目的 |
+| `name` | `varchar(200)` | 是 |  | 实验名称 |
+| `experiment_type` | `varchar(64)` | 是 |  | 实验类型 |
+| `phase` | `varchar(64)` | 是 | `方案设计` | 当前实验阶段 |
+| `purpose` | `text` | 否 |  | 实验目的 |
 | `owner_id` | `uuid` | 是 | 外键用户 | 实验负责人 |
-| `template_id` | `uuid` | 否 | 外键 | 来源工艺模板版本 |
-| `status` | `varchar(24)` | 是 | `draft` | 实验状态 |
-| `planned_start_at` | `timestamptz` | 否 |  | 计划开始时间 |
-| `planned_end_at` | `timestamptz` | 否 | 不早于开始时间 | 计划结束时间 |
-| `actual_start_at` | `timestamptz` | 否 |  | 实际开始时间 |
-| `actual_end_at` | `timestamptz` | 否 |  | 实际结束时间 |
-| `requires_testing` | `boolean` | 是 | `false` | 是否需要检测 |
-| `conclusion_summary` | `text` | 否 |  | 实验结论摘要 |
-| `submitted_at` | `timestamptz` | 否 |  | 计划提交时间 |
+| `status` | `varchar(24)` | 是 | `not_started` | `not_started/in_progress/completed` |
+| `estimated_start` | `timestamptz` | 否 |  | 预估开始时间 |
+| `estimated_end` | `timestamptz` | 否 | 不早于开始时间 | 预估结束时间 |
+| `started_at` | `timestamptz` | 否 |  | 实际开始时间 |
 | `completed_at` | `timestamptz` | 否 |  | 完成时间 |
-| `archived_at` | `timestamptz` | 否 |  | 归档时间 |
 | `version` | `integer` | 是 | `1` | 乐观锁版本 |
+
+索引覆盖组织状态、项目状态和负责人状态。当前状态机只允许
+`not_started → in_progress → completed`；`completed` 为只读终态。
 
 ### 6.2 `experiment_participant` 实验参与人
 
@@ -329,11 +336,12 @@ MVP 阶段剩余数量用于记录，不实现仓储级强一致扣减；如启�
 | `organization_id` | `uuid` | 是 | 外键 | 所属组织 |
 | `experiment_id` | `uuid` | 是 | 外键 | 实验 |
 | `user_id` | `uuid` | 是 | 外键 | 参与用户 |
-| `participant_role` | `varchar(24)` | 是 |  | `executor/collaborator/viewer` |
+| `participant_role` | `varchar(24)` | 是 | `participant` | `owner/participant/reviewer` |
 | `created_by_id` | `uuid` | 否 | 外键 | 分配用户 |
-| `created_at` | `timestamptz` | 是 | `now()` | 分配时间 |
+| `joined_at` | `timestamptz` | 是 | `now()` | 加入时间 |
 
-唯一约束为 `(experiment_id, user_id)`。实验负责人不要求重复写入参与人表；负责人和参与人均必须属于项目成员。
+唯一约束为 `(experiment_id, user_id)`。当前实现会为实验负责人写入 `owner` 关系，
+列表对象范围按“实验负责人或参与人”过滤。
 
 ### 6.3 `experiment_step` 实验步骤
 
@@ -370,25 +378,32 @@ MVP 阶段剩余数量用于记录，不实现仓储级强一致扣减；如启�
 
 同一材料可因不同批次或用途重复出现，不建立仅含 `(experiment_id, material_id)` 的唯一约束。
 
-### 6.5 `eln_record` 电子实验记录
+### 6.5 `experiment_record` 电子实验记录
 
 | 字段 | 类型 | 非空 | 约束/默认 | 说明 |
 |---|---|---:|---|---|
-| 通用审计字段 |  |  |  | 见 1.2 |
-| `organization_id` | `uuid` | 是 | 外键 | 所属组织 |
-| `record_no` | `varchar(32)` | 是 | 组织内唯一 | 记录编号 |
+| `id` | `uuid` | 是 | 主键 | 记录主键 |
 | `experiment_id` | `uuid` | 是 | 唯一外键 | 对应实验 |
-| `recorder_id` | `uuid` | 是 | 外键用户 | 主要记录人 |
-| `status` | `varchar(24)` | 是 | `draft` | `draft/recording/submitted/rejected/archived` |
-| `summary` | `text` | 否 |  | 过程摘要 |
-| `conclusion` | `text` | 否 |  | 结论 |
-| `started_at` | `timestamptz` | 否 |  | 开始记录时间 |
-| `submitted_at` | `timestamptz` | 否 |  | 提交时间 |
-| `archived_at` | `timestamptz` | 否 |  | 归档时间 |
-| `current_revision_no` | `integer` | 是 | `0` | 最新修订号 |
-| `version` | `integer` | 是 | `1` | 乐观锁版本 |
+| `formula_columns` | `jsonb` | 是 | `[]` | 动态配方列，元素含 `id/label` |
+| `formula_rows` | `jsonb` | 是 | `[]` | 以列 ID 为键的配方行 |
+| `extra_tables` | `jsonb` | 是 | `[]` | 自定义附加表格及列行 |
+| `process_text` | `text` | 否 |  | 实验过程文字 |
+| `extra_processes` | `jsonb` | 是 | `[]` | 自定义过程模块 |
+| `process_images` | `jsonb` | 是 | `[]` | 过程图片 `name/url/size` |
+| `result_text` | `text` | 否 |  | 实验结果，最大 1000 字 |
+| `result_files` | `jsonb` | 是 | `[]` | 结果附件 `name/size` 元数据 |
+| `created_at` | `timestamptz` | 是 | `now()` | 创建时间 |
+| `updated_at` | `timestamptz` | 是 | `now()` | 最后更新时间 |
 
-### 6.6 `eln_step_record` 步骤记录
+动态结构由 DRF 序列化器约束：配方列 ID 不重复、配方行不得包含未定义列；
+过程图片最多 20 张、单张前端限制 10 MB、序列化总量限制约 20 MB；结果附件最多 30 个。
+实验聚合根 `version` 负责计划与记录的并发控制。
+
+### 6.6 后续规范化模型
+
+以下 `eln_step_record`、`eln_revision` 等模型属于归档与合规阶段目标模型，当前迁移尚未创建。
+
+### 6.6.1 `eln_step_record` 步骤记录
 
 | 字段 | 类型 | 非空 | 约束/默认 | 说明 |
 |---|---|---:|---|---|
@@ -404,7 +419,7 @@ MVP 阶段剩余数量用于记录，不实现仓储级强一致扣减；如启�
 | `completed_at` | `timestamptz` | 否 |  | 步骤完成时间 |
 | `version` | `integer` | 是 | `1` | 乐观锁版本 |
 
-### 6.7 `eln_revision` ELN 修订
+### 6.6.2 `eln_revision` ELN 修订
 
 该表只追加，不更新、不删除。
 

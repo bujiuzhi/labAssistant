@@ -41,6 +41,11 @@ def manager_user(organization: Organization) -> User:
         "project.create",
         "project.update",
         "project.manage_members",
+        "experiment.view",
+        "experiment.view_all",
+        "experiment.create",
+        "experiment.update",
+        "experiment.execute",
     ]:
         permission = Permission.objects.create(
             permission_code=permission_code,
@@ -61,13 +66,22 @@ def researcher_user(organization: Organization, manager_user: User) -> User:
         display_name="研究人员",
         password="test-password-123",
     )
-    permission = Permission.objects.get(permission_code="project.view")
     role = Role.objects.create(
         organization=organization,
         role_code="researcher",
         name="研究人员",
     )
-    RolePermission.objects.create(role=role, permission=permission)
+    for permission_code in [
+        "project.view",
+        "experiment.view",
+        "experiment.create",
+        "experiment.update",
+        "experiment.execute",
+    ]:
+        RolePermission.objects.create(
+            role=role,
+            permission=Permission.objects.get(permission_code=permission_code),
+        )
     UserRole.objects.create(organization=organization, user=user, role=role)
     return user
 

@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     "apps.common",
     "apps.identity",
     "apps.projects",
+    "apps.experiments",
 ]
 
 MIDDLEWARE = [

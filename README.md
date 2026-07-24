@@ -4,7 +4,9 @@
 
 材料实验助手是面向材料研发团队的独立 Web 系统，围绕“项目管理、实验计划、电子实验记录、检测结果、报告归档”形成可追溯业务闭环。
 
-当前已进入首个纵向切片开发：完成组织内登录、工作台、项目查询、项目创建、项目详情与乐观锁更新。正式开发以 `docs/` 中批准的规范为依据。
+当前已完成组织内登录、超级管理员用户管理、工作台、项目管理与电子实验记录本纵向切片。
+ELN 已接通实验列表、项目/状态筛选、计划新增与复制、动态配方表、过程图片、结果附件、
+暂存、开始实验、完成状态只读和乐观锁更新。正式开发以 `docs/` 中批准的规范为依据。
 
 ## 目录结构
 
@@ -62,6 +64,8 @@ source .env
 set +a
 conda run -n materials-lab-assistant python3 backend/manage.py migrate
 conda run -n materials-lab-assistant python3 backend/manage.py bootstrap_development
+conda run -n materials-lab-assistant python3 backend/manage.py seed_development_projects
+conda run -n materials-lab-assistant python3 backend/manage.py seed_development_experiments
 
 conda run -n materials-lab-assistant python3 backend/manage.py runserver 0.0.0.0:8000
 conda run -n materials-lab-assistant pnpm --dir frontend install
@@ -70,12 +74,12 @@ conda run -n materials-lab-assistant pnpm --dir frontend dev
 
 开发账号如下，密码统一为 `00000000`：
 
-| 用户名 | 角色 |
-|---|---|
-| `admin` | 系统管理员 |
-| `manager` | 项目负责人 |
-| `researcher` | 研究人员 |
-| `inspector` | 检测人员 |
+| 用户名 | 姓名 | 角色 |
+|---|---|---|
+| `admin` | 刘李园 | 超级管理员 |
+| `manager` | 张伟 | 项目负责人 |
+| `researcher` | 李娜 | 研究人员 |
+| `inspector` | 王强 | 检测人员 |
 
 默认密码只适用于开发环境，生产部署必须通过环境变量覆盖并强制首次登录修改。
 

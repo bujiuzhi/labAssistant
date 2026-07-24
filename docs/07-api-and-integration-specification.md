@@ -123,10 +123,6 @@ X-CSRFToken: <csrf-token>
 | `POST` | `/auth/login` | 登录并轮换会话 |
 | `POST` | `/auth/logout` | 注销当前会话 |
 | `GET` | `/auth/users/options` | 查询当前组织有效用户，供负责人和成员选择 |
-| `GET/POST` | `/auth/users` | 超级管理员分页查询/创建当前组织用户 |
-| `GET/PATCH` | `/auth/users/{user_id}` | 超级管理员查看/更新普通用户、状态和角色 |
-| `POST` | `/auth/users/{user_id}/reset-password` | 超级管理员重置普通用户密码 |
-| `GET` | `/auth/roles/options` | 超级管理员查询可分配系统角色 |
 | `GET/POST` | `/materials` | 查询/创建材料 |
 | `GET/PATCH` | `/materials/{id}` | 查看/更新材料 |
 | `GET/POST` | `/materials/{id}/batches` | 查询/创建材料批次 |
@@ -152,19 +148,17 @@ X-CSRFToken: <csrf-token>
 
 | 方法 | 路径 | 权限/说明 |
 |---|---|---|
-| `GET/POST` | `/experiments` | 查询/新建实验 |
-| `GET/PATCH` | `/experiments/{id}` | 详情/更新计划 |
-| `POST` | `/experiments/{id}/submit` | 提交实验计划 |
-| `POST` | `/experiments/{id}/start` | 开始执行 |
-| `POST` | `/experiments/{id}/complete` | 完成实验 |
-| `POST` | `/experiments/{id}/cancel` | 取消实验 |
-| `GET` | `/experiments/{id}/eln-record` | 获取对应电子实验记录 |
-| `GET/PATCH` | `/eln-records/{id}` | 读取/保存记录草稿 |
-| `PUT` | `/eln-records/{id}/steps/{step_id}` | 幂等保存步骤记录 |
-| `POST` | `/eln-records/{id}/submit` | 提交记录并生成快照 |
-| `POST` | `/eln-records/{id}/reject` | 退回并要求填写原因 |
-| `POST` | `/eln-records/{id}/archive` | 归档并生成最终快照 |
-| `GET` | `/eln-records/{id}/revisions` | 查询修订历史 |
+| `GET` | `/experiments` | 查询可见实验；支持 `search/status/project_id/page/page_size` |
+| `POST` | `/experiments` | 新建未开始实验和一对一电子记录 |
+| `GET` | `/experiments/{experiment_key}` | 按 UUID 或实验编号读取计划与完整记录 |
+| `PATCH` | `/experiments/{experiment_key}` | 使用 `If-Match` 更新计划和记录；已完成实验只读 |
+| `POST` | `/experiments/{experiment_key}/copy` | 复制基础信息、配方和过程，清空结果和图片 |
+| `POST` | `/experiments/{experiment_key}/transition` | 使用 `If-Match` 执行 `not_started → in_progress → completed` |
+
+读取结构把一对一记录放在实验资源的 `record` 字段中，字段为
+`formula_columns/formula_rows/extra_tables/process_text/extra_processes/process_images/result_text/result_files`。
+这一聚合响应与原型单工作区保存方式一致，避免页面为一次保存拆分多次并发写入。独立 ELN 提交、
+退回、归档和修订接口属于下一阶段，未在当前服务暴露。
 
 ### 6.4 检测与报告
 

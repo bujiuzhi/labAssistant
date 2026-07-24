@@ -35,11 +35,8 @@ const router = createRouter({
         {
           path: "eln",
           name: "eln",
-          component: () => import("@/views/PlaceholderView.vue"),
-          meta: {
-            title: "电子实验记录本",
-            description: "电子实验记录本页面正在按原型复刻。",
-          },
+          component: () => import("@/views/ElnView.vue"),
+          meta: { title: "电子实验记录本" },
         },
         {
           path: "projects/:projectId",
