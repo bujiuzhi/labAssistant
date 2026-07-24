@@ -1,0 +1,38 @@
+:root {
+  --color-primary: #3157c8;
+  --color-primary-hover: #2748aa;
+  --color-primary-soft: #edf2ff;
+  --color-bg-page: #f5f7fb;
+  --color-bg-card: #ffffff;
+  --color-bg-sidebar: #172033;
+  --color-text-primary: #172033;
+  --color-text-secondary: #667085;
+  --color-text-tertiary: #98a2b3;
+  --color-border: #e4e7ec;
+  --color-border-strong: #d0d5dd;
+  --color-success: #168a5b;
+  --color-warning: #b76508;
+  --color-danger: #c9362b;
+  --color-info: #2563a8;
+  --radius-control: 6px;
+  --radius-card: 8px;
+  --shadow-popover: 0 12px 28px rgb(16 24 40 / 12%);
+  --sidebar-width: 220px;
+  --sidebar-collapsed-width: 64px;
+  --header-height: 56px;
+  --route-tabs-height: 36px;
+  --font-ui:
+    Inter, "SF Pro Text", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system,
+    sans-serif;
+}
+
+:root.dark {
+  --color-bg-page: #111827;
+  --color-bg-card: #182132;
+  --color-text-primary: #f3f4f6;
+  --color-text-secondary: #a9b3c4;
+  --color-text-tertiary: #7f8a9d;
+  --color-border: #2b3648;
+  --color-border-strong: #3b475b;
+  --color-primary-soft: #23366f;
+}

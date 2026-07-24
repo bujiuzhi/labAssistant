@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Django
+backend/db.sqlite3
+backend/staticfiles/
+backend/media/
+
+# 前端
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+playwright-report/
+test-results/
+
+# 环境与密钥
+.env
+.env.*
+!.env.example
+
+# 编辑器与系统
+.DS_Store
+.idea/
+.vscode/
+
+# 运行与构建
+*.log
+.run/
+tmp/
+dist/
+build/
