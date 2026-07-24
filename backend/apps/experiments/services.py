@@ -58,6 +58,10 @@ def create_experiment_attachment(
     kind = validated_data["kind"]
     if kind == ExperimentAttachmentKind.PROCESS_IMAGE and getattr(upload, "content_type", "") not in {"image/jpeg", "image/png", "image/webp"}:
         raise ValidationError({"file": ["过程图片仅支持 JPG、PNG、WEBP"]})
+    attachment_limit = 20 if kind == ExperimentAttachmentKind.PROCESS_IMAGE else 30
+    if experiment.attachments.filter(kind=kind).count() >= attachment_limit:
+        label = "过程图片" if kind == ExperimentAttachmentKind.PROCESS_IMAGE else "结果附件"
+        raise ValidationError({"file": [f"{label}最多 {attachment_limit} 个"]})
     attachment = ExperimentAttachment.objects.create(
         organization_id=experiment.organization_id,
         experiment=experiment,
