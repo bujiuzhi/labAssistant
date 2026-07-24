@@ -15,9 +15,9 @@ const pinia = createPinia();
 
 app.use(pinia);
 app.use(ElementPlus, { locale: zhCn });
-app.use(router);
 
 const sessionStore = useSessionStore();
 await sessionStore.initialize();
 
+app.use(router);
 app.mount("#app");

@@ -26,7 +26,7 @@ const route = useRoute();
 const router = useRouter();
 const sessionStore = useSessionStore();
 const editVisible = ref(false);
-const milestoneEditVisible = ref(false);
+const milestoneEditing = ref(false);
 const loading = ref(false);
 const submitting = ref(false);
 const loadError = ref("");
@@ -344,7 +344,7 @@ async function submitBasicEdit(): Promise<void> {
 }
 
 /**
- * 打开项目里程碑编辑弹窗
+ * 在项目里程碑卡片内打开编辑模式
  */
 function openMilestoneEditor(): void {
   if (!canEdit.value || !apiProject.value) {
@@ -360,7 +360,14 @@ function openMilestoneEditor(): void {
           state: "current",
         },
       ];
-  milestoneEditVisible.value = true;
+  milestoneEditing.value = true;
+}
+
+/**
+ * 取消项目里程碑编辑并放弃未保存内容
+ */
+function cancelMilestoneEdit(): void {
+  milestoneEditing.value = false;
 }
 
 /**
@@ -409,7 +416,7 @@ async function submitMilestones(): Promise<void> {
       apiProject.value.version,
       { milestones: milestonesToSave },
     );
-    milestoneEditVisible.value = false;
+    milestoneEditing.value = false;
     ElMessage.success("项目里程碑已更新");
   } catch (error) {
     const problem = getProblemDetail(error);
@@ -512,19 +519,46 @@ watch(() => route.params.projectId, loadProject);
           </div>
         </section>
 
-        <section class="detail-card milestone-card">
-          <header>
-            <h2>项目里程碑</h2>
+        <section
+          class="detail-card milestone-card"
+          data-testid="project-milestone-card"
+        >
+          <header class="milestone-card-head">
+            <div>
+              <h2>{{ milestoneEditing ? "编辑项目里程碑" : "项目里程碑" }}</h2>
+              <p v-if="milestoneEditing">
+                可新增、修改或删除阶段节点，保存后同步到项目总览。
+              </p>
+            </div>
             <button
-              v-if="canEdit"
+              v-if="canEdit && !milestoneEditing"
               class="edit-button"
               type="button"
+              data-testid="milestone-edit-button"
               @click="openMilestoneEditor"
             >
               <Icon icon="tabler:edit" />编辑
             </button>
+            <div v-else-if="milestoneEditing" class="milestone-card-actions">
+              <button
+                class="milestone-action-button"
+                type="button"
+                @click="cancelMilestoneEdit"
+              >
+                取消
+              </button>
+              <button
+                class="milestone-action-button primary"
+                type="button"
+                :disabled="submitting"
+                @click="submitMilestones"
+              >
+                <Icon icon="tabler:check" />
+                {{ submitting ? "保存中" : "保存" }}
+              </button>
+            </div>
           </header>
-          <div class="milestone-scroll">
+          <div v-if="!milestoneEditing" class="milestone-scroll">
             <div class="milestone-grid" :style="{ '--stage-count': milestones.length }">
               <article v-for="item in milestones" :key="item.stage" :class="item.state">
                 <span>{{ item.stage }}</span>
@@ -543,6 +577,54 @@ watch(() => route.params.projectId, loadProject);
                 {{ item.date }}
               </time>
             </div>
+          </div>
+          <div
+            v-else
+            class="milestone-editor"
+            data-testid="milestone-inline-editor"
+          >
+            <div class="milestone-editor-head">
+              <span>里程碑目标描述</span>
+              <span>计划时间</span>
+              <span>状态</span>
+              <span />
+            </div>
+            <div class="milestone-editor-rows">
+              <div
+                v-for="(item, index) in milestoneForm"
+                :key="index"
+                class="milestone-editor-row"
+              >
+                <input
+                  v-model="item.name"
+                  type="text"
+                  maxlength="500"
+                  placeholder="输入阶段目标"
+                  aria-label="里程碑目标描述"
+                />
+                <input
+                  v-model="item.date"
+                  type="date"
+                  aria-label="计划时间"
+                />
+                <select v-model="item.state" aria-label="里程碑状态">
+                  <option value="todo">未开始</option>
+                  <option value="current">当前阶段</option>
+                  <option value="done">已完成</option>
+                </select>
+                <button
+                  class="milestone-remove"
+                  type="button"
+                  aria-label="删除里程碑"
+                  @click="removeMilestone(index)"
+                >
+                  <Icon icon="tabler:trash" />
+                </button>
+              </div>
+            </div>
+            <button class="milestone-add" type="button" @click="addMilestone">
+              <Icon icon="tabler:plus" />新增里程碑
+            </button>
           </div>
         </section>
 
@@ -649,56 +731,6 @@ watch(() => route.params.projectId, loadProject);
         </template>
       </el-dialog>
 
-      <el-dialog
-        v-model="milestoneEditVisible"
-        title="编辑项目里程碑"
-        width="820px"
-        align-center
-      >
-        <div class="milestone-editor">
-          <div class="milestone-editor-head">
-            <span>里程碑目标描述</span>
-            <span>计划时间</span>
-            <span>状态</span>
-            <span />
-          </div>
-          <div
-            v-for="(item, index) in milestoneForm"
-            :key="index"
-            class="milestone-editor-row"
-          >
-            <el-input v-model="item.name" placeholder="输入阶段目标" maxlength="500" />
-            <el-date-picker
-              v-model="item.date"
-              type="date"
-              value-format="YYYY-MM-DD"
-              style="width: 100%"
-            />
-            <el-select v-model="item.state" style="width: 100%">
-              <el-option label="未开始" value="todo" />
-              <el-option label="当前阶段" value="current" />
-              <el-option label="已完成" value="done" />
-            </el-select>
-            <button
-              class="milestone-remove"
-              type="button"
-              aria-label="删除里程碑"
-              @click="removeMilestone(index)"
-            >
-              <Icon icon="tabler:trash" />
-            </button>
-          </div>
-          <button class="milestone-add" type="button" @click="addMilestone">
-            <Icon icon="tabler:plus" />新增里程碑
-          </button>
-        </div>
-        <template #footer>
-          <el-button @click="milestoneEditVisible = false">取消</el-button>
-          <el-button type="primary" :loading="submitting" @click="submitMilestones">
-            保存里程碑
-          </el-button>
-        </template>
-      </el-dialog>
     </template>
 
     <el-empty v-else-if="!loading" class="load-error" :description="loadError || '未找到项目'">
@@ -953,11 +985,60 @@ watch(() => route.params.projectId, loadProject);
 }
 
 .milestone-card {
+  overflow: hidden;
   padding-bottom: 16px;
 }
 
+.detail-card > .milestone-card-head {
+  min-height: 68px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-rule);
+}
+
+.milestone-card-head p {
+  margin: 3px 0 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.milestone-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.milestone-action-button {
+  display: inline-flex;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+  color: var(--color-ink-2);
+  background: var(--color-paper);
+  border: 1px solid var(--color-rule-2);
+  border-radius: 5px;
+  cursor: pointer;
+  gap: 5px;
+}
+
+.milestone-action-button.primary {
+  color: #ffffff;
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.milestone-action-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.milestone-action-button svg {
+  width: 15px;
+  height: 15px;
+}
+
 .milestone-scroll {
-  padding: 0 28px;
+  padding: 22px 28px 0;
   overflow-x: auto;
 }
 
@@ -1129,6 +1210,7 @@ watch(() => route.params.projectId, loadProject);
 
 .milestone-editor {
   display: grid;
+  padding: 16px;
   gap: 10px;
 }
 
@@ -1144,6 +1226,34 @@ watch(() => route.params.projectId, loadProject);
   padding: 0 2px;
   color: var(--color-muted);
   font-size: 12px;
+}
+
+.milestone-editor-rows {
+  display: grid;
+  gap: 10px;
+}
+
+.milestone-editor-row > input,
+.milestone-editor-row > select {
+  width: 100%;
+  height: 36px;
+  padding: 0 11px;
+  color: var(--color-ink);
+  font: inherit;
+  background: var(--color-paper);
+  border: 1px solid var(--color-rule-2);
+  border-radius: 5px;
+  outline: none;
+}
+
+.milestone-editor-row > input:focus,
+.milestone-editor-row > select:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent-soft);
+}
+
+.milestone-editor-row > input::placeholder {
+  color: var(--color-faint);
 }
 
 .milestone-remove,
@@ -1172,6 +1282,7 @@ watch(() => route.params.projectId, loadProject);
   width: fit-content;
   height: 34px;
   padding: 0 12px;
+  margin-top: 2px;
   color: var(--color-accent);
   gap: 5px;
 }
@@ -1189,6 +1300,26 @@ watch(() => route.params.projectId, loadProject);
 
   .progress-summary {
     grid-template-columns: 58px minmax(160px, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .milestone-editor-head {
+    display: none;
+  }
+
+  .milestone-editor-row {
+    grid-template-columns: minmax(0, 1fr) 40px;
+  }
+
+  .milestone-editor-row > input[type="date"],
+  .milestone-editor-row > select {
+    grid-column: 1;
+  }
+
+  .milestone-editor-row .milestone-remove {
+    grid-column: 2;
+    grid-row: 1 / 4;
   }
 }
 </style>
