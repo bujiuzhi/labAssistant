@@ -1,8 +1,8 @@
-"""初始化开发组织、权限、角色和管理员。"""
+"""初始化开发组织、权限、角色和角色账号。"""
 
 import os
 
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from apps.identity.models import (
@@ -36,11 +36,19 @@ ROLE_NAMES = {
     "inspector": "检测人员",
 }
 
+DEFAULT_DEVELOPMENT_PASSWORD = "00000000"
+
+DEVELOPMENT_USERS = [
+    ("manager", "项目负责人", "project_manager"),
+    ("researcher", "研究人员", "researcher"),
+    ("inspector", "检测人员", "inspector"),
+]
+
 
 class Command(BaseCommand):
     """初始化可重复执行的开发数据。"""
 
-    help = "初始化开发组织、系统角色、权限和管理员"
+    help = "初始化开发组织、系统角色、权限和四类开发账号"
 
     def add_arguments(self, parser) -> None:
         """注册命令参数。
@@ -54,8 +62,8 @@ class Command(BaseCommand):
         parser.add_argument("--admin-display-name", default="系统管理员")
         parser.add_argument(
             "--password-environment",
-            default="MATERIALS_LAB_ADMIN_PASSWORD",
-            help="读取管理员密码的环境变量名",
+            default="MATERIALS_LAB_DEVELOPMENT_PASSWORD",
+            help="读取开发账号统一密码的环境变量名，未设置时使用 8 个 0",
         )
 
     @transaction.atomic
@@ -66,13 +74,9 @@ class Command(BaseCommand):
             *args: 未使用的位置参数。
             **options: 命令参数。
 
-        Raises:
-            CommandError: 未提供管理员密码时抛出。
         """
         password_environment = options["password_environment"]
-        password = os.getenv(password_environment)
-        if not password:
-            raise CommandError(f"请通过环境变量 {password_environment} 提供管理员密码")
+        password = os.getenv(password_environment, DEFAULT_DEVELOPMENT_PASSWORD)
 
         organization, _ = Organization.objects.get_or_create(
             organization_code=options["organization_code"],
@@ -102,24 +106,39 @@ class Command(BaseCommand):
             )
             roles[role_code] = role
 
-        user, created = User.objects.get_or_create(
-            organization=organization,
-            username=options["admin_username"],
-            defaults={
-                "display_name": options["admin_display_name"],
-                "is_staff": True,
-                "is_superuser": True,
-            },
-        )
-        user.display_name = options["admin_display_name"]
-        user.is_staff = True
-        user.is_superuser = True
-        user.set_password(password)
-        user.save()
-        UserRole.objects.get_or_create(
-            organization=organization,
-            user=user,
-            role=roles["system_admin"],
-        )
-        action = "创建" if created else "更新"
-        self.stdout.write(self.style.SUCCESS(f"已{action}开发管理员 {user.username}"))
+        user_specs = [
+            (
+                options["admin_username"],
+                options["admin_display_name"],
+                "system_admin",
+                True,
+            ),
+            *[
+                (username, display_name, role_code, False)
+                for username, display_name, role_code in DEVELOPMENT_USERS
+            ],
+        ]
+        for username, display_name, role_code, is_admin in user_specs:
+            user, created = User.objects.get_or_create(
+                organization=organization,
+                username=username,
+                defaults={"display_name": display_name},
+            )
+            user.display_name = display_name
+            user.is_active = True
+            user.is_staff = is_admin
+            user.is_superuser = is_admin
+            user.is_super_admin = is_admin
+            user.set_password(password)
+            user.save()
+            UserRole.objects.get_or_create(
+                organization=organization,
+                user=user,
+                role=roles[role_code],
+            )
+            action = "创建" if created else "更新"
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"已{action}开发账号 {user.username}（{ROLE_NAMES[role_code]}）"
+                )
+            )

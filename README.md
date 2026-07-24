@@ -61,18 +61,31 @@ set -a
 source .env
 set +a
 conda run -n materials-lab-assistant python3 backend/manage.py migrate
-MATERIALS_LAB_ADMIN_PASSWORD='<开发管理员密码>' \
-  conda run -n materials-lab-assistant python3 backend/manage.py bootstrap_development
+conda run -n materials-lab-assistant python3 backend/manage.py bootstrap_development
 
 conda run -n materials-lab-assistant python3 backend/manage.py runserver 0.0.0.0:8000
 conda run -n materials-lab-assistant pnpm --dir frontend install
 conda run -n materials-lab-assistant pnpm --dir frontend dev
 ```
 
+开发账号如下，密码统一为 `00000000`：
+
+| 用户名 | 角色 |
+|---|---|
+| `admin` | 系统管理员 |
+| `manager` | 项目负责人 |
+| `researcher` | 研究人员 |
+| `inspector` | 检测人员 |
+
+默认密码只适用于开发环境，生产部署必须通过环境变量覆盖并强制首次登录修改。
+
 开发服务仅由远程服务器运行。若局域网端口未直接放行，在本机建立 SSH 隧道：
 
 ```bash
-ssh -N \
+ssh -f -N \
+  -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=15 \
+  -o ServerAliveCountMax=6 \
   -L 15173:127.0.0.1:5173 \
   -L 18000:127.0.0.1:8000 \
   bujiu@192.168.0.156

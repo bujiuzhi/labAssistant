@@ -111,6 +111,16 @@ async function submit(): Promise<void> {
           登录
         </el-button>
 
+        <div class="development-accounts">
+          <p>开发账号（统一密码：<code>00000000</code>）</p>
+          <div>
+            <code>admin</code>
+            <code>manager</code>
+            <code>researcher</code>
+            <code>inspector</code>
+          </div>
+        </div>
+
         <p class="security-note">登录会话仅保存在受保护的浏览器 Cookie 中</p>
       </form>
     </section>
@@ -277,6 +287,33 @@ async function submit(): Promise<void> {
   margin-top: 5px;
   background: #3157c8;
   border-color: #3157c8;
+}
+
+.development-accounts {
+  margin-top: 18px;
+  padding: 11px 12px;
+  color: #667085;
+  font-size: 11px;
+  background: #f8fafc;
+  border: 1px solid #eaecf0;
+  border-radius: 6px;
+}
+
+.development-accounts p {
+  margin: 0 0 8px;
+}
+
+.development-accounts div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.development-accounts code {
+  padding: 2px 5px;
+  color: #344054;
+  background: #eef2ff;
+  border-radius: 4px;
 }
 
 .security-note {
