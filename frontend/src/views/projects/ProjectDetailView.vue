@@ -10,7 +10,6 @@ import { userApi } from "@/api/users";
 import ProjectDataAssetsTab from "@/components/projects/ProjectDataAssetsTab.vue";
 import ProjectDocumentsTab from "@/components/projects/ProjectDocumentsTab.vue";
 import ProjectExperimentsTab from "@/components/projects/ProjectExperimentsTab.vue";
-import { prototypeProjects, type PrototypeProject } from "@/data/prototype-dashboard";
 import { useSessionStore } from "@/stores/session";
 import type {
   OrganizationUserOption,
@@ -59,6 +58,23 @@ interface ExtendedProjectFields {
   objectives: string[];
 }
 
+interface ProjectView {
+  id: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  type: string;
+  owner: string;
+  objective: string;
+  status: string;
+  stage: string;
+  progress: number;
+  documentCount: number;
+  experimentCount: number;
+  resourceCount: number;
+  updatedAt: string;
+}
+
 const projectTypeLabels: Record<string, string> = {
   research: "研发项目",
   validation: "验证项目",
@@ -71,7 +87,7 @@ const projectTypeLabels: Record<string, string> = {
  * @param source API 返回的项目
  * @returns 原型详情页展示项目
  */
-function adaptApiProject(source: Project): PrototypeProject {
+function adaptApiProject(source: Project): ProjectView {
   const extended = source as Project & Partial<ExtendedProjectFields>;
   const isArchived = ["completed", "archived"].includes(source.status);
   const isAtRisk = ["at_risk", "suspended"].includes(source.status);
@@ -85,10 +101,6 @@ function adaptApiProject(source: Project): PrototypeProject {
     type: projectTypeLabels[source.project_type_code] ?? source.project_type_code,
     owner: source.owner_display_name,
     objective: extended.objectives?.[0] ?? (source.description || "暂无项目目标"),
-    milestoneName: isArchived ? "项目已完成" : "完成当前阶段评审",
-    milestoneDate: source.planned_end_date ?? "未设置",
-    urgency: isAtRisk ? "warning" : "normal",
-    countdownText: isArchived ? "已完成" : "按计划推进",
     status: isArchived ? "已归档" : isAtRisk ? "有风险" : isActive ? "进行中" : "待开始",
     stage:
       extended.current_stage ??
@@ -102,16 +114,9 @@ function adaptApiProject(source: Project): PrototypeProject {
   };
 }
 
-const prototypeProject = computed(() =>
-  prototypeProjects.find((item) => item.id === String(route.params.projectId)),
+const project = computed<ProjectView | null>(() =>
+  apiProject.value ? adaptApiProject(apiProject.value) : null,
 );
-
-const project = computed<PrototypeProject | null>(() => {
-  if (apiProject.value) {
-    return adaptApiProject(apiProject.value);
-  }
-  return prototypeProject.value ?? null;
-});
 
 const projectTabs = ["概览", "文档资料", "实验管理", "数据资产"];
 const activeProjectTab = ref("概览");
@@ -160,82 +165,21 @@ const milestones = computed<MilestoneStage[]>(() => {
       state: item.state,
     }));
   }
-  const currentProject = project.value;
-  if (!currentProject) {
-    return [];
-  }
-  if (currentProject.id === "PRJ-2026-PI-005") {
-    return [
-      {
-        stage: "阶段 01",
-        name: "完成应用需求分解、原料选型与总体技术方案评审",
-        date: "2026-02-20",
-        state: "done",
-      },
-      {
-        stage: "阶段 02",
-        name: "完成聚酰胺酸合成路线筛选及溶液稳定性验证",
-        date: "2026-04-18",
-        state: "done",
-      },
-      {
-        stage: "阶段 03",
-        name: "完成精密流延与梯度亚胺化工艺窗口验证",
-        date: "2026-07-20",
-        state: "current",
-      },
-      {
-        stage: "阶段 04",
-        name: "完成薄膜热学、力学、介电性能及批次一致性评价",
-        date: "2026-09-25",
-        state: "todo",
-      },
-      {
-        stage: "阶段 05",
-        name: "完成百米级连续制膜中试评审与工艺包定版",
-        date: "2026-11-20",
-        state: "todo",
-      },
-    ];
-  }
-  return [
-    {
-      stage: "阶段 01",
-      name: "完成项目需求分解与技术方案评审",
-      date: currentProject.startDate,
-      state: "done",
-    },
-    {
-      stage: "阶段 02",
-      name: currentProject.milestoneName,
-      date: currentProject.milestoneDate,
-      state: "current",
-    },
-    {
-      stage: "阶段 03",
-      name: "完成性能验证与项目验收",
-      date: currentProject.endDate,
-      state: "todo",
-    },
-  ];
+  return [];
 });
 
 const memberNames = computed(() => {
   if (apiProject.value?.members.length) {
     return apiProject.value.members.map((member) => member.display_name);
   }
-  if (!project.value) {
-    return [];
-  }
-  const allMembers = [project.value.owner, "李娜", "赵敏", "刘洋"];
-  return [...new Set(allMembers)].slice(0, 3);
+  return [];
 });
 
 const objectiveItems = computed(() => {
   if (apiProject.value?.objectives.length) {
     return apiProject.value.objectives;
   }
-  return project.value?.objective ? [project.value.objective] : [];
+  return [];
 });
 
 const statusLabel = computed(() => {
@@ -249,7 +193,7 @@ const statusLabel = computed(() => {
 /**
  * 根据路由参数加载项目详情
  *
- * 项目 UUID 和业务编号均从真实项目 API 读取，接口不可用时保留原型只读兜底。
+ * 项目 UUID 和业务编号均从真实项目 API 读取，接口失败时不展示原型兜底数据。
  */
 async function loadProject(): Promise<void> {
   loading.value = true;
@@ -260,9 +204,7 @@ async function loadProject(): Promise<void> {
   } catch (error) {
     const problem = getProblemDetail(error);
     loadError.value = problem?.detail ?? "项目详情加载失败";
-    if (!prototypeProject.value) {
-      ElMessage.error(loadError.value);
-    }
+    ElMessage.error(loadError.value);
   } finally {
     loading.value = false;
   }
