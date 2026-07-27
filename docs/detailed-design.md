@@ -174,7 +174,7 @@ classDiagram
 | `experiment_record`* | `experiment_id`, `formula_columns`, `formula_rows`, `extra_tables`, `process_text`, `extra_processes`, `process_images`, `result_text`, `result_files` | `experiment_id` 一对一 | 结构化 ELN 正文 |
 | `experiment_attachment`* | `organization_id`, `experiment_id`, `kind`, `name`, `file`, `mime_type`, `file_size`, `uploaded_by_id` | 组织、实验、用途、创建时间索引 | 真实过程图片或结果附件 |
 | `experiment_participant` | `id`, `organization_id`, `experiment_id`, `user_id`, `participant_role`, `joined_at`, `created_by_id` | `(experiment_id, user_id)` 唯一；参与人查询索引 | 实验参与人 |
-| `idempotency_request` | `id`, `organization_id`, `user_id`, `idempotency_key`, `route_key`, `request_hash`, `status`, `response_status`, `response_body`, `created_at`, `expires_at` | 请求作用域和幂等键唯一；过期时间索引 | 创建和迁移请求去重 |
+| `idempotency_request` | `id`, `organization_id`, `user_id`, `idempotency_key`, `route_key`, `request_hash`, `status`, `response_status`, `response_body`, `created_at`, `expires_at` | 请求作用域和幂等键唯一；过期时间索引 | 当前用于项目创建请求去重，并保留为通用幂等模型 |
 
 ### 3.4 状态和值域
 
@@ -223,7 +223,7 @@ flowchart LR
 |---|---|---|
 | 健康检查 | `GET /health/live`、`GET /health/ready` | 进程存活和依赖就绪状态 |
 | 认证 | `GET /auth/csrf`、`POST /auth/login`、`POST /auth/logout`、`GET /auth/session` | CSRF、登录、注销和会话恢复 |
-| 用户管理 | `GET/POST /auth/users`、`PATCH/DELETE /auth/users/{id}`、`POST /auth/users/{id}/reset-password`、`GET /auth/users/options`、`GET /auth/roles/options` | 超级管理员用户管理与人员选项 |
+| 用户管理 | `GET/POST /auth/users`、`GET/PATCH /auth/users/{id}`、`POST /auth/users/{id}/reset-password`、`GET /auth/users/options`、`GET /auth/roles/options` | 超级管理员用户管理与人员选项；当前通过停用而非删除账号 |
 | 工作台 | `GET /dashboard` | 当前可见范围内项目/实验统计和趋势 |
 | 项目 | `GET/POST /projects`、`GET/PATCH /projects/{key}` | 项目列表、创建、详情和编辑 |
 | 项目关注 | `POST/DELETE /projects/{key}/follow` | 新增或取消关注 |
@@ -233,7 +233,7 @@ flowchart LR
 
 ### 4.1 请求、响应与错误约定
 
-除文件流接口外，成功响应使用 JSON。列表响应使用 `data` 数组和 `meta` 分页信息；单对象响应以 `data` 包装。分页默认每页 20 条，客户端可用 `page`、`page_size` 控制，单页最大 100 条。每个统一响应都会返回 `request_id`，用于定位服务端日志。
+除文件流接口外，成功响应使用 JSON。列表响应使用 `data` 数组和 `meta` 分页信息；单对象响应以 `data` 包装。分页默认每页 20 条，客户端可用 `page`、`page_size` 控制，单页最大 100 条。所有响应均由中间件写入 `X-Request-ID`；标准业务 JSON 通常同时在响应体提供 `request_id`，少量简单操作仅提供 `data`，客户端应以响应头作为统一追踪入口。
 
 | 场景 | HTTP 状态 | 响应特征 | 客户端处理 |
 |---|---:|---|---|

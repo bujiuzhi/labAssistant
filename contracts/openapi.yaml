@@ -3,8 +3,9 @@ info:
   title: 材料实验管理系统 API
   version: 0.3.0
   description: |
-    项目 MVP 的机器可读接口基线。业务语义、分页、错误和并发规则见
-    docs/detailed-design.md。
+    项目接口的机器可读草案。已实现接口的业务语义、分页、错误和并发规则见
+    docs/detailed-design.md；Testing、Reports、Notifications 等标签为后续规划，
+    不代表当前服务已提供对应接口。
 servers:
   - url: /api/v1
     description: 当前环境

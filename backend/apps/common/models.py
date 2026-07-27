@@ -25,7 +25,7 @@ class TimeStampedModel(models.Model):
 
 
 class IdempotencyRequest(models.Model):
-    """创建和状态迁移请求的幂等记录。"""
+    """项目创建请求的幂等记录，预留为通用幂等模型。"""
 
     class Status(models.TextChoices):
         """幂等请求状态。"""
