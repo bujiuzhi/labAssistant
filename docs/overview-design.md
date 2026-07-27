@@ -102,6 +102,48 @@ flowchart TB
 | 实验与 ELN | 实验、参与人、ELN、附件 | 实验计划、状态迁移、过程和结果留存 | 不实现检测或报告业务 |
 | 公共能力 | 幂等请求、分页、错误响应、请求编号 | 创建去重、并发冲突、统一错误模型 | 不包含业务规则本身 |
 
+### 5.1 用例图（UML）
+
+下图以系统权限和对象范围为前提描述主要用例。项目负责人、研究人员和检测人员可由同一账号在不同项目中承担不同成员身份；图中“管理”不等于绕过后端权限校验。
+
+```mermaid
+---
+title: 材料实验助手主要用例图
+---
+flowchart LR
+    Admin["超级管理员"]:::actor
+    Manager["项目负责人"]:::actor
+    Researcher["研究人员"]:::actor
+    Inspector["检测人员 / 只读成员"]:::actor
+
+    UserAdmin["管理组织用户<br/>创建、停用、重置密码"]:::usecase
+    ProjectAdmin["管理项目<br/>目标、成员、里程碑、计划"]:::usecase
+    ProjectRead["查看授权项目<br/>概览、成员、进度"]:::usecase
+    Document["管理项目文档<br/>上传、下载、真实预览"]:::usecase
+    Experiment["管理实验计划<br/>创建、复制、筛选、迁移"]:::usecase
+    Eln["维护电子实验记录本<br/>配方、过程、结果、附件"]:::usecase
+    ExperimentRead["查看授权实验与附件"]:::usecase
+
+    Admin --> UserAdmin
+    Admin --> ProjectAdmin
+    Admin --> Document
+    Admin --> Experiment
+    Manager --> ProjectAdmin
+    Manager --> ProjectRead
+    Manager --> Document
+    Manager --> Experiment
+    Manager --> Eln
+    Researcher --> ProjectRead
+    Researcher --> Document
+    Researcher --> Experiment
+    Researcher --> Eln
+    Inspector --> ProjectRead
+    Inspector --> ExperimentRead
+
+    classDef actor fill:#0B2341,stroke:#0B2341,stroke-width:1px,color:#FFFFFF,rx:10,ry:10;
+    classDef usecase fill:#EAF3FF,stroke:#7AA7D9,stroke-width:1px,color:#1F2A44,rx:10,ry:10;
+```
+
 ## 6. 关键流程
 
 ### 6.1 项目到实验的业务闭环
@@ -158,6 +200,49 @@ flowchart LR
 | PostgreSQL | Docker Compose | 独立 Docker 数据卷 | 必须执行备份和恢复演练 |
 | Redis | Docker Compose | 独立 Docker 数据卷 | 后续 Celery 启用前配置监控和重试策略 |
 | LibreOffice | 服务器系统依赖 | 文档预览缓存 | 转换失败不得降级为模拟预览 |
+
+### 8.1 生产部署拓扑（目标架构）
+
+下图是生产环境推荐拓扑，不代表当前开发服务器已经部署 Nginx、Gunicorn/Uvicorn 或 Celery Worker。当前开发环境仍按本章开头的 Vite `5173` 和 Django `8000` 双进程运行；生产上线前应按《开发部署与运维指南》完成替换与演练。
+
+```mermaid
+---
+title: 材料实验助手生产部署拓扑（目标）
+---
+flowchart TB
+    Browser["研发人员浏览器"]:::client
+    Gateway["HTTPS 反向代理<br/>静态文件、TLS、访问日志"]:::gateway
+    Web["Vue 构建产物<br/>静态资源"]:::process
+    Api["Django WSGI / ASGI 进程<br/>Session、CSRF、RBAC"]:::process
+    Worker["Celery Worker<br/>预览、通知等后续异步任务"]:::process
+    Database[("PostgreSQL<br/>业务数据、迁移记录")]:::storage
+    Cache[("Redis<br/>缓存、任务队列")]:::storage
+    Media[("受控媒体目录 / 对象存储<br/>文档、附件、预览缓存")]:::storage
+    Office["LibreOffice 无头服务<br/>办公文件转 PDF"]:::process
+    Backup["备份库<br/>数据库转储 + 媒体快照"]:::backup
+
+    Browser -->|"HTTPS"| Gateway
+    Gateway --> Web
+    Gateway -->|"/api/v1"| Api
+    Api --> Database
+    Api --> Cache
+    Api --> Media
+    Api --> Office
+    Office --> Media
+    Cache -. "任务消息" .-> Worker
+    Worker --> Database
+    Worker --> Media
+    Database -. "定期备份" .-> Backup
+    Media -. "定期备份" .-> Backup
+
+    classDef client fill:#0B2341,stroke:#0B2341,stroke-width:1px,color:#FFFFFF,rx:10,ry:10;
+    classDef gateway fill:#FFF7D6,stroke:#D4A63A,stroke-width:1px,color:#1F2A44,rx:10,ry:10;
+    classDef process fill:#EAF3FF,stroke:#7AA7D9,stroke-width:1px,color:#1F2A44,rx:10,ry:10;
+    classDef storage fill:#FDECF2,stroke:#C989A1,stroke-width:1px,color:#5D273B,rx:10,ry:10;
+    classDef backup fill:#EEF8EC,stroke:#88B47E,stroke-width:1px,color:#1F2A44,rx:10,ry:10;
+```
+
+生产部署的网络边界为：浏览器只能访问反向代理公开的 HTTPS 入口；数据库、Redis 和媒体目录仅对应用进程和备份任务开放；办公转换程序不直接对外暴露端口。代码、数据库备份和媒体备份必须记录同一应用提交号，才能保证恢复后引用关系一致。
 
 ## 9. 质量与风险
 

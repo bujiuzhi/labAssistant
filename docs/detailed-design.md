@@ -68,6 +68,91 @@ erDiagram
     USER_ACCOUNT ||--o{ IDEMPOTENCY_REQUEST : "发起"
 ```
 
+### 3.2.1 领域类图（UML）
+
+类图强调聚合根、核心属性和关联方向，不替代上一节的字段表与 Migration。UUID、创建时间、更新时间等通用继承字段在图中省略，以保持可读性。
+
+```mermaid
+---
+title: 核心领域类图
+---
+classDiagram
+    class Organization {
+        +UUID id
+        +String organization_code
+        +String name
+        +String status
+    }
+    class User {
+        +UUID id
+        +String username
+        +String display_name
+        +Boolean is_super_admin
+        +permission_codes()
+    }
+    class Role {
+        +String role_code
+        +String name
+        +Boolean is_system
+    }
+    class Permission {
+        +String permission_code
+        +String module_code
+    }
+    class Project {
+        +UUID id
+        +String project_no
+        +String name
+        +String status
+        +Integer version
+        +JSON objectives
+        +JSON milestones
+    }
+    class ProjectMember {
+        +String member_role
+        +DateTime joined_at
+    }
+    class ProjectDocument {
+        +String name
+        +String category
+        +String file
+        +Integer file_size
+    }
+    class Experiment {
+        +UUID id
+        +String experiment_no
+        +String status
+        +Integer version
+        +String phase
+    }
+    class ExperimentRecord {
+        +JSON formula_columns
+        +JSON formula_rows
+        +String process_text
+        +String result_text
+    }
+    class ExperimentAttachment {
+        +String kind
+        +String name
+        +String file
+        +Integer file_size
+    }
+
+    Organization "1" --> "*" User : 组织用户
+    Organization "1" --> "*" Role : 定义角色
+    Role "*" --> "*" Permission : 授予权限
+    User "*" --> "*" Role : 分配角色
+    Organization "1" --> "*" Project : 数据隔离
+    User "1" --> "*" Project : 负责
+    Project "1" --> "*" ProjectMember : 成员关系
+    User "1" --> "*" ProjectMember : 加入
+    Project "1" --> "*" ProjectDocument : 归档文档
+    Project "1" --> "*" Experiment : 包含实验
+    User "1" --> "*" Experiment : 负责
+    Experiment "1" --> "1" ExperimentRecord : ELN 正文
+    Experiment "1" --> "*" ExperimentAttachment : 真实附件
+```
+
 ### 3.3 表与关键字段
 
 下表列出已实现表的完整业务字段集合；所有带 `*` 的表还继承或自定义了 `id` 与时间字段，外键实际列以 `_id` 结尾。
@@ -102,6 +187,34 @@ erDiagram
 | 实验附件 | `process_image`、`result_file` | 附件数量和总大小由服务层校验 |
 | 幂等请求 | `processing`、`completed`、`failed` | 同一键不同请求体返回校验错误 |
 
+### 3.4.1 实验状态机（UML）
+
+实验状态迁移只有一个正式写入口：`POST /experiments/{key}/transition`。服务端在数据库事务中校验 `experiment.execute` 权限、对象范围、`If-Match` 版本和目标状态；不允许跳过“进行中”直接完成，也不支持完成后回退。
+
+```mermaid
+---
+title: 实验状态机
+---
+flowchart LR
+    Create["创建实验"]:::process
+    NotStarted["未开始<br/>phase=方案设计"]:::state
+    InProgress["进行中<br/>phase=实验执行"]:::state
+    Completed["已完成<br/>phase=检测分析"]:::success
+    Locked["禁止编辑 ELN、计划字段和附件"]:::failure
+
+    Create --> NotStarted
+    NotStarted -->|"transition: in_progress<br/>记录 started_at"| InProgress
+    InProgress -->|"transition: completed<br/>记录 completed_at"| Completed
+    Completed -. "写入请求拒绝" .-> Locked
+
+    classDef process fill:#EAF3FF,stroke:#7AA7D9,stroke-width:1px,color:#1F2A44,rx:10,ry:10;
+    classDef state fill:#FFFFFF,stroke:#D4A63A,stroke-width:1px,color:#1F2A44,rx:10,ry:10;
+    classDef success fill:#EEF8EC,stroke:#88B47E,stroke-width:1px,color:#1F2A44,rx:10,ry:10;
+    classDef failure fill:#FDECEC,stroke:#D98989,stroke-width:1px,color:#6A2525,rx:10,ry:10;
+```
+
+项目状态当前是项目属性和编辑限制条件，而不是独立状态迁移接口：`draft`、`not_started`、`active`、`at_risk`、`suspended` 允许在权限和负责人范围内编辑；`completed`、`archived` 拒绝项目编辑和文档上传。若后续增加项目状态迁移，必须先补充状态机、迁移接口、权限码和回归测试。
+
 ## 4. API 设计
 
 全部接口前缀为 `/api/v1`，认证依赖同域 Session。响应中的正常数据使用 `data`，列表使用分页信封，错误由统一 Problem Details 处理；重要写操作返回 `ETag`，后续更新使用 `If-Match`。
@@ -118,7 +231,7 @@ erDiagram
 | 实验 | `GET/POST /experiments`、`GET/PATCH /experiments/{key}`、`POST /.../copy`、`POST /.../transition` | 实验计划、ELN 更新、复制、状态迁移 |
 | 实验附件 | `POST /experiments/{key}/attachments`、`GET /.../attachments/{id}/content` | 上传与读取真实附件 |
 
-### 4.1.1 请求、响应与错误约定
+### 4.1 请求、响应与错误约定
 
 除文件流接口外，成功响应使用 JSON。列表响应使用 `data` 数组和 `meta` 分页信息；单对象响应以 `data` 包装。分页默认每页 20 条，客户端可用 `page`、`page_size` 控制，单页最大 100 条。每个统一响应都会返回 `request_id`，用于定位服务端日志。
 
@@ -134,7 +247,7 @@ erDiagram
 
 Problem Details 的核心字段为 `type`、`title`、`status`、`code`、`detail`、`instance`、`request_id`，字段级错误附于 `field_errors`。前端 Axios 层统一识别这一结构，业务页面不自行拼接后端错误。
 
-### 4.1.2 写入接口的并发和幂等规则
+### 4.2 写入接口的并发和幂等规则
 
 | 操作 | 必填请求头 | 服务端行为 | 返回关键头 |
 |---|---|---|---|
@@ -143,7 +256,7 @@ Problem Details 的核心字段为 `type`、`title`、`status`、`code`、`detai
 | 更新实验或 ELN | `If-Match: "<version>"` | 同时校验实验计划与 ELN 内容；完成实验拒绝写入 | 新 `ETag` |
 | 实验状态迁移 | `If-Match: "<version>"` | 仅允许目标状态为进行中或已完成，服务端记录实际开始/完成时间 | 新 `ETag` |
 
-### 4.1.3 关键请求字段
+### 4.3 关键请求字段
 
 | 资源 | 创建/更新字段 | 关键校验 |
 |---|---|---|
@@ -153,7 +266,7 @@ Problem Details 的核心字段为 `type`、`title`、`status`、`code`、`detai
 | ELN 配方 | `formula_columns`、`formula_rows`、`extra_tables` | 列 ID 不重复；行数据不得包含未定义列 |
 | ELN 过程与结果 | `process_text`、`extra_processes`、`process_images`、`result_text`、`result_files` | 过程文字最长 50,000；过程图片最多 20 张；结果附件元数据最多 30 条 |
 
-### 4.1 项目更新时序
+### 4.4 项目更新时序
 
 ```mermaid
 ---
