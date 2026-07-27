@@ -2,7 +2,7 @@
 
 ## 1. 文档目的与基线
 
-本文件将既有专题规范收敛为面向评审、实施和交接的概要设计。它描述已实现系统的范围、架构、关键约束与部署方式；字段级定义、接口参数和测试用例分别以关联文档为准。
+本文件是项目唯一的概要设计，面向评审、实施和交接。它描述已实现系统的范围、架构、关键约束、路线图与部署方式；字段级定义、接口参数和测试用例以《详细设计》和代码实现为准。
 
 | 属性 | 值 |
 |---|---|
@@ -10,7 +10,7 @@
 | 代码基线 | `dev` 分支，提交 `df47bf7` |
 | 更新日期 | 2026-07-27 |
 | 适用范围 | 项目管理、项目文档、实验管理、电子实验记录本、用户管理 |
-| 正式细化来源 | [数据字典](06-data-model-and-dictionary.md)、[接口规范](07-api-and-integration-specification.md)、[权限规范](08-security-permission-and-audit.md) |
+| 正式细化来源 | [详细设计](14-detailed-design.md)、`backend/apps/`、Django Migration、自动化测试 |
 
 ## 2. 建设目标与范围
 
@@ -151,12 +151,8 @@ flowchart LR
 | 开发服务器直接暴露 | 适用于局域网开发 | 生产部署统一接入 HTTPS、反向代理和进程守护 |
 | 文档、测试、报告等扩展域未实现 | 在专题规范中明确为规划 | 按领域迁移、契约和验收用例逐步实现 |
 
-## 10. 关联文档
+## 10. 规范组成
 
-- [产品范围与需求基线](01-product-scope-and-requirements.md)
-- [系统总体设计](02-system-architecture.md)
-- [UI/UX 设计规范](03-ui-ux-design-specification.md)
-- [前端技术规范](04-frontend-technical-specification.md)
-- [后端技术规范](05-backend-technical-specification.md)
-- [数据模型与字段字典](06-data-model-and-dictionary.md)
-- [详细设计](14-detailed-design.md)
+- [详细设计](14-detailed-design.md)：已实现的结构、字段、接口、权限和测试映射。
+- [开发部署与运维指南](03-development-operations-guide.md)：环境、测试、发布、备份、协作和文档维护。
+- [文档中心](README.md)：三份规范的阅读路径和当前代码基线。

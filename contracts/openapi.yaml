@@ -4,7 +4,7 @@ info:
   version: 0.3.0
   description: |
     项目 MVP 的机器可读接口基线。业务语义、分页、错误和并发规则见
-    docs/07-api-and-integration-specification.md。
+    docs/14-detailed-design.md。
 servers:
   - url: /api/v1
     description: 当前环境

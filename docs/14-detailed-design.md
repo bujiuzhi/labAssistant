@@ -2,14 +2,14 @@
 
 ## 1. 文档范围与事实来源
 
-本文件描述 `dev` 分支提交 `df47bf7` 中已经实现的详细设计。实现事实以 Django Model、Migration、Serializer、View 和前端接口调用为准；专题规范用于说明业务语义。未实现的检测、报告、材料主数据和完整审计功能不在本文实现范围内。
+本文件是项目唯一的详细设计，描述 `dev` 分支提交 `ded1dfc` 中已经实现的结构。实现事实以 Django Model、Migration、Serializer、View、前端接口调用和自动化测试为准。未实现的检测、报告、材料主数据和完整审计功能不在本文实现范围内。
 
-| 设计对象 | 实现唯一来源 | 业务说明来源 |
+| 设计对象 | 当前事实来源 | 使用说明 |
 |---|---|---|
-| 数据库物理结构 | `backend/apps/*/migrations/` | [数据模型与字段字典](06-data-model-and-dictionary.md) |
-| API 路径与行为 | `backend/apps/*/urls.py`、`views.py` | [API 与集成规范](07-api-and-integration-specification.md) |
-| 权限与数据范围 | `identity/models.py`、selectors、services | [安全、权限与审计规范](08-security-permission-and-audit.md) |
-| 页面与交互 | `frontend/src/` | [UI/UX 设计规范](03-ui-ux-design-specification.md) |
+| 数据库物理结构 | `backend/apps/*/migrations/` | 新增字段必须先更新 Migration，再更新本文 |
+| API 路径与行为 | `backend/apps/*/urls.py`、`views.py` | 本文仅汇总公开资源和关键行为 |
+| 权限与数据范围 | `identity/models.py`、selectors、services | 前端按钮不是授权依据 |
+| 页面与交互 | `frontend/src/` | 以真实 API 返回的数据和当前页面为准 |
 
 ## 2. 实现结构
 

@@ -28,15 +28,11 @@ materials-lab-assistant/
 
 项目文档索引见 [docs/README.md](docs/README.md)。
 
-关键规范：
+正式规范仅保留三份：
 
-- [产品范围与需求基线](docs/01-product-scope-and-requirements.md)
-- [系统总体设计](docs/02-system-architecture.md)
-- [UI/UX 设计规范](docs/03-ui-ux-design-specification.md)
-- [数据模型与字段字典](docs/06-data-model-and-dictionary.md)
-- [API 与集成规范](docs/07-api-and-integration-specification.md)
-- [安全、权限与审计规范](docs/08-security-permission-and-audit.md)
-- [开发与协作规范](docs/11-development-and-collaboration-specification.md)
+- [概要设计](docs/13-overview-design.md)
+- [详细设计](docs/14-detailed-design.md)
+- [开发部署与运维指南](docs/03-development-operations-guide.md)
 
 接口协议草案见 [contracts/openapi.yaml](contracts/openapi.yaml)。
 
@@ -105,4 +101,4 @@ ssh -f -N \
 审计资产说明见 [audit/README.md](audit/README.md)，来源文件摘要见
 [audit/source-manifest.md](audit/source-manifest.md)，首轮开发记录见
 [audit/logs/2026-07-24-development-bootstrap.md](audit/logs/2026-07-24-development-bootstrap.md)。
-文档版本、状态和变更记录见 [docs/00-document-control.md](docs/00-document-control.md)。
+文档范围、状态和维护规则见 [docs/README.md](docs/README.md)。
