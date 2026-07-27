@@ -30,9 +30,9 @@ materials-lab-assistant/
 
 正式规范仅保留三份：
 
-- [概要设计](docs/13-overview-design.md)
-- [详细设计](docs/14-detailed-design.md)
-- [开发部署与运维指南](docs/03-development-operations-guide.md)
+- [概要设计](docs/overview-design.md)
+- [详细设计](docs/detailed-design.md)
+- [开发部署与运维指南](docs/development-operations-guide.md)
 
 接口协议草案见 [contracts/openapi.yaml](contracts/openapi.yaml)。
 

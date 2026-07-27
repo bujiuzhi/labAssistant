@@ -2,7 +2,7 @@
 
 ## 1. 文档范围与事实来源
 
-本文件是项目唯一的详细设计，描述 `dev` 分支提交 `ded1dfc` 中已经实现的结构。实现事实以 Django Model、Migration、Serializer、View、前端接口调用和自动化测试为准。未实现的检测、报告、材料主数据和完整审计功能不在本文实现范围内。
+本文件是项目唯一的详细设计，描述 `dev` 分支提交 `72d62d1` 中已经实现的结构。实现事实以 Django Model、Migration、Serializer、View、前端接口调用和自动化测试为准。未实现的检测、报告、材料主数据和完整审计功能不在本文实现范围内。
 
 | 设计对象 | 当前事实来源 | 使用说明 |
 |---|---|---|
@@ -40,7 +40,7 @@ frontend/src/
 - 表名和字段名均为 `snake_case`，Migration 中定义中文表/字段注释。
 - 业务对象以 `organization_id` 作为组织隔离键；所有对象访问先通过组织范围过滤。
 - `project.version` 与 `experiment.version` 是乐观锁版本。更新请求必须携带 `If-Match: "<version>"`。
-- 当前数据库迁移为三类 App：`common`、`identity`、`projects`、`experiments`；不以设计文档中的未来实体替代已落地实体。
+- 当前数据库迁移为四个 App：`common`、`identity`、`projects`、`experiments`；不以设计文档中的未来实体替代已落地实体。
 
 ### 3.2 实体关系
 
@@ -108,7 +108,7 @@ erDiagram
 
 | 领域 | 方法与路径 | 主要用途 |
 |---|---|---|
-| 健康检查 | `GET /health/` | 服务状态 |
+| 健康检查 | `GET /health/live`、`GET /health/ready` | 进程存活和依赖就绪状态 |
 | 认证 | `GET /auth/csrf`、`POST /auth/login`、`POST /auth/logout`、`GET /auth/session` | CSRF、登录、注销和会话恢复 |
 | 用户管理 | `GET/POST /auth/users`、`PATCH/DELETE /auth/users/{id}`、`POST /auth/users/{id}/reset-password`、`GET /auth/users/options`、`GET /auth/roles/options` | 超级管理员用户管理与人员选项 |
 | 工作台 | `GET /dashboard` | 当前可见范围内项目/实验统计和趋势 |
@@ -117,6 +117,41 @@ erDiagram
 | 项目文档 | `GET/POST /projects/{key}/documents`、`GET /.../content`、`GET /.../preview` | 文档列表、上传、下载与预览 |
 | 实验 | `GET/POST /experiments`、`GET/PATCH /experiments/{key}`、`POST /.../copy`、`POST /.../transition` | 实验计划、ELN 更新、复制、状态迁移 |
 | 实验附件 | `POST /experiments/{key}/attachments`、`GET /.../attachments/{id}/content` | 上传与读取真实附件 |
+
+### 4.1.1 请求、响应与错误约定
+
+除文件流接口外，成功响应使用 JSON。列表响应使用 `data` 数组和 `meta` 分页信息；单对象响应以 `data` 包装。分页默认每页 20 条，客户端可用 `page`、`page_size` 控制，单页最大 100 条。每个统一响应都会返回 `request_id`，用于定位服务端日志。
+
+| 场景 | HTTP 状态 | 响应特征 | 客户端处理 |
+|---|---:|---|---|
+| 未登录或会话失效 | `401` | Problem Details，含 `request_id` | 清理会话状态并跳转登录 |
+| 无操作权限 | `403` | Problem Details | 提示无权限，不应重试 |
+| 对象不可见 | `404` | Problem Details | 按资源不存在处理，避免泄露跨范围对象 |
+| 字段校验失败 | `400` | `code=VALIDATION_ERROR`，可含 `field_errors` | 映射到表单字段 |
+| 幂等键冲突、状态不允许 | `409` | `BUSINESS_RULE_CONFLICT` 或业务冲突信息 | 刷新业务状态后由用户决定 |
+| 乐观锁冲突 | `412` | `RESOURCE_VERSION_CONFLICT` | 重新读取对象，提示合并或重填 |
+| 文件预览格式不支持/转换失败 | `406` 或明确业务错误 | 不返回伪造预览内容 | 提供下载原文件入口 |
+
+Problem Details 的核心字段为 `type`、`title`、`status`、`code`、`detail`、`instance`、`request_id`，字段级错误附于 `field_errors`。前端 Axios 层统一识别这一结构，业务页面不自行拼接后端错误。
+
+### 4.1.2 写入接口的并发和幂等规则
+
+| 操作 | 必填请求头 | 服务端行为 | 返回关键头 |
+|---|---|---|---|
+| 创建项目 | `Idempotency-Key`，长度 16–128 | 相同用户、组织、路由与请求体的重复提交返回首次结果；同键不同请求体拒绝 | `ETag` |
+| 更新项目 | `If-Match: "<version>"` | 只在版本一致、状态可编辑、对象范围允许时写入；成功后版本加一 | 新 `ETag` |
+| 更新实验或 ELN | `If-Match: "<version>"` | 同时校验实验计划与 ELN 内容；完成实验拒绝写入 | 新 `ETag` |
+| 实验状态迁移 | `If-Match: "<version>"` | 仅允许目标状态为进行中或已完成，服务端记录实际开始/完成时间 | 新 `ETag` |
+
+### 4.1.3 关键请求字段
+
+| 资源 | 创建/更新字段 | 关键校验 |
+|---|---|---|
+| 项目 | `name`、`project_type_code`、`owner_id`、`member_ids`、`objectives`、`milestones`、计划起止日期 | 名称最长 200；结束日期不得早于开始；成员不能重复；最多一个里程碑为 `current` |
+| 项目文档 | multipart：`file`、`category`、`related_content`、`version_label` | 文件不超过 25 MB；允许 DOC/DOCX/PDF/XLS/XLSX/CSV/TXT/PPT/PPTX/PNG/JPG/JPEG/WebP |
+| 实验 | `project_id`、`name`、`experiment_type`、`owner_id`、`participant_ids`、计划时间、ELN 字段 | 项目与负责人必须在当前组织且有效；参与人不重复；结束时间不得早于开始 |
+| ELN 配方 | `formula_columns`、`formula_rows`、`extra_tables` | 列 ID 不重复；行数据不得包含未定义列 |
+| ELN 过程与结果 | `process_text`、`extra_processes`、`process_images`、`result_text`、`result_files` | 过程文字最长 50,000；过程图片最多 20 张；结果附件元数据最多 30 条 |
 
 ### 4.1 项目更新时序
 
@@ -167,6 +202,25 @@ sequenceDiagram
 4. 对象状态允许该动作。
 5. 不可见对象以 404 返回，明确动作禁止以 403 返回。
 
+当前开发初始化的角色权限如下；生产环境可通过用户管理分配已有系统角色，但新增权限码必须同时修改初始化命令、后端服务和本文件。
+
+| 权限码 | 超级管理员/项目负责人 | 研究人员 | 检测人员 | 含义 |
+|---|---|---|---|---|
+| `project.view` | 有 | 有 | 有 | 查看具备对象范围的项目 |
+| `project.view_all` | 有 | 无 | 无 | 查看组织内全部项目 |
+| `project.create`、`project.update`、`project.manage_members` | 有 | 无 | 无 | 创建、编辑项目与维护成员 |
+| `document.view` | 有 | 有 | 有 | 查看并下载已授权项目文档 |
+| `document.upload` | 有 | 有 | 无 | 上传项目文档 |
+| `experiment.view` | 有 | 有 | 有 | 查看具备对象范围的实验 |
+| `experiment.view_all` | 有 | 无 | 无 | 查看组织内全部实验 |
+| `experiment.create`、`experiment.update`、`experiment.execute` | 有 | 有 | 无 | 创建、编辑和迁移实验状态 |
+
+### 5.5 文件约束与存储语义
+
+文件二进制数据不写入 JSON 正文：项目文档存于 `project-documents/<organization>/<project>/`，实验附件存于 `experiment-attachments/<organization>/<experiment>/`。路径采用服务端 UUID 文件名，原文件名只是展示和下载元数据，因此不能由客户端路径决定授权。
+
+项目文档分类固定为项目方案、文献资料、实验方案、阶段报告、会议纪要和其他。实验附件用途固定为过程图片或结果附件。ELN 的 `process_images` 和 `result_files` 输出由附件实际记录生成，客户端不能仅通过提交 JSON 声明一个不存在的文件。
+
 ## 6. 前端设计
 
 - 路由覆盖登录、工作台、项目列表、项目详情、ELN 和用户管理。
@@ -174,6 +228,17 @@ sequenceDiagram
 - 文档预览使用服务端 `/preview` 地址，下载始终读取 `/content?download=1` 原文件。
 - `sessionStore` 保存当前会话和权限码；页面按钮仅作体验提示，后端是最终权限裁决点。
 - Axios 请求层统一处理 CSRF、Problem Details、会话失效和乐观锁冲突。
+
+### 6.1 页面与真实数据映射
+
+| 页面 | 主要 API | 不应使用的兜底行为 |
+|---|---|---|
+| 登录页 | `GET /auth/csrf`、`POST /auth/login`、`GET /auth/session` | 不能仅在浏览器本地写入“已登录”标记 |
+| 工作台 | `GET /dashboard` | 不能静态拼接项目数、实验数或趋势数据 |
+| 项目列表/详情 | `GET/POST/PATCH /projects` | 项目成员、里程碑和统计必须来自 API 返回 |
+| 项目文档页签 | 文档列表、上传、`content`、`preview` | 预览失败时不能展示本地示例或模拟文本 |
+| 实验管理/ELN | 实验列表、详情、复制、迁移、附件接口 | 完成状态不能只在前端禁用，后端必须拒绝写入 |
+| 用户管理 | 组织用户、角色选项与密码重置接口 | 普通用户不得通过路由直达绕过超级管理员限制 |
 
 ## 7. 部署与配置
 
