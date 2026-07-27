@@ -5,7 +5,7 @@
 | 属性 | 值 |
 |---|---|
 | 项目名称 | 材料实验助手 |
-| 文档版本 | 0.3.1 |
+| 文档版本 | 0.3.2 |
 | 基线日期 | 2026-07-24 |
 | 当前状态 | 草案 |
 | 需求负责人 | 待指定 |
@@ -24,9 +24,11 @@
 | 资产 | 正式来源 | 禁止的重复来源 |
 |---|---|---|
 | 需求范围 | `docs/01-product-scope-and-requirements.md` | 原始 Excel、原型文案 |
-| 架构与技术选型 | `docs/02-system-architecture.md` | 临时聊天记录、部署脚本注释 |
-| UI 规则 | `docs/03-ui-ux-design-specification.md` | 原型 CSS、旧设计规范 |
-| 数据字段语义 | `docs/06-data-model-and-dictionary.md` | 页面字段、Mock 数据 |
+| 当前概要设计 | `docs/13-overview-design.md` | 临时聊天记录、部署脚本注释 |
+| 当前详细设计 | `docs/14-detailed-design.md` | 复制到多个专题文档的实现说明 |
+| UI 规则 | `docs/12-prototype-fidelity-ledger.md` | 原型 CSS、旧设计规范 |
+| 数据库物理结构 | Django migrations | 手写 DDL、页面字段、Mock 数据 |
+| 数据字段业务语义 | `docs/06-data-model-and-dictionary.md` | 页面字段、Mock 数据 |
 | 数据库物理结构 | Django migrations | 手写 DDL、数据字典复制 SQL |
 | API 协议 | `contracts/openapi.yaml` | 前后端各自维护的接口说明 |
 | 权限矩阵 | `docs/08-security-permission-and-audit.md` | 前端菜单可见性配置 |
@@ -93,6 +95,7 @@
 | 0.2.0 | 2026-07-24 | feat | 按原型完成电子实验记录本纵向切片、真实数据模型、接口、权限与浏览器验收 | Codex |
 | 0.3.0 | 2026-07-24 | feat | 补齐项目文档、项目内实验管理和数据资产三个原型页签，完成接口、权限与浏览器验收 | Codex |
 | 0.3.1 | 2026-07-27 | docs | 将既有专题规范收敛为概要设计和详细设计，明确已实现边界与实现基线 | Codex |
+| 0.3.2 | 2026-07-27 | docs | 重组文档索引，建立核心交付、业务基线、规划参考和实现差异台账 | Codex |
 
 ### ADR-005：前端严格复刻既有原型
 
