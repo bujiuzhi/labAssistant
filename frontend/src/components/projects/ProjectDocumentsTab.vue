@@ -406,14 +406,14 @@ onMounted(loadDocuments);
       <div v-if="previewDocument" class="preview-body">
         <img
           v-if="previewKind === 'image'"
-          :src="projectApi.documentContentUrl(projectId, previewDocument.id)"
+          :src="projectApi.documentPreviewUrl(projectId, previewDocument.id)"
           :alt="previewDocument.name"
         />
         <iframe
-          v-else-if="previewKind === 'pdf'"
+          v-else-if="previewKind !== 'generic'"
           class="pdf-frame"
-          :src="projectApi.documentContentUrl(projectId, previewDocument.id)"
-          :title="`${previewDocument.name} 原文件预览`"
+          :src="projectApi.documentPreviewUrl(projectId, previewDocument.id)"
+          :title="`${previewDocument.name} 在线预览`"
         />
         <article v-else class="file-preview-unavailable">
           <h2>{{ previewDocument.name }}</h2>
@@ -423,7 +423,7 @@ onMounted(loadDocuments);
             <div><dt>业务版本</dt><dd>{{ previewDocument.version_label }}</dd></div>
             <div><dt>更新人员</dt><dd>{{ previewDocument.uploaded_by_name }}</dd></div>
           </dl>
-          <p>该格式暂不在浏览器内解析。为避免展示与原文件不一致的模拟内容，请下载原文件查看。</p>
+          <p>该格式暂不支持在线预览，请下载原文件查看。</p>
         </article>
       </div>
       <template #footer>

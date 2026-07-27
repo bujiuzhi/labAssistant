@@ -100,3 +100,79 @@ def test_archived_project_rejects_document_upload(
         )
 
     assert response.status_code == 409
+
+
+@pytest.mark.django_db
+def test_project_document_preview_returns_original_pdf(
+    api_client,
+    manager_user,
+    document_project,
+    tmp_path,
+) -> None:
+    """PDF 在线预览应返回真实原文件而不是模拟内容。"""
+    api_client.force_authenticate(manager_user)
+    uploaded = SimpleUploadedFile(
+        "阶段报告.pdf",
+        b"%PDF-1.4\nactual-project-document\n%%EOF",
+        content_type="application/pdf",
+    )
+
+    with override_settings(MEDIA_ROOT=tmp_path):
+        upload_response = api_client.post(
+            f"/api/v1/projects/{document_project.project_no}/documents",
+            {
+                "file": uploaded,
+                "category": "stage_report",
+                "related_content": "项目整体",
+                "version_label": "V1.0",
+            },
+            format="multipart",
+        )
+        document = upload_response.json()["data"]
+
+        preview_response = api_client.get(
+            f"/api/v1/projects/{document_project.project_no}/documents/"
+            f"{document['id']}/preview"
+        )
+
+        assert preview_response.status_code == 200
+        assert preview_response.headers["Content-Type"] == "application/pdf"
+        assert b"".join(preview_response.streaming_content) == (
+            b"%PDF-1.4\nactual-project-document\n%%EOF"
+        )
+
+
+@pytest.mark.django_db
+def test_project_document_preview_converts_text_file(
+    api_client,
+    manager_user,
+    document_project,
+    tmp_path,
+) -> None:
+    """可转换文档预览应由服务器生成真实 PDF。"""
+    api_client.force_authenticate(manager_user)
+    with override_settings(MEDIA_ROOT=tmp_path):
+        upload_response = api_client.post(
+            f"/api/v1/projects/{document_project.project_no}/documents",
+            {
+                "file": SimpleUploadedFile(
+                    "实验摘要.txt",
+                    "真实实验摘要内容".encode(),
+                    content_type="text/plain",
+                ),
+                "category": "experiment_plan",
+                "related_content": "EXP-2026-020",
+                "version_label": "V1.0",
+            },
+            format="multipart",
+        )
+        document = upload_response.json()["data"]
+
+        preview_response = api_client.get(
+            f"/api/v1/projects/{document_project.project_no}/documents/"
+            f"{document['id']}/preview"
+        )
+
+        assert preview_response.status_code == 200
+        assert preview_response.headers["Content-Type"] == "application/pdf"
+        assert b"".join(preview_response.streaming_content).startswith(b"%PDF-")

@@ -89,6 +89,13 @@ export const projectApi = {
     return download ? `${base}?download=1` : base;
   },
 
+  /** 获取文档在线预览地址，办公文档由服务端转换为真实 PDF。 */
+  documentPreviewUrl(projectId: string, documentId: string): string {
+    return `/api/v1/projects/${encodeURIComponent(
+      projectId,
+    )}/documents/${encodeURIComponent(documentId)}/preview`;
+  },
+
   /** 关注或取消关注项目。 */
   async setFollow(projectId: string, isFollowed: boolean): Promise<boolean> {
     const response = isFollowed

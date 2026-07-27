@@ -7,6 +7,7 @@ from .views import (
     ProjectDetailView,
     ProjectDocumentContentView,
     ProjectDocumentListCreateView,
+    ProjectDocumentPreviewView,
     ProjectFollowView,
     ProjectListCreateView,
 )
@@ -23,6 +24,11 @@ urlpatterns = [
         "projects/<str:project_key>/documents/<uuid:document_id>/content",
         ProjectDocumentContentView.as_view(),
         name="project-document-content",
+    ),
+    path(
+        "projects/<str:project_key>/documents/<uuid:document_id>/preview",
+        ProjectDocumentPreviewView.as_view(),
+        name="project-document-preview",
     ),
     path(
         "projects/<str:project_key>",

@@ -1,15 +1,20 @@
 """项目列表、详情、更新与项目文档接口。"""
 
+import logging
+import shutil
+import subprocess
 import uuid
 from datetime import timedelta
+from pathlib import Path
 
+from django.conf import settings
 from django.db.models import Count, Q
 from django.db.models.functions import TruncDate
 from django.http import FileResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import NotAcceptable, PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -31,6 +36,87 @@ from .serializers import (
     ProjectUpdateSerializer,
 )
 from .services import create_project, create_project_document, update_project
+
+
+logger = logging.getLogger(__name__)
+
+OFFICE_PREVIEW_EXTENSIONS = {
+    "doc",
+    "docx",
+    "xls",
+    "xlsx",
+    "csv",
+    "ppt",
+    "pptx",
+    "txt",
+}
+DIRECT_PREVIEW_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "webp"}
+
+
+def _office_preview_pdf(document: ProjectDocument) -> Path:
+    """将真实办公文档转换为缓存 PDF，用于在线预览。
+
+    Args:
+        document: 已通过权限范围校验的项目文档。
+
+    Returns:
+        转换后的 PDF 绝对路径。
+
+    Raises:
+        NotAcceptable: 未安装转换程序或无法转换原始文件。
+    """
+    source_path = Path(document.file.path)
+    if not source_path.is_file():
+        logger.warning("项目文档原文件不存在：document_id=%s", document.id)
+        raise NotAcceptable("原始文档不存在，无法预览")
+
+    version_key = str(int(document.updated_at.timestamp()))
+    output_directory = (
+        Path(settings.MEDIA_ROOT)
+        / "project-document-previews"
+        / str(document.id)
+        / version_key
+    )
+    expected_path = output_directory / f"{source_path.stem}.pdf"
+    if expected_path.is_file():
+        return expected_path
+
+    converter = shutil.which("libreoffice") or shutil.which("soffice")
+    if not converter:
+        logger.error("项目文档预览失败：未找到 LibreOffice，document_id=%s", document.id)
+        raise NotAcceptable("服务器未配置办公文档预览服务，请下载原文件查看")
+
+    output_directory.mkdir(parents=True, exist_ok=True)
+    try:
+        result = subprocess.run(
+            [
+                converter,
+                "--headless",
+                "--convert-to",
+                "pdf",
+                "--outdir",
+                str(output_directory),
+                str(source_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        logger.exception("项目文档转换异常：document_id=%s", document.id)
+        raise NotAcceptable("文档转换超时或失败，请下载原文件查看") from error
+
+    converted_files = list(output_directory.glob("*.pdf"))
+    if result.returncode != 0 or not converted_files:
+        logger.warning(
+            "项目文档转换失败：document_id=%s returncode=%s stderr=%s",
+            document.id,
+            result.returncode,
+            result.stderr[-500:],
+        )
+        raise NotAcceptable("该文档无法在线转换，请下载原文件查看")
+    return converted_files[0]
 
 
 def _visible_project(request, project_key: str) -> Project:
@@ -473,3 +559,45 @@ class ProjectDocumentContentView(APIView):
             filename=document.name,
             content_type=document.mime_type or "application/octet-stream",
         )
+
+
+class ProjectDocumentPreviewView(APIView):
+    """返回项目文档的实际在线预览内容。"""
+
+    def get(self, request, project_key: str, document_id) -> FileResponse:
+        """读取原始 PDF、图片或转换后的办公文档 PDF。
+
+        Args:
+            request: 当前请求。
+            project_key: 项目 UUID 或业务编号。
+            document_id: 项目文档 UUID。
+
+        Returns:
+            可在浏览器内嵌显示的文件流。
+        """
+        if not request.user.has_permission_code("document.view"):
+            raise PermissionDenied("无项目文档查看权限")
+        project = _visible_project(request, project_key)
+        document = get_object_or_404(
+            ProjectDocument,
+            id=document_id,
+            project=project,
+            organization_id=request.user.organization_id,
+        )
+        extension = document.extension.lower()
+        if extension in DIRECT_PREVIEW_EXTENSIONS:
+            return FileResponse(
+                document.file.open("rb"),
+                as_attachment=False,
+                filename=document.name,
+                content_type=document.mime_type or "application/octet-stream",
+            )
+        if extension in OFFICE_PREVIEW_EXTENSIONS:
+            preview_path = _office_preview_pdf(document)
+            return FileResponse(
+                preview_path.open("rb"),
+                as_attachment=False,
+                filename=f"{Path(document.name).stem}.pdf",
+                content_type="application/pdf",
+            )
+        raise NotAcceptable("该文件格式暂不支持在线预览，请下载原文件查看")

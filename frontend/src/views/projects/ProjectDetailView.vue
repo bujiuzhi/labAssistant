@@ -5,6 +5,7 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { getProblemDetail } from "@/api/http";
+import { experimentApi } from "@/api/experiments";
 import { projectApi } from "@/api/projects";
 import { userApi } from "@/api/users";
 import ProjectDataAssetsTab from "@/components/projects/ProjectDataAssetsTab.vue";
@@ -13,6 +14,7 @@ import ProjectExperimentsTab from "@/components/projects/ProjectExperimentsTab.v
 import { useSessionStore } from "@/stores/session";
 import type {
   OrganizationUserOption,
+  Experiment,
   Project,
   ProjectMilestone,
 } from "@/types/api";
@@ -34,6 +36,8 @@ const submitting = ref(false);
 const loadError = ref("");
 const apiProject = ref<Project | null>(null);
 const userOptions = ref<OrganizationUserOption[]>([]);
+const recentExperiments = ref<Experiment[]>([]);
+const recentExperimentsLoading = ref(false);
 
 const projectTypes = ["聚酰亚胺", "环氧树脂", "新能源材料", "绿色化工", "功能材料"];
 const editableStatuses = ["draft", "not_started", "active", "at_risk", "suspended"];
@@ -190,6 +194,40 @@ const statusLabel = computed(() => {
   return "进行中";
 });
 
+const projectMembers = computed(() => apiProject.value?.members ?? []);
+
+/** 格式化实验开始时间，未设置时不伪造日期。 */
+function formatExperimentStart(value: string | null): string {
+  return value ? value.slice(0, 10) : "未设置";
+}
+
+/** 将实验状态转换为页面展示文本。 */
+function experimentStatusLabel(status: Experiment["status"]): string {
+  const labels: Record<Experiment["status"], string> = {
+    in_progress: "进行中",
+    not_started: "未开始",
+    completed: "已完成",
+  };
+  return labels[status];
+}
+
+/** 加载项目最近更新的三条真实实验记录。 */
+async function loadRecentExperiments(projectId: string): Promise<void> {
+  recentExperimentsLoading.value = true;
+  try {
+    const response = await experimentApi.list({ project_id: projectId, page_size: 3 });
+    recentExperiments.value = response.data
+      .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
+      .slice(0, 3);
+  } catch (error) {
+    recentExperiments.value = [];
+    const problem = getProblemDetail(error);
+    ElMessage.error(problem?.detail ?? "最近实验加载失败");
+  } finally {
+    recentExperimentsLoading.value = false;
+  }
+}
+
 /**
  * 根据路由参数加载项目详情
  *
@@ -201,6 +239,7 @@ async function loadProject(): Promise<void> {
   apiProject.value = null;
   try {
     apiProject.value = await projectApi.get(String(route.params.projectId));
+    await loadRecentExperiments(apiProject.value.id);
   } catch (error) {
     const problem = getProblemDetail(error);
     loadError.value = problem?.detail ?? "项目详情加载失败";
@@ -591,18 +630,36 @@ watch(() => route.params.projectId, loadProject);
           </div>
         </section>
 
-        <section class="detail-card progress-card">
-          <header><h2>项目进展</h2></header>
-          <div class="progress-summary">
-            <strong>{{ project.progress }}%</strong>
-            <i><b :style="{ width: `${project.progress}%` }" /></i>
-            <span>当前阶段：{{ project.stage }}</span>
-            <dl>
-              <div><dt>文档</dt><dd>{{ project.documentCount }}</dd></div>
-              <div><dt>实验</dt><dd>{{ project.experimentCount }}</dd></div>
-              <div><dt>数据资源</dt><dd>{{ project.resourceCount }}</dd></div>
-            </dl>
-          </div>
+        <section class="overview-bottom-grid" aria-label="项目实验与成员">
+          <article class="detail-card recent-experiments-card">
+            <header><h2>最近实验</h2></header>
+            <div v-loading="recentExperimentsLoading" class="recent-experiment-list">
+              <button
+                v-for="experiment in recentExperiments"
+                :key="experiment.id"
+                type="button"
+                class="recent-experiment-row"
+                @click="router.push(`/eln?experiment=${experiment.id}`)"
+              >
+                <strong>{{ experiment.name }}</strong>
+                <span>开始时间：{{ formatExperimentStart(experiment.estimated_start) }}</span>
+                <small>{{ experimentStatusLabel(experiment.status) }} · {{ experiment.owner_display_name }}</small>
+              </button>
+              <el-empty v-if="!recentExperimentsLoading && !recentExperiments.length" description="暂无项目实验" :image-size="54" />
+            </div>
+          </article>
+
+          <article class="detail-card member-role-card">
+            <header><h2>项目成员与角色</h2></header>
+            <div class="member-role-list">
+              <div v-for="member in projectMembers" :key="member.user_id" class="member-role-row">
+                <i>{{ member.display_name.slice(0, 1) }}</i>
+                <strong>{{ member.display_name }}</strong>
+                <span>{{ { owner: '项目负责人', researcher: '项目成员', inspector: '检测人员', viewer: '只读成员' }[member.member_role] }}</span>
+              </div>
+              <el-empty v-if="!projectMembers.length" description="暂无项目成员" :image-size="54" />
+            </div>
+          </article>
         </section>
       </div>
 
@@ -1140,6 +1197,79 @@ watch(() => route.params.projectId, loadProject);
   font-weight: 650;
 }
 
+.overview-bottom-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(300px, 1fr);
+  gap: 12px;
+}
+
+.recent-experiments-card,
+.member-role-card {
+  min-height: 228px;
+}
+
+.recent-experiments-card > header,
+.member-role-card > header {
+  padding: 17px 16px 8px;
+}
+
+.recent-experiments-card h2,
+.member-role-card h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.recent-experiment-list,
+.member-role-list {
+  min-height: 162px;
+  padding: 4px 16px 16px;
+}
+
+.recent-experiment-row {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(200px, 1fr) auto auto;
+  align-items: center;
+  min-height: 48px;
+  padding: 9px 0;
+  color: var(--color-ink);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--color-rule-2);
+  cursor: pointer;
+  gap: 16px;
+}
+
+.recent-experiment-row:last-child { border-bottom: 0; }
+.recent-experiment-row:hover strong { color: var(--color-accent); }
+.recent-experiment-row strong { font-size: 14px; font-weight: 650; }
+.recent-experiment-row span,
+.recent-experiment-row small { color: var(--color-muted); font-size: 12px; white-space: nowrap; }
+
+.member-role-row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 50px;
+  border-bottom: 1px solid var(--color-rule-2);
+  gap: 10px;
+}
+
+.member-role-row:last-child { border-bottom: 0; }
+.member-role-row > i {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  color: var(--color-accent);
+  font-style: normal;
+  background: #e8f3ff;
+  border-radius: 50%;
+  place-items: center;
+}
+.member-role-row strong { font-size: 14px; }
+.member-role-row span { color: var(--color-muted); font-size: 12px; }
+
 .module-placeholder {
   display: flex;
   min-height: 360px;
@@ -1270,6 +1400,8 @@ watch(() => route.params.projectId, loadProject);
   .progress-summary {
     grid-template-columns: 58px minmax(160px, 1fr);
   }
+
+  .overview-bottom-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 720px) {
@@ -1290,5 +1422,9 @@ watch(() => route.params.projectId, loadProject);
     grid-column: 2;
     grid-row: 1 / 4;
   }
+
+  .recent-experiment-row { grid-template-columns: 1fr; gap: 3px; }
+  .recent-experiment-row span,
+  .recent-experiment-row small { white-space: normal; }
 }
 </style>
