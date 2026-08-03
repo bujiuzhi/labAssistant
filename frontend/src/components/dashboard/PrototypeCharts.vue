@@ -11,7 +11,11 @@ import * as echarts from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 import type { ECharts, EChartsCoreOption } from "echarts/core";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import type { DashboardTrendSeries, DashboardTypeDistributionItem } from "@/types/api";
+import type {
+  DashboardProjectOption,
+  DashboardTrendSeries,
+  DashboardTypeDistributionItem,
+} from "@/types/api";
 
 echarts.use([
   PieChart,
@@ -26,10 +30,17 @@ echarts.use([
 const projectChartElement = ref<HTMLDivElement>();
 const experimentChartElement = ref<HTMLDivElement>();
 const trendChartElement = ref<HTMLDivElement>();
-const selectedType = ref("all");
 const props = defineProps<{
   typeDistribution: DashboardTypeDistributionItem[];
-  trend: { dates: string[]; series: DashboardTrendSeries[] };
+  trend: {
+    dates: string[];
+    series: DashboardTrendSeries[];
+    selected_project_id: string;
+    project_options: DashboardProjectOption[];
+  };
+}>();
+const emit = defineEmits<{
+  projectChange: [projectId: string];
 }>();
 const palette = ["#2563eb", "#0f9b8e", "#f59e0b", "#7c3aed", "#e11d48", "#0891b2"];
 const typeDistribution = computed(() =>
@@ -46,6 +57,7 @@ let projectChart: ECharts | undefined;
 let experimentChart: ECharts | undefined;
 let trendChart: ECharts | undefined;
 let resizeObserver: ResizeObserver | undefined;
+let focusedTrendIndex = 0;
 
 function createDonutOption(mode: "project" | "experiment"): EChartsCoreOption {
   const isProject = mode === "project";
@@ -115,13 +127,12 @@ function createDonutOption(mode: "project" | "experiment"): EChartsCoreOption {
 }
 
 function createTrendOption(): EChartsCoreOption {
-  const visibleSeries =
-    selectedType.value === "all"
-      ? props.trend.series
-      : props.trend.series.filter((item) => item.name === selectedType.value);
+  const values = props.trend.series.flatMap((item) => item.values);
+  const maximum = Math.max(2, ...values);
+  const yMaximum = Math.ceil(maximum / 2) * 2;
 
   return {
-    color: typeDistribution.value.map((item) => item.color),
+    color: [palette[0]],
     animationDuration: 420,
     grid: { left: 42, right: 18, top: 24, bottom: 54 },
     tooltip: {
@@ -153,8 +164,8 @@ function createTrendOption(): EChartsCoreOption {
     yAxis: {
       type: "value",
       min: 0,
-      max: 10,
-      interval: 2,
+      max: yMaximum,
+      interval: Math.max(1, Math.ceil(yMaximum / 5)),
       axisLine: { show: false },
       axisTick: { show: false },
       axisLabel: { color: "#667085", fontSize: 11 },
@@ -162,7 +173,7 @@ function createTrendOption(): EChartsCoreOption {
         lineStyle: { color: "#dce3ec", type: [4, 7] },
       },
     },
-    series: visibleSeries.map((item) => ({
+    series: props.trend.series.map((item) => ({
       name: item.name,
       type: "line",
       smooth: 0.35,
@@ -178,12 +189,30 @@ function updateTrend(): void {
   trendChart?.setOption(createTrendOption(), true);
 }
 
+function changeProject(event: Event): void {
+  emit("projectChange", (event.target as HTMLSelectElement).value);
+}
+
+/** 使用左右方向键逐日查看趋势数据，并复用图表提示层。 */
+function handleTrendKeydown(event: KeyboardEvent): void {
+  if (!trendChart || !props.trend.dates.length) return;
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+  event.preventDefault();
+  focusedTrendIndex = Math.min(
+    props.trend.dates.length - 1,
+    Math.max(0, focusedTrendIndex + (event.key === "ArrowRight" ? 1 : -1)),
+  );
+  trendChart.dispatchAction({
+    type: "showTip",
+    seriesIndex: 0,
+    dataIndex: focusedTrendIndex,
+  });
+}
+
 watch(
   () => [props.typeDistribution, props.trend] as const,
   () => {
-    if (selectedType.value !== "all" && !props.typeDistribution.some((item) => item.name === selectedType.value)) {
-      selectedType.value = "all";
-    }
+    focusedTrendIndex = Math.max(0, props.trend.dates.length - 1);
     projectChart?.setOption(createDonutOption("project"), true);
     experimentChart?.setOption(createDonutOption("experiment"), true);
     updateTrend();
@@ -257,9 +286,17 @@ onBeforeUnmount(() => {
           <small>实验个数</small>
         </div>
         <label class="trend-select">
-          <select v-model="selectedType" aria-label="筛选趋势项目类型" @change="updateTrend">
-            <option value="all">全部类型</option>
-            <option v-for="item in typeDistribution" :key="item.name" :value="item.name">
+          <select
+            :value="trend.selected_project_id"
+            aria-label="筛选趋势项目"
+            @change="changeProject"
+          >
+            <option value="">全部项目</option>
+            <option
+              v-for="item in trend.project_options"
+              :key="item.id"
+              :value="item.id"
+            >
               {{ item.name }}
             </option>
           </select>
@@ -267,7 +304,13 @@ onBeforeUnmount(() => {
         </label>
       </header>
       <span class="chart-date-range">{{ trendRange }}</span>
-      <div ref="trendChartElement" class="trend-chart" aria-label="近30天实验趋势折线图" />
+      <div
+        ref="trendChartElement"
+        class="trend-chart"
+        tabindex="0"
+        aria-label="近30天实验趋势折线图，可使用左右方向键逐日查看"
+        @keydown="handleTrendKeydown"
+      />
     </article>
   </section>
 </template>
@@ -427,6 +470,43 @@ onBeforeUnmount(() => {
 @media (max-width: 1180px) {
   .dashboard-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .type-body {
+    height: 226px;
+    padding-inline: 4px;
+  }
+
+  .pie-comparison {
+    height: 184px;
+  }
+
+  .donut-chart {
+    height: 184px;
+  }
+
+  .type-legend {
+    flex-wrap: wrap;
+  }
+
+  .trend-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .trend-select,
+  .trend-select select {
+    width: 100%;
+  }
+
+  .chart-date-range {
+    top: 99px;
+  }
+
+  .trend-chart {
+    height: 220px;
   }
 }
 </style>

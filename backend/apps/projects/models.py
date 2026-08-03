@@ -131,7 +131,7 @@ class Project(TimeStampedModel):
     status = models.CharField(
         max_length=24,
         choices=ProjectStatus.choices,
-        default=ProjectStatus.DRAFT,
+        default=ProjectStatus.NOT_STARTED,
         db_comment="项目状态",
     )
     owner = models.ForeignKey(
@@ -140,8 +140,16 @@ class Project(TimeStampedModel):
         related_name="owned_projects",
         db_comment="项目负责人",
     )
-    planned_start_date = models.DateField(null=True, blank=True, db_comment="计划开始日期")
-    planned_end_date = models.DateField(null=True, blank=True, db_comment="计划结束日期")
+    planned_start_date = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="计划开始时间",
+    )
+    planned_end_date = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="计划结束时间",
+    )
     actual_end_at = models.DateTimeField(null=True, blank=True, db_comment="实际完成时间")
     archived_at = models.DateTimeField(null=True, blank=True, db_comment="归档时间")
     version = models.PositiveIntegerField(default=1, db_comment="乐观锁版本")

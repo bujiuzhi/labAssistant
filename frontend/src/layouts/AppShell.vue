@@ -23,9 +23,9 @@ const productNavigation = computed(() => [
 
 const prototypeUsers: Record<string, { displayName: string; roleName: string }> = {
   admin: { displayName: "刘李园", roleName: "超级管理员" },
-  manager: { displayName: "张伟", roleName: "项目负责人" },
-  researcher: { displayName: "李娜", roleName: "研究人员" },
-  inspector: { displayName: "王强", roleName: "检验人员" },
+  manager: { displayName: "张伟", roleName: "项目管理员" },
+  researcher: { displayName: "李娜", roleName: "实验员" },
+  inspector: { displayName: "王强", roleName: "实验员" },
 };
 
 const profile = computed(() => {
@@ -118,7 +118,7 @@ async function logout(): Promise<void> {
   display: flex;
   width: 100%;
   height: 100%;
-  min-width: 960px;
+  min-width: 0;
   flex-direction: column;
   overflow: hidden;
   color: var(--color-ink);
@@ -303,6 +303,47 @@ async function logout(): Promise<void> {
 
   .route-content {
     padding: 0 18px;
+  }
+}
+
+@media (max-width: 760px) {
+  .assistant-header {
+    height: 58px;
+    flex: 0 0 58px;
+    padding: 0 10px;
+  }
+
+  .assistant-brand strong,
+  .profile-copy,
+  .profile-chevron {
+    display: none;
+  }
+
+  .product-nav {
+    min-width: 0;
+    flex: 1;
+    margin-left: 14px;
+    overflow-x: auto;
+    gap: 18px;
+    scrollbar-width: none;
+  }
+
+  .product-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .product-nav a {
+    flex: 0 0 auto;
+    font-size: 13px;
+  }
+
+  .profile-button {
+    min-width: 44px;
+    padding: 4px;
+  }
+
+  .route-content {
+    padding: 0 10px;
   }
 }
 </style>

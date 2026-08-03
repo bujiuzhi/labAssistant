@@ -25,6 +25,17 @@ export const experimentApi = {
     return response.data.data;
   },
 
+  /** 删除真实附件并返回删除后的最新实验记录。 */
+  async deleteAttachment(
+    experimentNo: string,
+    attachmentId: string,
+  ): Promise<Experiment> {
+    const response = await http.delete<DataResponse<Experiment>>(
+      `/experiments/${experimentNo}/attachments/${attachmentId}`,
+    );
+    return response.data.data;
+  },
+
   /**
    * 查询当前用户可见实验
    *

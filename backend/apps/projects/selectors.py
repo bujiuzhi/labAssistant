@@ -3,6 +3,7 @@
 from django.db.models import Q, QuerySet
 
 from apps.identity.models import User
+from apps.identity.selectors import visible_organization_ids
 
 from .models import Project, ProjectDocument
 
@@ -19,11 +20,11 @@ def projects_for_user(user: User) -> QuerySet[Project]:
     queryset = (
         Project.objects.select_related("owner")
         .prefetch_related("members__user")
-        .filter(organization_id=user.organization_id)
     )
-    if user.has_permission_code("project.view_all"):
-        return queryset
-    return queryset.filter(Q(owner=user) | Q(members__user=user)).distinct()
+    return queryset.filter(
+        Q(organization_id__in=visible_organization_ids(user))
+        | Q(members__user=user)
+    ).distinct()
 
 
 def documents_for_project(
@@ -44,6 +45,6 @@ def documents_for_project(
         "project",
         "uploaded_by",
     ).filter(
-        organization_id=user.organization_id,
+        organization_id=project.organization_id,
         project=project,
     )

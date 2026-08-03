@@ -82,11 +82,20 @@ class SessionUserSerializer(serializers.ModelSerializer):
 class OrganizationUserOptionSerializer(serializers.ModelSerializer):
     """组织用户选择项。"""
 
+    organization_id = serializers.UUIDField(read_only=True)
+    organization_name = serializers.CharField(source="organization.name", read_only=True)
+
     class Meta:
         """序列化字段。"""
 
         model = User
-        fields = ["id", "username", "display_name"]
+        fields = [
+            "id",
+            "organization_id",
+            "organization_name",
+            "username",
+            "display_name",
+        ]
 
 
 class ManagedUserSerializer(serializers.ModelSerializer):

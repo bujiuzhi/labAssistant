@@ -4,9 +4,14 @@
 
 材料实验助手是面向材料研发团队的独立 Web 系统，围绕“项目管理、实验计划、电子实验记录、检测结果、报告归档”形成可追溯业务闭环。
 
-当前已完成组织内登录、超级管理员用户管理、工作台、项目管理、项目文档与电子实验记录本纵向切片。
-项目详情已接通文档分类、检索、筛选、上传、预览、下载，以及项目内实验筛选、详情、计划编辑和
-电子实验记录本定位。数据资产页签按当前原型保持“研发中，敬请期待”。正式开发以 `docs/` 中批准的规范为依据。
+当前已完成组织内登录、超级管理员用户管理、工作台、项目管理、项目文档与电子实验记录本。
+项目详情已接通项目编辑、人员与里程碑维护、归档、操作记录，以及文档分类检索、真实文件上传、
+常用格式预览、下载和实验筛选、复制、状态流转、ELN 编辑与附件管理。数据资产和任务管理页签按
+最新原型保持“研发中，敬请期待”，不生成虚构业务数据。正式开发以 `docs/` 中批准的规范为依据。
+
+文档预览支持 DOC/DOCX/ODT/RTF、PDF、XLS/XLSX/ODS/CSV、PPT/PPTX/ODP、TXT，
+以及 PNG/JPG/JPEG/WebP/GIF/BMP。DOCX、XLS/XLSX、PPTX、PDF 优先使用专用前端组件，
+旧格式、大文件或组件解析失败时自动回退到 LibreOffice 转 PDF。
 
 ## 目录结构
 
@@ -18,7 +23,7 @@ materials-lab-assistant/
 ├── audit/                        # 原型来源、证据和审计记录
 ├── backend/                      # Django API、领域模型与测试
 ├── frontend/                     # Vue 3 工作台
-├── infra/                        # PostgreSQL、Redis 开发环境
+├── infra/                        # PostgreSQL、Redis、RustFS 开发环境
 └── environment.yml              # Conda 开发环境
 ```
 
@@ -58,6 +63,7 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d
 set -a
 source .env
 set +a
+conda run -n materials-lab-assistant python3 backend/manage.py bootstrap_object_storage
 conda run -n materials-lab-assistant python3 backend/manage.py migrate
 conda run -n materials-lab-assistant python3 backend/manage.py bootstrap_development
 conda run -n materials-lab-assistant python3 backend/manage.py seed_development_projects
@@ -69,14 +75,24 @@ conda run -n materials-lab-assistant pnpm --dir frontend install
 conda run -n materials-lab-assistant pnpm --dir frontend dev
 ```
 
+`.env` 中必须为 RustFS 配置独立随机访问密钥，不能沿用模板值。项目文档、实验附件和
+转换后的预览 PDF 均保存到私有对象存储桶；PostgreSQL 只保存对象键和文件元数据。
+从历史目录存储首次切换时，在保留 `backend/media` 回滚副本的前提下执行：
+
+```bash
+conda run -n materials-lab-assistant python3 \
+  backend/manage.py migrate_media_to_object_storage
+conda run -n materials-lab-assistant python3 \
+  backend/manage.py migrate_media_to_object_storage --verify-only
+```
+
 开发账号如下，密码统一为 `00000000`：
 
 | 用户名 | 姓名 | 角色 |
 |---|---|---|
 | `admin` | 刘李园 | 超级管理员 |
-| `manager` | 张伟 | 项目负责人 |
-| `researcher` | 李娜 | 研究人员 |
-| `inspector` | 王强 | 检测人员 |
+| `manager` | 张伟 | 项目管理员 |
+| `researcher` | 李娜 | 实验员 |
 
 默认密码只适用于开发环境，生产部署必须通过环境变量覆盖并强制首次登录修改。
 

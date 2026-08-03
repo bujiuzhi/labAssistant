@@ -14,16 +14,18 @@ import type { DashboardSummary } from "@/types/api";
 const router = useRouter();
 const loading = ref(true);
 const summary = ref<DashboardSummary | null>(null);
+const selectedTrendProjectId = ref("");
 
 const projects = computed(() => summary.value?.active_projects ?? []);
 const projectMetrics = computed(() => summary.value?.project_metrics);
 const experimentMetrics = computed(() => summary.value?.experiment_metrics);
 
 /** 加载当前用户可见范围内的实时汇总数据。 */
-async function loadDashboard(): Promise<void> {
+async function loadDashboard(projectId = selectedTrendProjectId.value): Promise<void> {
   loading.value = true;
   try {
-    summary.value = await projectApi.dashboard();
+    summary.value = await projectApi.dashboard(projectId);
+    selectedTrendProjectId.value = summary.value.trend.selected_project_id;
   } catch (error) {
     const problem = getProblemDetail(error);
     ElMessage.error(problem?.detail ?? "总览数据加载失败");
@@ -34,18 +36,28 @@ async function loadDashboard(): Promise<void> {
 
 /** 格式化空日期，避免展示虚构计划。 */
 function formatDate(value: string | null): string {
-  return value || "未设置";
+  return value ? value.slice(0, 10) : "未设置";
 }
 
-/** 计算里程碑到期提示。 */
-function milestoneHint(date: string | undefined): string {
-  if (!date) return "未设置";
-  const target = new Date(`${date}T00:00:00+08:00`);
-  const today = new Date();
-  const days = Math.ceil((target.getTime() - today.getTime()) / 86_400_000);
-  if (days < 0) return `已逾期 ${Math.abs(days)} 天`;
-  if (days === 0) return "今日到期";
-  return `剩余 ${days} 天`;
+/** 使用服务端统一计算的里程碑风险，避免客户端时区产生误判。 */
+function milestoneHint(project: DashboardSummary["active_projects"][number]): string {
+  if (project.risk_level === "overdue") return `已逾期 ${project.risk_days ?? 0} 天`;
+  if (project.risk_level === "countdown") {
+    return project.risk_days === 0 ? "今日到期" : `剩余 ${project.risk_days} 天`;
+  }
+  if (project.risk_days === null) return "未设置";
+  return `剩余 ${project.risk_days} 天`;
+}
+
+function openProject(projectId: string): void {
+  void router.push(`/projects/${projectId}`);
+}
+
+function handleProjectKeydown(event: KeyboardEvent, projectId: string): void {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    openProject(projectId);
+  }
 }
 
 /** 切换项目关注状态并立即反映到真实总览数据。 */
@@ -98,7 +110,15 @@ onMounted(loadDashboard);
 
     <PrototypeCharts
       :type-distribution="summary?.type_distribution ?? []"
-      :trend="summary?.trend ?? { dates: [], series: [] }"
+      :trend="
+        summary?.trend ?? {
+          dates: [],
+          series: [],
+          selected_project_id: '',
+          project_options: [],
+        }
+      "
+      @project-change="loadDashboard"
     />
 
     <section class="project-section">
@@ -115,12 +135,12 @@ onMounted(loadDashboard);
           :key="project.id"
           class="project-card"
           :class="{
-            'project-card-overdue': project.planned_end_date && new Date(project.planned_end_date) < new Date(),
-            'project-card-warning': project.milestone?.date && milestoneHint(project.milestone.date).startsWith('剩余'),
+            'project-card-overdue': project.risk_level === 'overdue',
+            'project-card-warning': project.risk_level === 'countdown',
           }"
           tabindex="0"
-          @click="router.push(`/projects/${project.id}`)"
-          @keydown.enter="router.push(`/projects/${project.id}`)"
+          @click="openProject(project.id)"
+          @keydown="handleProjectKeydown($event, project.id)"
         >
           <header class="project-card-heading">
             <Icon icon="ri:folder-3-line" />
@@ -163,15 +183,15 @@ onMounted(loadDashboard);
               <div
                 class="milestone-due"
                 :class="{
-                  'milestone-due-overdue': project.milestone?.date && milestoneHint(project.milestone.date).startsWith('已逾期'),
-                  'milestone-due-warning': project.milestone?.date && milestoneHint(project.milestone.date).startsWith('剩余'),
+                  'milestone-due-overdue': project.risk_level === 'overdue',
+                  'milestone-due-warning': project.risk_level === 'countdown',
                 }"
               >
                 <div>
                   <strong>{{ project.milestone?.name || '未设置里程碑' }}</strong>
                   <time>{{ project.milestone?.date || '—' }}</time>
                 </div>
-                <b>{{ milestoneHint(project.milestone?.date) }}</b>
+                <b>{{ milestoneHint(project) }}</b>
               </div>
             </div>
           </section>
@@ -583,6 +603,36 @@ onMounted(loadDashboard);
 
   .project-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .overview-page {
+    padding-top: 10px;
+  }
+
+  .metric-grid article {
+    padding-inline: 7px;
+  }
+
+  .metric-grid article strong {
+    font-size: 21px;
+  }
+
+  .metric-grid .metric-primary strong {
+    font-size: 27px;
+  }
+
+  .metric-grid article > span:not(.metric-value) {
+    font-size: 11px;
+  }
+
+  .project-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .project-card {
+    min-height: 308px;
   }
 }
 </style>

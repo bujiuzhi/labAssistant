@@ -7,17 +7,23 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
+    "test": "node --test tests/*.test.ts",
     "preview": "vite preview --host 0.0.0.0",
     "type-check": "vue-tsc -b"
   },
   "dependencies": {
     "@element-plus/icons-vue": "2.3.2",
     "@iconify/vue": "5.0.1",
+    "@vue-office/docx": "1.6.3",
+    "@vue-office/excel": "1.7.14",
+    "@vue-office/pdf": "2.0.10",
+    "@vue-office/pptx": "1.0.1",
     "axios": "1.18.1",
     "echarts": "6.1.0",
     "element-plus": "2.14.3",
     "pinia": "4.0.2",
     "vue": "3.5.40",
+    "vue-demi": "0.14.10",
     "vue-router": "5.2.0"
   },
   "devDependencies": {

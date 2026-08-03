@@ -1,9 +1,10 @@
 """按原型初始化可重复执行的开发演示项目。"""
 
-from datetime import date
+from datetime import date, datetime, time, timedelta
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.utils import timezone
 
 from apps.identity.models import Role, User, UserRole
 from apps.projects.models import Project, ProjectMember, ProjectMemberRole
@@ -47,6 +48,54 @@ def milestone(date_value: str, name: str, state: str = "current") -> list[dict[s
     return [{"date": date_value, "name": name, "state": state}]
 
 
+def project_milestones(project_data: dict) -> list[dict[str, str]]:
+    """根据项目周期生成完整阶段里程碑。
+
+    Args:
+        project_data: 单个开发项目数据。
+
+    Returns:
+        按时间排序且最多一个当前阶段的里程碑。
+    """
+    explicit_milestones = project_data.get("milestone_sequence")
+    if explicit_milestones is not None:
+        return [dict(item) for item in explicit_milestones]
+
+    start = date.fromisoformat(project_data["planned_start_date"])
+    end = date.fromisoformat(project_data["planned_end_date"])
+    current = project_data["milestones"][0]
+    current_date = date.fromisoformat(current["date"])
+    if project_data["status"] == "archived":
+        return [
+            {"date": start.isoformat(), "name": "项目立项", "state": "done"},
+            {"date": current_date.isoformat(), "name": current["name"], "state": "done"},
+            {"date": end.isoformat(), "name": "项目归档", "state": "done"},
+        ]
+    design_date = max(
+        start,
+        min(start + timedelta(days=45), current_date - timedelta(days=1)),
+    )
+    review_date = min(max(current_date + timedelta(days=30), current_date), end)
+    return [
+        {"date": start.isoformat(), "name": "项目立项", "state": "done"},
+        {
+            "date": design_date.isoformat(),
+            "name": "完成实验方案设计",
+            "state": "done",
+        },
+        {**current, "state": "current"},
+        {"date": review_date.isoformat(), "name": "阶段评审", "state": "todo"},
+        {"date": end.isoformat(), "name": "项目归档", "state": "todo"},
+    ]
+
+
+def aware_at(date_value: str, time_value: time) -> datetime:
+    """将日期文本转换为当前时区日期时间。"""
+    return timezone.make_aware(
+        datetime.combine(date.fromisoformat(date_value), time_value)
+    )
+
+
 DEVELOPMENT_PROJECTS = [
     {
         "project_no": "PRJ-2026-PLA-001",
@@ -57,12 +106,22 @@ DEVELOPMENT_PROJECTS = [
         "progress_percent": 48,
         "document_count": 12,
         "experiment_count": 11,
-        "data_resource_count": 6,
         "status": "active",
         "planned_start_date": "2026-03-01",
         "planned_end_date": "2026-12-31",
         "description": "开发兼具力学性能与可降解性的PLA基复合材料，完成配方筛选与性能验证。",
         "milestones": milestone("2026-07-25", "完成第三轮配方筛选"),
+        "milestone_sequence": [
+            {"date": "2026-05-16", "name": "方案设计", "state": "done"},
+            {
+                "date": "2026-07-25",
+                "name": "完成第三轮配方筛选",
+                "state": "current",
+            },
+            {"date": "2026-07-31", "name": "实验验证", "state": "todo"},
+            {"date": "2026-10-15", "name": "阶段评审", "state": "todo"},
+            {"date": "2026-12-31", "name": "项目归档", "state": "todo"},
+        ],
     },
     {
         "project_no": "PRJ-2026-SE-002",
@@ -73,7 +132,6 @@ DEVELOPMENT_PROJECTS = [
         "progress_percent": 32,
         "document_count": 8,
         "experiment_count": 4,
-        "data_resource_count": 4,
         "status": "active",
         "planned_start_date": "2026-04-01",
         "planned_end_date": "2026-11-30",
@@ -89,7 +147,6 @@ DEVELOPMENT_PROJECTS = [
         "progress_percent": 67,
         "document_count": 15,
         "experiment_count": 9,
-        "data_resource_count": 9,
         "status": "at_risk",
         "planned_start_date": "2026-02-15",
         "planned_end_date": "2026-10-31",
@@ -105,7 +162,6 @@ DEVELOPMENT_PROJECTS = [
         "progress_percent": 52,
         "document_count": 10,
         "experiment_count": 6,
-        "data_resource_count": 5,
         "status": "active",
         "planned_start_date": "2026-03-20",
         "planned_end_date": "2026-12-15",
@@ -116,12 +172,11 @@ DEVELOPMENT_PROJECTS = [
         "project_no": "PRJ-2026-PI-005",
         "name": "耐高温聚酰亚胺薄膜制备工艺研究",
         "project_type_code": "聚酰亚胺",
-        "owner_name": "赵敏",
+        "owner_name": "李娜",
         "current_stage": "实验执行",
         "progress_percent": 58,
         "document_count": 14,
         "experiment_count": 4,
-        "data_resource_count": 7,
         "status": "active",
         "planned_start_date": "2026-02-10",
         "planned_end_date": "2026-11-20",
@@ -137,7 +192,6 @@ DEVELOPMENT_PROJECTS = [
         "progress_percent": 61,
         "document_count": 11,
         "experiment_count": 4,
-        "data_resource_count": 8,
         "status": "active",
         "planned_start_date": "2026-01-18",
         "planned_end_date": "2026-10-18",
@@ -153,7 +207,6 @@ DEVELOPMENT_PROJECTS = [
         "progress_percent": 43,
         "document_count": 9,
         "experiment_count": 4,
-        "data_resource_count": 5,
         "status": "active",
         "planned_start_date": "2026-03-12",
         "planned_end_date": "2027-01-15",
@@ -169,7 +222,6 @@ DEVELOPMENT_PROJECTS = [
         "progress_percent": 39,
         "document_count": 8,
         "experiment_count": 4,
-        "data_resource_count": 6,
         "status": "active",
         "planned_start_date": "2026-04-08",
         "planned_end_date": "2026-12-28",
@@ -185,7 +237,6 @@ DEVELOPMENT_PROJECTS = [
         "progress_percent": 28,
         "document_count": 7,
         "experiment_count": 4,
-        "data_resource_count": 4,
         "status": "active",
         "planned_start_date": "2026-05-06",
         "planned_end_date": "2027-02-28",
@@ -201,7 +252,6 @@ DEVELOPMENT_PROJECTS = [
         "progress_percent": 55,
         "document_count": 10,
         "experiment_count": 5,
-        "data_resource_count": 7,
         "status": "active",
         "planned_start_date": "2026-02-24",
         "planned_end_date": "2026-11-08",
@@ -217,7 +267,6 @@ DEVELOPMENT_PROJECTS = [
         "progress_percent": 8,
         "document_count": 4,
         "experiment_count": 3,
-        "data_resource_count": 2,
         "status": "not_started",
         "planned_start_date": "2026-08-01",
         "planned_end_date": "2027-03-31",
@@ -233,7 +282,6 @@ DEVELOPMENT_PROJECTS = [
         "progress_percent": 5,
         "document_count": 3,
         "experiment_count": 3,
-        "data_resource_count": 2,
         "status": "not_started",
         "planned_start_date": "2026-08-15",
         "planned_end_date": "2027-04-20",
@@ -249,7 +297,6 @@ DEVELOPMENT_PROJECTS = [
         "progress_percent": 10,
         "document_count": 5,
         "experiment_count": 3,
-        "data_resource_count": 3,
         "status": "not_started",
         "planned_start_date": "2026-07-25",
         "planned_end_date": "2027-03-15",
@@ -265,7 +312,6 @@ DEVELOPMENT_PROJECTS = [
         "progress_percent": 6,
         "document_count": 4,
         "experiment_count": 3,
-        "data_resource_count": 2,
         "status": "not_started",
         "planned_start_date": "2026-08-10",
         "planned_end_date": "2027-02-10",
@@ -281,7 +327,6 @@ DEVELOPMENT_PROJECTS = [
         "progress_percent": 4,
         "document_count": 3,
         "experiment_count": 3,
-        "data_resource_count": 1,
         "status": "not_started",
         "planned_start_date": "2026-09-01",
         "planned_end_date": "2027-06-30",
@@ -297,7 +342,6 @@ DEVELOPMENT_PROJECTS = [
         "progress_percent": 7,
         "document_count": 4,
         "experiment_count": 3,
-        "data_resource_count": 2,
         "status": "not_started",
         "planned_start_date": "2026-08-20",
         "planned_end_date": "2027-04-30",
@@ -313,7 +357,6 @@ DEVELOPMENT_PROJECTS = [
         "progress_percent": 3,
         "document_count": 2,
         "experiment_count": 2,
-        "data_resource_count": 1,
         "status": "not_started",
         "planned_start_date": "2026-09-15",
         "planned_end_date": "2027-05-31",
@@ -329,7 +372,6 @@ DEVELOPMENT_PROJECTS = [
         "progress_percent": 100,
         "document_count": 18,
         "experiment_count": 5,
-        "data_resource_count": 12,
         "status": "archived",
         "planned_start_date": "2025-05-01",
         "planned_end_date": "2026-06-20",
@@ -345,7 +387,6 @@ DEVELOPMENT_PROJECTS = [
         "progress_percent": 100,
         "document_count": 16,
         "experiment_count": 6,
-        "data_resource_count": 10,
         "status": "archived",
         "planned_start_date": "2025-04-10",
         "planned_end_date": "2026-06-15",
@@ -361,7 +402,6 @@ DEVELOPMENT_PROJECTS = [
         "progress_percent": 100,
         "document_count": 14,
         "experiment_count": 6,
-        "data_resource_count": 9,
         "status": "archived",
         "planned_start_date": "2025-03-01",
         "planned_end_date": "2026-05-28",
@@ -453,23 +493,30 @@ class Command(BaseCommand):
             description = project_data["description"]
             project_defaults = {
                 "name": project_data["name"],
-                "project_type_code": project_data["project_type_code"],
+                "project_type_code": (
+                    "环氧树脂"
+                    if project_data["project_type_code"] == "环氧树脂"
+                    else "聚酰亚胺"
+                ),
                 "owner": people[owner_name],
                 "current_stage": project_data["current_stage"],
                 "progress_percent": project_data["progress_percent"],
                 "document_count": project_data["document_count"],
                 "experiment_count": project_data["experiment_count"],
-                "data_resource_count": project_data["data_resource_count"],
+                # 数据资产功能尚未上线，计数必须保持可回查的真实零值。
+                "data_resource_count": 0,
                 "status": project_data["status"],
-                "planned_start_date": date.fromisoformat(
-                    project_data["planned_start_date"]
+                "planned_start_date": aware_at(
+                    project_data["planned_start_date"],
+                    time(hour=9),
                 ),
-                "planned_end_date": date.fromisoformat(
-                    project_data["planned_end_date"]
+                "planned_end_date": aware_at(
+                    project_data["planned_end_date"],
+                    time(hour=18),
                 ),
                 "description": description,
                 "objectives": [description],
-                "milestones": project_data["milestones"],
+                "milestones": project_milestones(project_data),
                 "created_by": actor,
                 "updated_by": actor,
             }
@@ -500,24 +547,38 @@ class Command(BaseCommand):
                 for field_name, value in project_defaults.items():
                     setattr(project, field_name, value)
                 project.save()
-            ProjectMember.objects.filter(project=project).exclude(
-                user=people[owner_name]
-            ).delete()
-            ProjectMember.objects.update_or_create(
-                project=project,
-                user=people[owner_name],
-                defaults={
-                    "organization": actor.organization,
-                    "member_role": ProjectMemberRole.OWNER,
-                    "created_by": actor,
-                },
+            selected_people = {
+                people[owner_name].id: (
+                    people[owner_name],
+                    ProjectMemberRole.OWNER,
+                ),
+                people["李娜"].id: (people["李娜"], ProjectMemberRole.RESEARCHER),
+                people["王强"].id: (people["王强"], ProjectMemberRole.RESEARCHER),
+            }
+            selected_people[people[owner_name].id] = (
+                people[owner_name],
+                ProjectMemberRole.OWNER,
             )
+            ProjectMember.objects.filter(project=project).exclude(
+                user_id__in=selected_people,
+            ).delete()
+            for member_user, member_role in selected_people.values():
+                ProjectMember.objects.update_or_create(
+                    project=project,
+                    user=member_user,
+                    defaults={
+                        "organization": actor.organization,
+                        "member_role": member_role,
+                        "created_by": actor,
+                    },
+                )
             created_count += int(created)
             updated_count += int(not created)
 
         self.stdout.write(
             self.style.SUCCESS(
                 "原型项目初始化完成，"
-                f"新增 {created_count} 个，更新 {updated_count} 个，共 {len(DEVELOPMENT_PROJECTS)} 个"
+                f"新增 {created_count} 个，更新 {updated_count} 个，"
+                f"共 {len(DEVELOPMENT_PROJECTS)} 个"
             )
         )

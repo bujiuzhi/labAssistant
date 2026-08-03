@@ -3,6 +3,8 @@
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
@@ -35,6 +37,33 @@ def env_list(name: str, default: str = "") -> list[str]:
     return [item.strip() for item in os.getenv(name, default).split(",") if item.strip()]
 
 
+def env_positive_int(name: str, default: int) -> int:
+    """读取正整数环境变量。
+
+    Args:
+        name: 环境变量名。
+        default: 未配置时的默认值。
+
+    Returns:
+        解析后的正整数。
+
+    Raises:
+        ImproperlyConfigured: 配置值不是正整数。
+    """
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    try:
+        value = int(raw_value)
+    except ValueError as error:
+        raise ImproperlyConfigured(f"{name} 必须是正整数") from error
+    if value <= 0:
+        raise ImproperlyConfigured(f"{name} 必须是正整数")
+    return value
+
+
+OBJECT_STORAGE_ENABLED = env_bool("OBJECT_STORAGE_ENABLED", default=False)
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "development-only-change-before-production")
 DEBUG = env_bool("DJANGO_DEBUG", default=False)
 ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", "127.0.0.1,localhost")
@@ -48,6 +77,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
+    *(["storages"] if OBJECT_STORAGE_ENABLED else []),
     "apps.common",
     "apps.identity",
     "apps.projects",
@@ -131,6 +161,67 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
+OBJECT_STORAGE_ENDPOINT_URL = os.getenv(
+    "OBJECT_STORAGE_ENDPOINT_URL",
+    "http://127.0.0.1:19000",
+).rstrip("/")
+OBJECT_STORAGE_ACCESS_KEY = os.getenv("OBJECT_STORAGE_ACCESS_KEY", "")
+OBJECT_STORAGE_SECRET_KEY = os.getenv("OBJECT_STORAGE_SECRET_KEY", "")
+OBJECT_STORAGE_BUCKET_NAME = os.getenv(
+    "OBJECT_STORAGE_BUCKET_NAME",
+    "materials-lab-assistant",
+)
+OBJECT_STORAGE_REGION = os.getenv("OBJECT_STORAGE_REGION", "us-east-1")
+OBJECT_STORAGE_VERIFY_TLS = env_bool("OBJECT_STORAGE_VERIFY_TLS", default=True)
+OBJECT_STORAGE_PRESIGNED_URL_EXPIRY_SECONDS = env_positive_int(
+    "OBJECT_STORAGE_PRESIGNED_URL_EXPIRY_SECONDS",
+    300,
+)
+
+if OBJECT_STORAGE_ENABLED:
+    missing_object_storage_settings = [
+        name
+        for name, value in {
+            "OBJECT_STORAGE_ENDPOINT_URL": OBJECT_STORAGE_ENDPOINT_URL,
+            "OBJECT_STORAGE_ACCESS_KEY": OBJECT_STORAGE_ACCESS_KEY,
+            "OBJECT_STORAGE_SECRET_KEY": OBJECT_STORAGE_SECRET_KEY,
+            "OBJECT_STORAGE_BUCKET_NAME": OBJECT_STORAGE_BUCKET_NAME,
+            "OBJECT_STORAGE_REGION": OBJECT_STORAGE_REGION,
+        }.items()
+        if not value
+    ]
+    if missing_object_storage_settings:
+        raise ImproperlyConfigured(
+            "启用对象存储时缺少配置：" + ", ".join(missing_object_storage_settings)
+        )
+
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
+if OBJECT_STORAGE_ENABLED:
+    STORAGES["default"] = {
+        "BACKEND": "storages.backends.s3.S3Storage",
+        "OPTIONS": {
+            "access_key": OBJECT_STORAGE_ACCESS_KEY,
+            "secret_key": OBJECT_STORAGE_SECRET_KEY,
+            "bucket_name": OBJECT_STORAGE_BUCKET_NAME,
+            "endpoint_url": OBJECT_STORAGE_ENDPOINT_URL,
+            "region_name": OBJECT_STORAGE_REGION,
+            "addressing_style": "path",
+            "signature_version": "s3v4",
+            "default_acl": None,
+            "querystring_auth": True,
+            "querystring_expire": OBJECT_STORAGE_PRESIGNED_URL_EXPIRY_SECONDS,
+            "file_overwrite": True,
+            "verify": OBJECT_STORAGE_VERIFY_TLS,
+        },
+    }
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 SESSION_COOKIE_HTTPONLY = True

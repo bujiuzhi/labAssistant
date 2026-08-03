@@ -4,6 +4,7 @@ from django.urls import path
 
 from .views import (
     ExperimentAttachmentContentView,
+    ExperimentAttachmentDetailView,
     ExperimentAttachmentListCreateView,
     ExperimentCopyView,
     ExperimentDetailView,
@@ -41,5 +42,10 @@ urlpatterns = [
         "experiments/<str:experiment_key>/attachments/<uuid:attachment_id>/content",
         ExperimentAttachmentContentView.as_view(),
         name="experiment-attachment-content",
+    ),
+    path(
+        "experiments/<str:experiment_key>/attachments/<uuid:attachment_id>",
+        ExperimentAttachmentDetailView.as_view(),
+        name="experiment-attachment-detail",
     ),
 ]

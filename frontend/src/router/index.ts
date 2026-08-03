@@ -45,24 +45,6 @@ const router = createRouter({
           meta: { title: "项目详情" },
         },
         {
-          path: "experiments",
-          name: "experiments",
-          component: () => import("@/views/PlaceholderView.vue"),
-          meta: { title: "实验管理", description: "实验计划与电子实验记录将在下一纵切实现。" },
-        },
-        {
-          path: "testing",
-          name: "testing",
-          component: () => import("@/views/PlaceholderView.vue"),
-          meta: { title: "检测管理", description: "检测委托、结果审核和报告将在后续迭代实现。" },
-        },
-        {
-          path: "materials",
-          name: "materials",
-          component: () => import("@/views/PlaceholderView.vue"),
-          meta: { title: "基础资料", description: "材料、批次、单位和工艺模板将在后续迭代实现。" },
-        },
-        {
           path: "system",
           name: "system",
           redirect: "/system/users",

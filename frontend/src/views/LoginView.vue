@@ -117,7 +117,6 @@ async function submit(): Promise<void> {
             <code>admin</code>
             <code>manager</code>
             <code>researcher</code>
-            <code>inspector</code>
           </div>
         </div>
 
@@ -326,11 +325,15 @@ async function submit(): Promise<void> {
 @media (width <= 1100px) {
   .login-page {
     grid-template-columns: 1fr;
-    min-width: 1024px;
+    min-width: 0;
   }
 
   .login-visual {
     display: none;
+  }
+
+  .login-form {
+    width: min(360px, calc(100vw - 40px));
   }
 }
 </style>

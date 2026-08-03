@@ -32,7 +32,7 @@ class RoleStatus(models.TextChoices):
 
 
 class Organization(TimeStampedModel):
-    """用户和业务数据的顶级隔离空间。"""
+    """支持向下继承数据范围的组织节点。"""
 
     organization_code = models.CharField(
         max_length=32,
@@ -40,6 +40,14 @@ class Organization(TimeStampedModel):
         db_comment="组织代码",
     )
     name = models.CharField(max_length=200, db_comment="组织名称")
+    parent = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="children",
+        db_comment="上级组织",
+    )
     status = models.CharField(
         max_length=16,
         choices=OrganizationStatus.choices,

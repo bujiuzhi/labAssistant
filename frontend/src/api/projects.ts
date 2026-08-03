@@ -1,4 +1,5 @@
 import { http } from "./http";
+import { createIdempotencyKey } from "./idempotency";
 import type {
   DataResponse,
   DashboardSummary,
@@ -10,12 +11,15 @@ import type {
   ProjectDocumentListResponse,
   ProjectDocumentUploadInput,
   ProjectFilters,
+  ProjectOperationLog,
 } from "@/types/api";
 
 export const projectApi = {
   /** 查询当前用户数据范围内的实时总览。 */
-  async dashboard(): Promise<DashboardSummary> {
-    const response = await http.get<DataResponse<DashboardSummary>>("/dashboard");
+  async dashboard(projectId = ""): Promise<DashboardSummary> {
+    const response = await http.get<DataResponse<DashboardSummary>>("/dashboard", {
+      params: projectId ? { project_id: projectId } : undefined,
+    });
     return response.data.data;
   },
 
@@ -33,7 +37,7 @@ export const projectApi = {
 
   async create(payload: ProjectCreateInput): Promise<Project> {
     const response = await http.post<DataResponse<Project>>("/projects", payload, {
-      headers: { "Idempotency-Key": crypto.randomUUID() },
+      headers: { "Idempotency-Key": createIdempotencyKey() },
     });
     return response.data.data;
   },
@@ -47,6 +51,24 @@ export const projectApi = {
       `/projects/${projectId}`,
       payload,
       { headers: { "If-Match": `"${version}"` } },
+    );
+    return response.data.data;
+  },
+
+  /** 归档项目并返回最新资源版本。 */
+  async archive(projectId: string, version: number): Promise<Project> {
+    const response = await http.post<DataResponse<Project>>(
+      `/projects/${projectId}/archive`,
+      {},
+      { headers: { "If-Match": `"${version}"` } },
+    );
+    return response.data.data;
+  },
+
+  /** 查询项目创建、编辑、里程碑、文档和归档的真实操作记录。 */
+  async listOperationLogs(projectId: string): Promise<ProjectOperationLog[]> {
+    const response = await http.get<DataResponse<ProjectOperationLog[]>>(
+      `/projects/${projectId}/operation-logs`,
     );
     return response.data.data;
   },
@@ -89,7 +111,41 @@ export const projectApi = {
     return download ? `${base}?download=1` : base;
   },
 
-  /** 获取文档在线预览地址，办公文档由服务端转换为真实 PDF。 */
+  /** 获取文档原始二进制内容，供前端预览组件解析。 */
+  async getDocumentContent(
+    projectId: string,
+    documentId: string,
+  ): Promise<ArrayBuffer> {
+    const response = await http.get<ArrayBuffer>(
+      `/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(
+        documentId,
+      )}/content`,
+      {
+        responseType: "arraybuffer",
+        timeout: 60_000,
+      },
+    );
+    return response.data;
+  },
+
+  /** 获取服务端转换后的 PDF 或可直接预览原件。 */
+  async getDocumentPreview(
+    projectId: string,
+    documentId: string,
+  ): Promise<ArrayBuffer> {
+    const response = await http.get<ArrayBuffer>(
+      `/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(
+        documentId,
+      )}/preview`,
+      {
+        responseType: "arraybuffer",
+        timeout: 60_000,
+      },
+    );
+    return response.data;
+  },
+
+  /** 返回受当前会话保护的在线预览地址。 */
   documentPreviewUrl(projectId: string, documentId: string): string {
     return `/api/v1/projects/${encodeURIComponent(
       projectId,

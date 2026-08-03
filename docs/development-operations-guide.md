@@ -2,7 +2,7 @@
 
 ## 1. 目的与适用范围
 
-本指南是项目唯一的开发、测试、部署、运维和协作规范，适用于当前 `dev` 分支。系统当前由 Vue 前端、Django API、PostgreSQL/SQLite、项目媒体文件和 LibreOffice 预览组件构成。
+本指南是项目唯一的开发、测试、部署、运维和协作规范，适用于当前 `dev` 分支。系统当前由 Vue 前端、Django API、PostgreSQL/SQLite、RustFS 私有对象存储和 LibreOffice 预览组件构成。
 
 ## 2. 目录与资产边界
 
@@ -20,7 +20,7 @@
 - `backend/apps/*/migrations/` 是数据库物理结构的唯一来源。
 - `backend/tests/` 是后端核心链路的自动化验证来源。
 - `frontend/src/` 和后端接口共同定义实际页面行为。
-- 上传文件、预览缓存、数据库、依赖目录和 `.env` 不得提交 Git。
+- 对象数据、预览缓存、数据库、依赖目录和 `.env` 不得提交 Git。
 
 ## 3. 环境准备
 
@@ -32,6 +32,9 @@
 conda env create -f environment.yml
 conda run -n materials-lab-assistant python3 backend/manage.py migrate
 conda run -n materials-lab-assistant python3 backend/manage.py bootstrap_development
+conda run -n materials-lab-assistant python3 backend/manage.py seed_development_projects
+conda run -n materials-lab-assistant python3 backend/manage.py seed_development_experiments
+conda run -n materials-lab-assistant python3 backend/manage.py seed_development_documents
 ```
 
 ### 3.2 配置文件
@@ -43,6 +46,7 @@ conda run -n materials-lab-assistant python3 backend/manage.py bootstrap_develop
 | Django | `DJANGO_SECRET_KEY`、`DJANGO_DEBUG`、`ALLOWED_HOSTS`、`CSRF_TRUSTED_ORIGINS` | 生产环境关闭调试并限制来源 |
 | 数据库 | `DATABASE_ENGINE`、`POSTGRES_*` | 切换数据库后先执行 Migration |
 | 缓存/任务 | `CELERY_BROKER_URL`、`CELERY_RESULT_BACKEND` | 异步任务启用时必须可用 |
+| 对象存储 | `OBJECT_STORAGE_*` | RustFS 使用私有桶、SigV4 和 path-style，访问密钥不得提交 |
 | 开发初始化 | `MATERIALS_LAB_DEVELOPMENT_PASSWORD` | 仅开发环境使用 |
 | Docker 数据卷 | `MATERIALS_LAB_DATA_ROOT` | 指向独立数据目录，禁止映射到仓库 |
 
@@ -54,7 +58,7 @@ conda run -n materials-lab-assistant python3 backend/manage.py bootstrap_develop
 
 ```bash
 conda run -n materials-lab-assistant python3 backend/manage.py runserver 0.0.0.0:8000
-conda run -n materials-lab-assistant npm --prefix frontend run dev -- --host 0.0.0.0
+conda run -n materials-lab-assistant pnpm --dir frontend dev -- --host 0.0.0.0
 ```
 
 前端默认监听 `5173`，后端默认监听 `8000`。前端通过 `/api/v1/` 访问 API；登录前先获取 CSRF，认证采用 Session Cookie。
@@ -66,7 +70,11 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d
 docker compose --env-file .env -f infra/docker-compose.yml ps
 ```
 
-Compose 提供 PostgreSQL 和 Redis。开发服务器的 `MEDIA_ROOT` 保存项目文档、实验附件和办公文档 PDF 预览缓存。运行项目文档预览前，服务器必须安装 `libreoffice` 或 `soffice`。
+Compose 提供 PostgreSQL、Redis 和 RustFS。RustFS S3 API 与控制台默认仅绑定服务器回环地址
+`19000`、`19001`；Django 使用私有桶保存项目文档、实验附件和办公文档 PDF 预览缓存。
+运行项目前必须先执行 `bootstrap_object_storage`，运行办公文档预览前还必须安装
+`libreoffice` 或 `soffice`。RustFS 单机数据映射到
+`${MATERIALS_LAB_DATA_ROOT}/rustfs`，不得放入代码仓库。
 
 ### 4.3 运行前检查与故障定位
 
@@ -74,30 +82,36 @@ Compose 提供 PostgreSQL 和 Redis。开发服务器的 `MEDIA_ROOT` 保存项�
 
 | 检查层次 | 命令或动作 | 预期结果 | 异常处理方向 |
 |---|---|---|---|
-| 依赖服务 | `docker compose --env-file .env -f infra/docker-compose.yml ps` | PostgreSQL、Redis 为运行状态 | 查看容器日志和数据卷挂载，禁止重建并覆盖数据卷 |
+| 依赖服务 | `docker compose --env-file .env -f infra/docker-compose.yml ps` | PostgreSQL、Redis、RustFS 为运行状态 | 查看容器日志和数据卷挂载，禁止重建并覆盖数据卷 |
+| 对象存储桶 | `python3 backend/manage.py bootstrap_object_storage` | 私有桶存在且凭据可读写 | 检查 RustFS、endpoint、SigV4、path-style 和密钥 |
 | 数据库迁移 | `python3 backend/manage.py showmigrations` | 已应用迁移无缺失 | 备份后执行 `migrate`，不要手工修改表结构 |
 | API 存活 | `GET /api/v1/health/live` | 返回 200 | 检查 Python 进程、端口、环境变量和日志 |
 | API 就绪 | `GET /api/v1/health/ready` | 返回 200，依赖可连接 | 检查数据库连接、网络与配置 |
 | 前端页面 | 浏览器打开前端地址并登录 | 无空白页、接口无跨域/会话错误 | 检查 Vite 代理、浏览器控制台和 API 地址 |
-| 文件预览 | 上传一个允许格式文件并点击预览 | 原件或转换 PDF 可读取 | 检查 `MEDIA_ROOT` 权限、LibreOffice 可执行和磁盘空间 |
+| 文件预览 | 分别打开 DOCX、XLSX、PPTX、PDF、图片和文本样例 | 首选组件渲染；组件失败时显示转换 PDF | 检查浏览器控制台、私有桶权限、LibreOffice、临时目录和磁盘空间 |
 
 开发环境若服务器端口不对外开放，应使用 README 给出的 SSH 隧道访问；不得通过修改后端认证逻辑或关闭 CSRF 来规避访问问题。
+二进制原件和 PDF 预览请求不要覆盖 `Accept` 为 DRF 未配置的媒体类型，否则请求可能在进入
+文件视图前被内容协商返回 406；前端只需设置 `responseType: arraybuffer`。
 
 ## 5. 测试与质量门禁
 
 | 层级 | 命令/方法 | 通过标准 |
 |---|---|---|
 | 后端 | `conda run -n materials-lab-assistant pytest backend -q` | 认证、项目、文档、实验、ELN 和附件核心测试通过 |
-| 前端类型与构建 | `conda run -n materials-lab-assistant npm --prefix frontend run build` | TypeScript 检查与 Vite 构建通过 |
+| 后端静态检查 | `conda run -n materials-lab-assistant ruff check backend` | Python 源码与测试无静态检查错误 |
+| 前端单测 | `conda run -n materials-lab-assistant pnpm --dir frontend test` | 格式分流、文本解码和 CSV 解析通过 |
+| 前端类型与构建 | `conda run -n materials-lab-assistant pnpm --dir frontend run build` | TypeScript 检查、组件懒加载和 Vite 构建通过 |
 | 数据库 | 执行 `migrate` 并验证关键查询 | Migration 可重复执行，约束和索引生效 |
 | 页面 | 登录、项目编辑、文档预览、ELN 写入等人工/浏览器验证 | 无空白页、无框架错误、权限与状态符合预期 |
 
 当前已实现链路的回归重点：
 
-- 项目创建使用 `Idempotency-Key`，编辑使用 `If-Match`。
-- 项目文档上传、下载、PDF/图片原件预览和办公文档转 PDF 预览。
-- 实验创建、复制、状态迁移、ELN 写入和真实附件读取。
-- 超级管理员用户管理与对象范围越权检查。
+- 项目创建使用 `Idempotency-Key`，编辑和归档使用 `If-Match`，关键动作写入业务操作日志。
+- 项目文档上传、下载、签名与压缩包安全校验；DOCX/XLS/XLSX/PPTX/PDF 组件预览；
+  图片、TXT/CSV 预览；旧格式及组件失败时转 PDF。
+- 实验创建、复制、顺序状态迁移、完成后修订、ELN 写入和真实附件增删读取。
+- 超级管理员用户管理、三类角色选项、下级组织和跨组织项目成员范围检查。
 
 ### 5.1 文档图示与实现一致性检查
 
@@ -115,7 +129,7 @@ Compose 提供 PostgreSQL 和 Redis。开发服务器的 `MEDIA_ROOT` 保存项�
 ### 6.1 发布顺序
 
 1. 确认 `dev` 分支已通过测试并完成代码审查。
-2. 备份数据库和 `MEDIA_ROOT`，记录备份时间、版本和恢复位置。
+2. 备份数据库和 RustFS 对象数据，记录备份时间、版本和恢复位置。
 3. 拉取目标提交，安装已锁定依赖，执行 `migrate`。
 4. 构建前端，重启 API、静态资源服务和必要的 Worker。
 5. 验证健康接口、登录、项目列表、文档预览和 ELN 保存。
@@ -124,28 +138,28 @@ Compose 提供 PostgreSQL 和 Redis。开发服务器的 `MEDIA_ROOT` 保存项�
 
 - 先停止新版本写流量，再回滚应用版本。
 - 存在数据库 Migration 时，必须先评估可逆性；不可逆 Migration 采用向前修复或恢复备份，不允许直接删除生产数据。
-- 文件路径、预览缓存与业务记录一起备份；文件丢失时不得用模拟内容替代。
+- 对象键、原件与业务记录一起备份；预览缓存可重新生成，原件丢失时不得用模拟内容替代。
 - 每次恢复演练记录耗时、失败原因和改进措施。
 
 ### 6.3 最小备份清单
 
-备份需要形成可追溯资产，不以“复制过目录”作为完成标志。每份备份至少记录应用提交号、Migration 状态、数据库文件/转储位置、`MEDIA_ROOT` 快照位置、校验结果和操作者。
+备份需要形成可追溯资产，不以“复制过目录”作为完成标志。每份备份至少记录应用提交号、Migration 状态、数据库文件/转储位置、RustFS 数据快照位置、桶清单、校验结果和操作者。
 
 | 资产 | 备份方式 | 恢复验证 |
 |---|---|---|
 | PostgreSQL | 使用与部署版本兼容的逻辑备份或物理备份 | 恢复到隔离环境并执行就绪检查、项目和实验抽查 |
 | SQLite（开发） | 停止写入后复制数据库文件 | 启动 Django 并执行只读查询 |
-| `MEDIA_ROOT` | 递归保留目录层次和文件时间 | 按文档、过程图片、结果附件各抽取一次授权读取 |
+| RustFS 对象原件 | 备份 `${MATERIALS_LAB_DATA_ROOT}/rustfs` 或复制私有桶到独立存储 | 比对对象清单并按文档、过程图片、结果附件抽样读取 |
 | `.env` 安全备份 | 受控密钥库或服务器权限目录 | 仅确认可恢复，禁止写入 Git 或普通日志 |
-| Compose 数据卷 | 按卷名和应用版本记录 | 在隔离环境挂载后检查数据库与 Redis 可启动 |
+| Compose 数据目录 | 按组件和应用版本记录 | 在隔离环境挂载后检查 PostgreSQL、Redis、RustFS 可启动 |
 
 ## 7. 安全与运维检查
 
 - 生产环境使用 HTTPS、精确 `ALLOWED_HOSTS` 和 `CSRF_TRUSTED_ORIGINS`，禁止 `DEBUG=true`。
-- 数据库、Redis 和媒体目录仅对必要进程开放；Docker 端口优先绑定服务器回环地址。
+- 数据库、Redis 和 RustFS API/控制台仅对必要进程开放；Docker 端口绑定服务器回环地址。
 - 每次请求必须经过 Session、权限码、组织范围、对象范围和状态校验。
 - 日志应保留请求编号、资源和错误码，不记录密码、Cookie、完整 ELN 正文或文件内容。
-- 监控 API 可用性、错误率、数据库连接、磁盘空间、媒体增长、LibreOffice 转换失败和任务积压。
+- 监控 API 可用性、错误率、数据库连接、RustFS 容量与错误率、对象增长、LibreOffice 转换失败和任务积压。
 
 ## 8. Git 与文档维护
 

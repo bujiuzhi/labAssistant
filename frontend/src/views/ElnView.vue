@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import { Icon } from "@iconify/vue";
 import { ElMessage } from "element-plus";
-import { computed, nextTick, onMounted, reactive, ref } from "vue";
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+} from "vue";
 import { useRoute } from "vue-router";
 
 import { experimentApi } from "@/api/experiments";
@@ -28,17 +35,7 @@ const statusOptions: Array<{ value: ExperimentStatus; label: string }> = [
   { value: "not_started", label: "未开始" },
   { value: "completed", label: "已完成" },
 ];
-const experimentTypes = [
-  "配方筛选",
-  "性能测试",
-  "热分析",
-  "结构表征",
-  "工艺优化",
-  "可靠性测试",
-  "单体",
-  "聚合",
-  "其他",
-];
+const experimentTypes = ["单体", "聚合", "其他"];
 
 const experiments = ref<Experiment[]>([]);
 const projects = ref<Project[]>([]);
@@ -54,9 +51,17 @@ const loading = ref(true);
 const saving = ref(false);
 const isCreating = ref(false);
 const previewImage = ref<ProcessImage | null>(null);
+const attachmentBusyId = ref("");
 const listWidth = ref(495);
 const resizing = ref(false);
 const recordScroll = ref<HTMLElement | null>(null);
+const copyPlanControl = ref<HTMLElement | null>(null);
+const copyPlanTrigger = ref<HTMLButtonElement | null>(null);
+const copyPlanSearchInput = ref<HTMLInputElement | null>(null);
+const projectFilter = ref<HTMLElement | null>(null);
+const projectFilterTrigger = ref<HTMLInputElement | null>(null);
+const projectOptionList = ref<HTMLElement | null>(null);
+const experimentNameInput = ref<HTMLInputElement | null>(null);
 let resizerStartX = 0;
 let resizerStartWidth = 0;
 
@@ -118,8 +123,7 @@ const selectedExperiment = computed(
 const canEdit = computed(
   () =>
     isCreating.value ||
-    (selectedExperiment.value?.status !== "completed" &&
-      sessionStore.hasPermission("experiment.update")),
+    sessionStore.hasPermission("experiment.update"),
 );
 
 const filteredExperiments = computed(() => {
@@ -278,14 +282,206 @@ function changeStatus(status: ExperimentStatus): void {
 
 function selectProject(projectId: string): void {
   selectedProjectId.value = projectId;
-  projectFilterOpen.value = false;
-  projectSearch.value = "";
+  closeProjectFilter();
   isCreating.value = false;
   selectFirstVisible();
 }
 
 function updateProjectSearch(event: Event): void {
   projectSearch.value = (event.target as HTMLInputElement).value;
+}
+
+/**
+ * 打开项目筛选下拉并按需将焦点移入当前选项
+ *
+ * @param focusOption 是否聚焦当前选项或首个选项
+ */
+function openProjectFilter(focusOption = false): void {
+  closeCopyPanel();
+  projectSearch.value = "";
+  projectFilterOpen.value = true;
+  void nextTick(() => {
+    if (focusOption) {
+      focusSelectedProjectOption();
+      return;
+    }
+    projectFilterTrigger.value?.focus();
+    projectFilterTrigger.value?.select();
+  });
+}
+
+/**
+ * 关闭项目筛选下拉
+ *
+ * @param returnFocus 是否把焦点还给筛选输入框
+ */
+function closeProjectFilter(returnFocus = false): void {
+  projectFilterOpen.value = false;
+  projectSearch.value = "";
+  if (returnFocus) {
+    void nextTick(() => projectFilterTrigger.value?.focus());
+  }
+}
+
+/** 聚焦已选择的项目选项，未选择时聚焦第一个选项。 */
+function focusSelectedProjectOption(): void {
+  const options = Array.from(
+    projectOptionList.value?.querySelectorAll<HTMLButtonElement>('[role="option"]') ??
+      [],
+  );
+  const selected =
+    options.find((option) => option.getAttribute("aria-selected") === "true") ??
+    options[0];
+  selected?.focus();
+}
+
+/**
+ * 处理项目筛选输入框的键盘操作
+ *
+ * @param event 键盘事件
+ */
+function handleProjectFilterKeydown(event: KeyboardEvent): void {
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    if (!projectFilterOpen.value) {
+      openProjectFilter(true);
+    } else {
+      focusSelectedProjectOption();
+    }
+    return;
+  }
+  if (event.key === "Enter" && projectFilterOpen.value) {
+    const options = projectOptions.value;
+    if (options.length === 1) {
+      event.preventDefault();
+      selectProject(options[0].id);
+    }
+    return;
+  }
+  if (event.key === "Escape" && projectFilterOpen.value) {
+    event.preventDefault();
+    closeProjectFilter(true);
+  }
+}
+
+/**
+ * 处理项目筛选选项的方向键、首尾键和确认键
+ *
+ * @param event 键盘事件
+ * @param projectId 当前选项的项目 ID
+ */
+function handleProjectOptionKeydown(
+  event: KeyboardEvent,
+  projectId: string,
+): void {
+  const options = Array.from(
+    projectOptionList.value?.querySelectorAll<HTMLButtonElement>('[role="option"]') ??
+      [],
+  );
+  const current = event.currentTarget as HTMLButtonElement;
+  const currentIndex = options.indexOf(current);
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    const direction = event.key === "ArrowDown" ? 1 : -1;
+    const nextIndex = Math.min(
+      options.length - 1,
+      Math.max(0, currentIndex + direction),
+    );
+    options[nextIndex]?.focus();
+    return;
+  }
+  if (event.key === "Home" || event.key === "End") {
+    event.preventDefault();
+    options[event.key === "Home" ? 0 : options.length - 1]?.focus();
+    return;
+  }
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    selectProject(projectId);
+    return;
+  }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeProjectFilter(true);
+  }
+}
+
+/** 打开复制计划下拉并聚焦搜索框。 */
+function openCopyPanel(): void {
+  closeProjectFilter();
+  copySearch.value = "";
+  copySelectedId.value = "";
+  copyPanelOpen.value = true;
+  void nextTick(() => copyPlanSearchInput.value?.focus());
+}
+
+/**
+ * 关闭复制计划下拉
+ *
+ * @param returnFocus 是否把焦点还给复制计划按钮
+ */
+function closeCopyPanel(returnFocus = false): void {
+  copyPanelOpen.value = false;
+  if (returnFocus) {
+    void nextTick(() => copyPlanTrigger.value?.focus());
+  }
+}
+
+/** 切换复制计划下拉。 */
+function toggleCopyPanel(): void {
+  if (copyPanelOpen.value) {
+    closeCopyPanel();
+    return;
+  }
+  openCopyPanel();
+}
+
+/**
+ * 处理复制计划按钮的方向键与 Esc
+ *
+ * @param event 键盘事件
+ */
+function handleCopyTriggerKeydown(event: KeyboardEvent): void {
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    if (!copyPanelOpen.value) openCopyPanel();
+    else copyPlanSearchInput.value?.focus();
+    return;
+  }
+  if (event.key === "Escape" && copyPanelOpen.value) {
+    event.preventDefault();
+    closeCopyPanel(true);
+  }
+}
+
+/**
+ * 点击两个下拉区域外部时关闭浮层
+ *
+ * @param event 鼠标事件
+ */
+function handleDocumentClick(event: MouseEvent): void {
+  const target = event.target;
+  if (!(target instanceof Node)) return;
+  if (
+    projectFilterOpen.value &&
+    !projectFilter.value?.contains(target)
+  ) {
+    closeProjectFilter();
+  }
+  if (copyPanelOpen.value && !copyPlanControl.value?.contains(target)) {
+    closeCopyPanel();
+  }
+}
+
+/**
+ * 处理页面级 Esc 操作
+ *
+ * @param event 键盘事件
+ */
+function handleDocumentKeydown(event: KeyboardEvent): void {
+  if (event.key === "Escape" && previewImage.value) {
+    previewImage.value = null;
+  }
 }
 
 function startCreate(source?: Experiment): void {
@@ -303,11 +499,12 @@ function startCreate(source?: Experiment): void {
     });
   }
   replaceEditor(next);
-  copyPanelOpen.value = false;
+  closeCopyPanel();
   copySearch.value = "";
   copySelectedId.value = "";
   void nextTick(() => {
     if (recordScroll.value) recordScroll.value.scrollTop = 0;
+    experimentNameInput.value?.focus();
   });
   ElMessage.success(
     source
@@ -404,23 +601,29 @@ async function addProcessImages(event: Event): Promise<void> {
     input.value = "";
     return;
   }
-  try {
-    for (const file of files) {
-      if (file.size > 10 * 1024 * 1024) {
-        ElMessage.warning(`${file.name} 超过 10 MB，未添加`);
-        continue;
-      }
+  let succeeded = 0;
+  const failures: string[] = [];
+  for (const file of files) {
+    if (
+      !["image/jpeg", "image/png"].includes(file.type) ||
+      file.size > 10 * 1024 * 1024
+    ) {
+      failures.push(`${file.name}：仅支持 10 MB 以内的 JPG、PNG`);
+      continue;
+    }
+    try {
       const updated = await experimentApi.uploadAttachment(current.experiment_no, file, "process_image");
       replaceExperiment(updated);
       replaceEditor(recordToEditor(updated));
+      succeeded += 1;
+    } catch (error) {
+      const problem = getProblemDetail(error);
+      failures.push(`${file.name}：${problem?.detail ?? "上传失败"}`);
     }
-    ElMessage.success("过程图片已真实上传");
-  } catch (error) {
-    const problem = getProblemDetail(error);
-    ElMessage.error(problem?.detail ?? "过程图片上传失败");
-  } finally {
-    input.value = "";
   }
+  input.value = "";
+  if (succeeded) ElMessage.success(`已上传 ${succeeded} 张过程图片`);
+  failures.forEach((message) => ElMessage.warning(message));
 }
 
 async function addResultFiles(event: Event): Promise<void> {
@@ -431,18 +634,47 @@ async function addResultFiles(event: Event): Promise<void> {
     input.value = "";
     return;
   }
-  try {
-    for (const file of Array.from(input.files ?? [])) {
+  let succeeded = 0;
+  const failures: string[] = [];
+  for (const file of Array.from(input.files ?? [])) {
+    if (file.size > 25 * 1024 * 1024) {
+      failures.push(`${file.name}：超过 25 MB`);
+      continue;
+    }
+    try {
       const updated = await experimentApi.uploadAttachment(current.experiment_no, file, "result_file");
       replaceExperiment(updated);
       replaceEditor(recordToEditor(updated));
+      succeeded += 1;
+    } catch (error) {
+      const problem = getProblemDetail(error);
+      failures.push(`${file.name}：${problem?.detail ?? "上传失败"}`);
     }
-    ElMessage.success("结果附件已真实上传");
+  }
+  input.value = "";
+  if (succeeded) ElMessage.success(`已上传 ${succeeded} 个结果附件`);
+  failures.forEach((message) => ElMessage.warning(message));
+}
+
+async function removeAttachment(
+  attachment: ProcessImage | ResultFile,
+): Promise<void> {
+  const current = selectedExperiment.value;
+  if (!current || !attachment.id || attachmentBusyId.value) return;
+  attachmentBusyId.value = attachment.id;
+  try {
+    const updated = await experimentApi.deleteAttachment(
+      current.experiment_no,
+      attachment.id,
+    );
+    replaceExperiment(updated);
+    replaceEditor(recordToEditor(updated));
+    ElMessage.success(`已删除“${attachment.name}”`);
   } catch (error) {
     const problem = getProblemDetail(error);
-    ElMessage.error(problem?.detail ?? "结果附件上传失败");
+    ElMessage.error(problem?.detail ?? "附件删除失败");
   } finally {
-    input.value = "";
+    attachmentBusyId.value = "";
   }
 }
 
@@ -477,6 +709,18 @@ function validateEditor(): boolean {
   }
   if (!editor.experiment_type) {
     ElMessage.warning("请选择实验类型");
+    return false;
+  }
+  if (!editor.purpose.trim()) {
+    ElMessage.warning("请输入实验目的");
+    return false;
+  }
+  if (
+    editor.extra_processes.some(
+      (process) => process.content.length > 1000,
+    )
+  ) {
+    ElMessage.warning("单个新增实验过程不得超过 1000 字");
     return false;
   }
   if (
@@ -539,6 +783,45 @@ async function persistRecord(isDraft: boolean): Promise<void> {
   }
 }
 
+/** 保存当前记录后显式完成实验，完成前必须填写实验结果。 */
+async function completeExperiment(): Promise<void> {
+  const current = selectedExperiment.value;
+  if (
+    !current ||
+    current.status !== "in_progress" ||
+    saving.value ||
+    !validateEditor()
+  ) {
+    return;
+  }
+  if (!editor.result_text.trim()) {
+    ElMessage.warning("完成实验前必须填写实验结果");
+    return;
+  }
+  saving.value = true;
+  try {
+    const updated = await experimentApi.update(
+      current.experiment_no,
+      current.version,
+      payloadFromEditor(),
+    );
+    const completed = await experimentApi.transition(
+      updated.experiment_no,
+      updated.version,
+      "completed",
+    );
+    replaceExperiment(completed);
+    activeStatus.value = "completed";
+    selectExperiment(completed);
+    ElMessage.success("实验已完成，记录仍可继续保存修订");
+  } catch (error) {
+    const problem = getProblemDetail(error);
+    ElMessage.error(problem?.detail ?? "实验完成失败");
+  } finally {
+    saving.value = false;
+  }
+}
+
 function beginResize(event: PointerEvent): void {
   resizing.value = true;
   resizerStartX = event.clientX;
@@ -569,6 +852,14 @@ async function loadPage(): Promise<void> {
     ]);
     experiments.value = experimentResponse.data;
     projects.value = projectResponse.data;
+    const requestedProject = String(route.query.project ?? "");
+    if (requestedProject && projects.value.some((item) => item.id === requestedProject)) {
+      selectedProjectId.value = requestedProject;
+    }
+    if (route.query.create === "1") {
+      startCreate();
+      return;
+    }
     const requestedExperiment = String(route.query.experiment ?? "");
     const initial =
       experiments.value.find(
@@ -590,7 +881,16 @@ async function loadPage(): Promise<void> {
   }
 }
 
-onMounted(loadPage);
+onMounted(() => {
+  document.addEventListener("click", handleDocumentClick);
+  document.addEventListener("keydown", handleDocumentKeydown);
+  void loadPage();
+});
+onBeforeUnmount(() => {
+  document.removeEventListener("click", handleDocumentClick);
+  document.removeEventListener("keydown", handleDocumentKeydown);
+  window.removeEventListener("pointermove", resizeList);
+});
 </script>
 
 <template>
@@ -602,26 +902,35 @@ onMounted(loadPage);
     <aside class="experiment-list-panel">
       <section class="experiment-list-card">
         <header class="plan-actions">
-          <div class="copy-plan-control">
+          <div ref="copyPlanControl" class="copy-plan-control">
             <button
+              ref="copyPlanTrigger"
               class="button copy-plan-button"
               type="button"
               aria-haspopup="listbox"
               :aria-expanded="copyPanelOpen"
-              @click="copyPanelOpen = !copyPanelOpen"
+              aria-controls="copy-plan-dropdown"
+              @click="toggleCopyPanel"
+              @keydown="handleCopyTriggerKeydown"
             >
               <Icon icon="tabler:copy" />
               复制计划
               <Icon class="copy-chevron" icon="tabler:chevron-down" />
             </button>
-            <div v-if="copyPanelOpen" class="copy-plan-dropdown">
+            <div
+              v-if="copyPanelOpen"
+              id="copy-plan-dropdown"
+              class="copy-plan-dropdown"
+            >
               <label class="dropdown-search">
                 <Icon icon="tabler:search" />
                 <input
+                  ref="copyPlanSearchInput"
                   v-model="copySearch"
                   type="search"
                   placeholder="搜索实验名称"
                   autocomplete="off"
+                  @keydown.esc.stop.prevent="closeCopyPanel(true)"
                 />
               </label>
               <div class="copy-plan-list" role="radiogroup" aria-label="选择实验计划">
@@ -652,7 +961,7 @@ onMounted(loadPage);
                 <button
                   class="button"
                   type="button"
-                  @click="copyPanelOpen = false"
+                  @click="closeCopyPanel(true)"
                 >
                   取消
                 </button>
@@ -674,23 +983,33 @@ onMounted(loadPage);
           </button>
         </header>
 
-        <div class="combined-filter">
+        <div ref="projectFilter" class="combined-filter">
           <label class="project-filter-trigger">
             <Icon icon="tabler:search" />
             <input
+              ref="projectFilterTrigger"
               :value="projectFilterOpen ? projectSearch : selectedProjectName"
               type="text"
               placeholder="搜索项目名称或编号"
               autocomplete="off"
-              aria-label="项目筛选"
-              @focus="
-                projectFilterOpen = true;
-                projectSearch = '';
-              "
+              role="combobox"
+              :aria-label="`项目筛选，当前：${selectedProjectName}`"
+              aria-haspopup="listbox"
+              :aria-expanded="projectFilterOpen"
+              aria-controls="project-filter-options"
+              @click="projectFilterOpen ? projectFilterTrigger?.select() : openProjectFilter()"
               @input="updateProjectSearch"
+              @keydown="handleProjectFilterKeydown"
             />
           </label>
-          <div v-if="projectFilterOpen" class="project-options" role="listbox">
+          <div
+            v-if="projectFilterOpen"
+            id="project-filter-options"
+            ref="projectOptionList"
+            class="project-options"
+            role="listbox"
+            aria-label="按项目筛选实验"
+          >
             <button
               v-for="project in projectOptions"
               :key="project.id || 'all'"
@@ -700,6 +1019,7 @@ onMounted(loadPage);
               role="option"
               :aria-selected="selectedProjectId === project.id"
               @mousedown.prevent="selectProject(project.id)"
+              @keydown="handleProjectOptionKeydown($event, project.id)"
             >
               <Icon icon="tabler:check" />
               <span>{{ project.name }}</span>
@@ -821,6 +1141,7 @@ onMounted(loadPage);
             <label>
               <span>实验名称</span>
               <input
+                ref="experimentNameInput"
                 v-model="editor.name"
                 type="text"
                 maxlength="200"
@@ -1079,8 +1400,12 @@ onMounted(loadPage);
               <textarea
                 v-model="process.content"
                 :disabled="!canEdit"
+                maxlength="1000"
                 placeholder="输入实验过程内容"
               />
+              <small class="process-char-count">
+                {{ process.content.length }} / 1000
+              </small>
             </section>
           </div>
 
@@ -1105,6 +1430,16 @@ onMounted(loadPage);
                     <img :src="image.url" :alt="image.name" />
                   </button>
                   <span>{{ image.name }}</span>
+                  <button
+                    v-if="canEdit && image.id"
+                    class="remove-media"
+                    type="button"
+                    :disabled="attachmentBusyId === image.id"
+                    :aria-label="`删除${image.name}`"
+                    @click="removeAttachment(image)"
+                  >
+                    <Icon icon="tabler:x" />
+                  </button>
                 </figure>
               </div>
             </div>
@@ -1146,6 +1481,15 @@ onMounted(loadPage);
                 <a v-if="file.url" :href="file.url" :download="file.name">{{ file.name }}</a>
                 <span v-else>{{ file.name }}</span>
                 <small>{{ file.size }}</small>
+                <button
+                  v-if="canEdit && file.id"
+                  type="button"
+                  :disabled="attachmentBusyId === file.id"
+                  :aria-label="`删除${file.name}`"
+                  @click="removeAttachment(file)"
+                >
+                  <Icon icon="tabler:trash" />
+                </button>
               </div>
             </div>
             <label v-if="canEdit" class="upload-file">
@@ -1168,6 +1512,7 @@ onMounted(loadPage);
         class="record-actions"
       >
         <button
+          v-if="selectedExperiment?.status !== 'completed'"
           class="button"
           type="button"
           :disabled="saving"
@@ -1189,6 +1534,16 @@ onMounted(loadPage);
             "
           />
           {{ saving ? "处理中…" : primaryActionLabel }}
+        </button>
+        <button
+          v-if="selectedExperiment?.status === 'in_progress'"
+          class="button complete-button"
+          type="button"
+          :disabled="saving"
+          @click="completeExperiment"
+        >
+          <Icon icon="tabler:circle-check" />
+          完成实验
         </button>
       </footer>
     </article>
@@ -1221,7 +1576,7 @@ onMounted(loadPage);
 .eln-page {
   --list-width: 495px;
   display: grid;
-  grid-template-columns: var(--list-width) 4px minmax(0, 1fr);
+  grid-template-columns: var(--list-width) 6px minmax(0, 1fr);
   width: 100%;
   height: 100%;
   min-height: 0;
@@ -1951,6 +2306,14 @@ onMounted(loadPage);
   margin-bottom: 8px;
 }
 
+.process-char-count {
+  display: block;
+  margin-top: 4px;
+  color: var(--color-ink-4);
+  font-size: 11px;
+  text-align: right;
+}
+
 .process-media {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 130px;
@@ -2107,10 +2470,15 @@ onMounted(loadPage);
   gap: 7px;
 }
 
-.file-chip span {
+.file-chip span,
+.file-chip a {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.file-chip a:hover {
+  color: var(--color-accent);
 }
 
 .file-chip small {
@@ -2156,6 +2524,12 @@ onMounted(loadPage);
   box-shadow: 0 8px 24px rgb(15 23 42 / 10%);
   backdrop-filter: blur(8px);
   gap: 9px;
+}
+
+.record-actions .complete-button {
+  color: #ffffff;
+  background: #14804a;
+  border-color: #14804a;
 }
 
 .workspace-empty {
@@ -2255,6 +2629,70 @@ onMounted(loadPage);
 
   .upload-file {
     width: 150px;
+  }
+}
+
+@media (max-width: 800px) {
+  .eln-page {
+    display: flex;
+    height: 100%;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .experiment-list-panel {
+    min-width: 0;
+    min-height: 390px;
+    flex: 0 0 390px;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-rule);
+  }
+
+  .experiment-list-card {
+    margin: 8px;
+  }
+
+  .layout-resizer {
+    display: none;
+  }
+
+  .record-workspace {
+    min-height: 620px;
+    flex: none;
+    padding: 8px;
+    overflow: visible;
+  }
+
+  .record-scroll {
+    padding: 0 0 92px;
+    overflow: visible;
+  }
+
+  .basic-info-grid,
+  .basic-info-create {
+    grid-template-columns: 1fr;
+  }
+
+  .process-media,
+  .result-attachments {
+    grid-template-columns: 1fr;
+  }
+
+  .upload-tile {
+    height: 80px;
+  }
+
+  .record-actions {
+    position: sticky;
+    right: auto;
+    bottom: 8px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    margin: 0 8px;
+  }
+
+  .image-preview {
+    padding: 20px;
   }
 }
 </style>

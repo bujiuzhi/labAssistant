@@ -12,7 +12,7 @@ from .models import Role, RoleStatus, User, UserRole, UserStatus
 
 logger = logging.getLogger(__name__)
 
-ASSIGNABLE_ROLE_CODES = {"project_manager", "researcher", "inspector"}
+ASSIGNABLE_ROLE_CODES = {"project_manager", "researcher"}
 
 
 def _resolve_assignable_roles(actor: User, role_codes: list[str]) -> list[Role]:

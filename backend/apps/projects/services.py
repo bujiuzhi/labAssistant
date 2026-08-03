@@ -12,8 +12,11 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from apps.common.exceptions import BusinessRuleConflict, ResourceVersionConflict
 from apps.common.models import IdempotencyRequest
+from apps.common.services import record_business_operation
 from apps.identity.models import User
+from apps.identity.selectors import visible_organization_ids
 
+from .document_formats import DOCUMENT_MIME_TYPES
 from .models import (
     BusinessNumberSequence,
     Project,
@@ -22,6 +25,7 @@ from .models import (
     ProjectMemberRole,
     ProjectStatus,
 )
+from .selectors import projects_for_user
 
 
 def _resolve_member_users(actor: User, member_ids: list) -> list[User]:
@@ -39,7 +43,7 @@ def _resolve_member_users(actor: User, member_ids: list) -> list[User]:
     """
     users = list(
         User.objects.filter(
-            organization_id=actor.organization_id,
+            organization_id__in=visible_organization_ids(actor),
             id__in=member_ids,
             is_active=True,
         )
@@ -154,8 +158,8 @@ def create_project(
     if member_ids and not actor.has_permission_code("project.manage_members"):
         raise PermissionDenied("无项目成员管理权限")
     owner = validated_data["owner"]
-    if owner.organization_id != actor.organization_id:
-        raise ValidationError({"owner_id": ["项目负责人必须属于当前组织"]})
+    if owner.organization_id not in visible_organization_ids(actor):
+        raise ValidationError({"owner_id": ["项目负责人必须属于当前可见组织范围"]})
 
     route_key = "POST:/api/v1/projects"
     request_hash = _canonical_request_hash(
@@ -195,6 +199,8 @@ def create_project(
         **validated_data,
     )
     member_users = _resolve_member_users(actor, member_ids)
+    if actor.id != owner.id and all(user.id != actor.id for user in member_users):
+        member_users.append(actor)
     _sync_project_members(
         project=project,
         owner=owner,
@@ -206,6 +212,16 @@ def create_project(
     idempotency_record.response_body = {"project_id": str(project.id)}
     idempotency_record.save(
         update_fields=["status", "response_status", "response_body"]
+    )
+    record_business_operation(
+        actor=actor,
+        domain="project",
+        object_id=project.id,
+        object_no=project.project_no,
+        action_type="project_created",
+        description=f"创建项目“{project.name}”",
+        changes={"project_type_code": project.project_type_code},
+        organization_id=project.organization_id,
     )
     return project, True
 
@@ -234,14 +250,11 @@ def update_project(
         ResourceVersionConflict: 资源版本已变化。
         ValidationError: 负责人跨组织或项目不可编辑。
     """
-    project = Project.objects.select_for_update().get(
-        id=project_id,
-        organization_id=actor.organization_id,
-    )
     if not actor.has_permission_code("project.update"):
         raise PermissionDenied("无项目更新权限")
-    if not actor.has_permission_code("project.view_all") and project.owner_id != actor.id:
-        raise PermissionDenied("只能更新本人负责的项目")
+    if not projects_for_user(actor).filter(id=project_id).exists():
+        raise PermissionDenied("无项目更新权限")
+    project = Project.objects.select_for_update().get(id=project_id)
     if project.version != expected_version:
         raise ResourceVersionConflict()
     if project.status not in {
@@ -258,9 +271,22 @@ def update_project(
     ):
         raise PermissionDenied("无项目成员管理权限")
     owner = validated_data.get("owner")
-    if owner and owner.organization_id != actor.organization_id:
-        raise ValidationError({"owner_id": ["项目负责人必须属于当前组织"]})
+    if owner and owner.organization_id not in visible_organization_ids(actor):
+        raise ValidationError({"owner_id": ["项目负责人必须属于当前可见组织范围"]})
 
+    previous_values = {
+        "name": project.name,
+        "project_type_code": project.project_type_code,
+        "owner_id": str(project.owner_id),
+        "planned_start_date": project.planned_start_date.isoformat()
+        if project.planned_start_date
+        else None,
+        "planned_end_date": project.planned_end_date.isoformat()
+        if project.planned_end_date
+        else None,
+        "objectives": project.objectives,
+        "milestones": project.milestones,
+    }
     previous_member_users = [
         member.user
         for member in ProjectMember.objects.select_related("user").filter(
@@ -283,6 +309,102 @@ def update_project(
         owner=effective_owner,
         member_users=member_users,
         actor=actor,
+    )
+    changed_fields = {
+        field_name: {
+            "before": previous_values.get(field_name),
+            "after": (
+                value.isoformat()
+                if hasattr(value, "isoformat")
+                else str(value.id)
+                if field_name == "owner" and hasattr(value, "id")
+                else value
+            ),
+        }
+        for field_name, value in validated_data.items()
+        if field_name != "milestones"
+        and previous_values.get(
+            "owner_id" if field_name == "owner" else field_name
+        )
+        != (
+            str(value.id)
+            if field_name == "owner" and hasattr(value, "id")
+            else value.isoformat()
+            if hasattr(value, "isoformat")
+            else value
+        )
+    }
+    if changed_fields or member_ids is not None:
+        record_business_operation(
+            actor=actor,
+            domain="project",
+            object_id=project.id,
+            object_no=project.project_no,
+            action_type="project_updated",
+            description="编辑项目基础信息和人员组成",
+            changes={
+                **changed_fields,
+                **(
+                    {"member_ids": [str(user.id) for user in member_users]}
+                    if member_ids is not None
+                    else {}
+                ),
+            },
+            organization_id=project.organization_id,
+        )
+    if "milestones" in validated_data and previous_values["milestones"] != project.milestones:
+        record_business_operation(
+            actor=actor,
+            domain="project",
+            object_id=project.id,
+            object_no=project.project_no,
+            action_type="milestones_updated",
+            description=f"更新项目里程碑，共 {len(project.milestones)} 个节点",
+            changes={"before": previous_values["milestones"], "after": project.milestones},
+            organization_id=project.organization_id,
+        )
+    return project
+
+
+@transaction.atomic
+def archive_project(
+    *,
+    project_id,
+    actor: User,
+    expected_version: int,
+) -> Project:
+    """归档当前用户可维护的项目。
+
+    Args:
+        project_id: 项目主键。
+        actor: 当前操作用户。
+        expected_version: 客户端资源版本。
+
+    Returns:
+        已归档项目。
+    """
+    if not actor.has_permission_code("project.update"):
+        raise PermissionDenied("无项目归档权限")
+    if not projects_for_user(actor).filter(id=project_id).exists():
+        raise PermissionDenied("无项目归档权限")
+    project = Project.objects.select_for_update().get(id=project_id)
+    if project.version != expected_version:
+        raise ResourceVersionConflict()
+    if project.status in {ProjectStatus.COMPLETED, ProjectStatus.ARCHIVED}:
+        raise BusinessRuleConflict("当前项目已结束，无需重复归档")
+    project.status = ProjectStatus.ARCHIVED
+    project.archived_at = timezone.now()
+    project.updated_by = actor
+    project.version += 1
+    project.save()
+    record_business_operation(
+        actor=actor,
+        domain="project",
+        object_id=project.id,
+        object_no=project.project_no,
+        action_type="project_archived",
+        description=f"归档项目“{project.name}”",
+        organization_id=project.organization_id,
     )
     return project
 
@@ -321,7 +443,10 @@ def create_project_document(
         name=upload.name,
         file=upload,
         extension=extension,
-        mime_type=getattr(upload, "content_type", "") or "",
+        mime_type=DOCUMENT_MIME_TYPES.get(
+            extension,
+            "application/octet-stream",
+        ),
         file_size=upload.size,
         uploaded_by=actor,
         updated_by=actor,
@@ -329,4 +454,18 @@ def create_project_document(
     )
     project.document_count = project.documents.count()
     project.save(update_fields=["document_count", "updated_at"])
+    record_business_operation(
+        actor=actor,
+        domain="project",
+        object_id=project.id,
+        object_no=project.project_no,
+        action_type="document_uploaded",
+        description=f"上传文档“{document.name}”",
+        changes={
+            "document_id": str(document.id),
+            "category": document.category,
+            "version_label": document.version_label,
+        },
+        organization_id=project.organization_id,
+    )
     return document

@@ -1,7 +1,6 @@
 """超级管理员用户管理接口测试。"""
 
 import pytest
-
 from apps.identity.models import Role, User, UserRole
 
 

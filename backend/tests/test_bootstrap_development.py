@@ -9,7 +9,7 @@ from django.core.management import call_command
 def test_bootstrap_creates_all_role_accounts_with_default_password(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """初始化命令应可重复创建四类账号并使用默认开发密码。"""
+    """初始化命令应可重复创建三类角色账号并使用默认开发密码。"""
     monkeypatch.delenv("MATERIALS_LAB_DEVELOPMENT_PASSWORD", raising=False)
 
     call_command("bootstrap_development")
@@ -20,7 +20,7 @@ def test_bootstrap_creates_all_role_accounts_with_default_password(
         "admin": "system_admin",
         "manager": "project_manager",
         "researcher": "researcher",
-        "inspector": "inspector",
+        "inspector": "researcher",
     }
 
     assert User.objects.filter(organization=organization).count() == 4

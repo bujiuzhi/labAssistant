@@ -1,18 +1,31 @@
 """按原型初始化可重复执行的电子实验记录本演示数据。"""
 
 from datetime import datetime, timedelta
+from io import BytesIO
+from pathlib import Path
 
+from django.conf import settings
+from django.core.files.base import ContentFile
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
+from openpyxl import Workbook
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from reportlab.pdfgen import canvas
 
 from apps.experiments.models import (
     Experiment,
+    ExperimentAttachment,
+    ExperimentAttachmentKind,
     ExperimentParticipant,
     ExperimentParticipantRole,
     ExperimentRecord,
 )
 from apps.identity.models import User
+from apps.projects.management.commands.seed_development_projects import (
+    DEVELOPMENT_PROJECTS,
+)
 from apps.projects.models import Project
 
 FORMULA_COLUMNS = [
@@ -182,9 +195,9 @@ CORE_EXPERIMENTS = [
         "experiment_type": "配方筛选",
         "phase": "实验执行",
         "status": "in_progress",
-        "estimated_start": "2026-07-20 09:00",
-        "estimated_end": "2026-07-20 16:30",
-        "updated_at": "2026-07-20 09:42",
+        "estimated_start": "2026-06-30 09:00",
+        "estimated_end": "2026-06-30 16:30",
+        "updated_at": "2026-07-30 09:42",
         "purpose": "验证第三轮PLA/PBAT复合配方在混炼稳定性、样条成型完整性和柔韧性方面的表现。",
         "formula_rows": PLA_FORMULA,
         "process_text": (
@@ -217,9 +230,9 @@ CORE_EXPERIMENTS = [
         "experiment_type": "性能测试",
         "phase": "方案设计",
         "status": "not_started",
-        "estimated_start": "2026-07-22 09:30",
-        "estimated_end": "2026-07-22 17:30",
-        "updated_at": "2026-07-19 16:18",
+        "estimated_start": "2026-07-18 09:30",
+        "estimated_end": "2026-07-18 17:30",
+        "updated_at": "2026-07-30 09:20",
         "purpose": "完成批次02样条拉伸性能测试，评估第三轮配方的强度与断裂伸长率。",
         "formula_rows": PLA_FORMULA,
         "process_text": "",
@@ -233,7 +246,7 @@ CORE_EXPERIMENTS = [
         "status": "completed",
         "estimated_start": "2026-07-10 10:00",
         "estimated_end": "2026-07-10 15:30",
-        "updated_at": "2026-07-18 11:05",
+        "updated_at": "2026-07-30 08:55",
         "purpose": "采集样品A3热重分析曲线，确认热稳定性是否达到项目要求。",
         "formula_rows": PLA_FORMULA[:2],
         "process_text": "已完成样品升温与失重曲线采集。",
@@ -302,6 +315,52 @@ CORE_EXPERIMENTS = [
 
 STATUS_TARGETS = {"in_progress": 19, "not_started": 23, "completed": 52}
 TYPE_SEQUENCE = ["配方筛选", "性能测试", "热分析", "结构表征", "工艺优化", "可靠性测试"]
+DEVELOPMENT_PROJECT_NUMBERS = tuple(
+    project["project_no"] for project in DEVELOPMENT_PROJECTS
+)
+
+
+def normalized_experiment_type(value: str) -> str:
+    """将历史实验分类归一到需求规定的三类。"""
+    if "单体" in value:
+        return "单体"
+    if "聚合" in value or "配方" in value or "工艺" in value:
+        return "聚合"
+    return "其他"
+
+
+def result_file_bytes(file_name: str, experiment: Experiment) -> tuple[bytes, str]:
+    """生成可真实下载和打开的实验结果附件。"""
+    output = BytesIO()
+    suffix = Path(file_name).suffix.lower()
+    if suffix == ".xlsx":
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.title = "实验结果"
+        worksheet.append(["实验编号", "样品", "指标", "结果"])
+        worksheet.append([experiment.experiment_no, "A-01", "阶段判定", "合格"])
+        workbook.save(output)
+        mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    elif suffix == ".pdf":
+        pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+        pdf = canvas.Canvas(output)
+        pdf.setFont("STSong-Light", 16)
+        pdf.drawString(72, 780, "实验结果报告")
+        pdf.setFont("STSong-Light", 12)
+        pdf.drawString(72, 744, f"实验编号：{experiment.experiment_no}")
+        pdf.drawString(72, 720, f"实验名称：{experiment.name}")
+        pdf.drawString(72, 696, "阶段判定：合格")
+        pdf.save()
+        mime_type = "application/pdf"
+    else:
+        output.write(
+            (
+                "experiment_no,sample,metric,value\n"
+                f"{experiment.experiment_no},A-01,stage_result,pass\n"
+            ).encode()
+        )
+        mime_type = "text/csv"
+    return output.getvalue(), mime_type
 
 
 def aware(value: str) -> datetime:
@@ -337,18 +396,18 @@ class Command(BaseCommand):
         if not actor or not researcher:
             raise CommandError("请先执行 bootstrap_development 初始化开发账号")
         projects = list(
-            Project.objects.filter(organization=actor.organization).order_by("project_no")
+            Project.objects.filter(
+                organization=actor.organization,
+                project_no__in=DEVELOPMENT_PROJECT_NUMBERS,
+            ).order_by("project_no")
         )
-        if not projects:
-            raise CommandError("请先执行 seed_development_projects 初始化项目")
         project_map = {project.project_no: project for project in projects}
-        missing = {
-            item["project_no"]
-            for item in CORE_EXPERIMENTS
-            if item["project_no"] not in project_map
-        }
+        missing = set(DEVELOPMENT_PROJECT_NUMBERS).difference(project_map)
         if missing:
-            raise CommandError(f"缺少原型项目：{', '.join(sorted(missing))}")
+            raise CommandError(
+                "请先执行 seed_development_projects，缺少开发项目："
+                f"{', '.join(sorted(missing))}"
+            )
 
         specs = [dict(item) for item in CORE_EXPERIMENTS]
         existing_counts = {
@@ -422,7 +481,9 @@ class Command(BaseCommand):
                 defaults={
                     "project": project,
                     "name": spec["name"],
-                    "experiment_type": spec["experiment_type"],
+                    "experiment_type": normalized_experiment_type(
+                        spec["experiment_type"]
+                    ),
                     "phase": spec["phase"],
                     "status": spec["status"],
                     "purpose": spec["purpose"],
@@ -447,11 +508,75 @@ class Command(BaseCommand):
                     "extra_tables": spec.get("extra_tables", []),
                     "process_text": spec.get("process_text", ""),
                     "extra_processes": spec.get("extra_processes", []),
-                    "process_images": spec.get("process_images", []),
                     "result_text": spec.get("result_text", ""),
-                    "result_files": spec.get("result_files", []),
                 },
             )
+            for attachment_spec in spec.get("result_files", []):
+                attachment = ExperimentAttachment.objects.filter(
+                    experiment=experiment,
+                    kind=ExperimentAttachmentKind.RESULT_FILE,
+                    name=attachment_spec["name"],
+                ).first()
+                payload, mime_type = result_file_bytes(
+                    attachment_spec["name"],
+                    experiment,
+                )
+                if attachment:
+                    attachment.file.delete(save=False)
+                else:
+                    attachment = ExperimentAttachment(
+                        organization=actor.organization,
+                        experiment=experiment,
+                        kind=ExperimentAttachmentKind.RESULT_FILE,
+                        name=attachment_spec["name"],
+                        uploaded_by=researcher,
+                    )
+                attachment.mime_type = mime_type
+                attachment.file_size = len(payload)
+                attachment.file.save(
+                    attachment.name,
+                    ContentFile(payload),
+                    save=False,
+                )
+                attachment.save()
+            if spec["experiment_no"] == "EXP-2026-018":
+                asset_directory = (
+                    Path(settings.BASE_DIR).parent
+                    / "frontend"
+                    / "public"
+                    / "prototype"
+                )
+                for source_name, display_name in [
+                    ("weighing-polymer-pellets.png", "称量原料.png"),
+                    ("mixed-polymer-sample.png", "混炼后样品.png"),
+                ]:
+                    source_path = asset_directory / source_name
+                    if not source_path.is_file():
+                        continue
+                    attachment = ExperimentAttachment.objects.filter(
+                        experiment=experiment,
+                        kind=ExperimentAttachmentKind.PROCESS_IMAGE,
+                        name=display_name,
+                    ).first()
+                    payload = source_path.read_bytes()
+                    if attachment:
+                        attachment.file.delete(save=False)
+                    else:
+                        attachment = ExperimentAttachment(
+                            organization=actor.organization,
+                            experiment=experiment,
+                            kind=ExperimentAttachmentKind.PROCESS_IMAGE,
+                            name=display_name,
+                            uploaded_by=researcher,
+                        )
+                    attachment.mime_type = "image/png"
+                    attachment.file_size = len(payload)
+                    attachment.file.save(
+                        display_name,
+                        ContentFile(payload),
+                        save=False,
+                    )
+                    attachment.save()
             ExperimentParticipant.objects.update_or_create(
                 experiment=experiment,
                 user=researcher,
@@ -476,7 +601,7 @@ class Command(BaseCommand):
                 created_at=estimated_start,
                 updated_at=updated_at,
             )
-        for project in projects:
+        for project in Project.objects.filter(organization=actor.organization):
             project.experiment_count = Experiment.objects.filter(project=project).count()
             project.save(update_fields=["experiment_count"])
 

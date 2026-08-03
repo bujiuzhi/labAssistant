@@ -15,16 +15,17 @@ from apps.common.pagination import EnvelopePageNumberPagination
 from .models import Experiment, ExperimentAttachment, ExperimentStatus
 from .selectors import experiments_for_user
 from .serializers import (
-    ExperimentCreateSerializer,
     ExperimentAttachmentUploadSerializer,
+    ExperimentCreateSerializer,
     ExperimentSerializer,
     ExperimentStatusSerializer,
     ExperimentUpdateSerializer,
 )
 from .services import (
     copy_experiment,
-    create_experiment_attachment,
     create_experiment,
+    create_experiment_attachment,
+    delete_experiment_attachment,
     transition_experiment,
     update_experiment,
 )
@@ -223,7 +224,7 @@ class ExperimentAttachmentContentView(ExperimentObjectMixin, APIView):
             ExperimentAttachment,
             id=attachment_id,
             experiment=experiment,
-            organization_id=request.user.organization_id,
+            organization_id=experiment.organization_id,
         )
         return FileResponse(
             attachment.file.open("rb"),
@@ -231,6 +232,26 @@ class ExperimentAttachmentContentView(ExperimentObjectMixin, APIView):
             filename=attachment.name,
             content_type=attachment.mime_type or "application/octet-stream",
         )
+
+
+class ExperimentAttachmentDetailView(ExperimentObjectMixin, APIView):
+    """删除电子实验记录附件。"""
+
+    def delete(self, request, experiment_key: str, attachment_id) -> Response:
+        """删除指定过程图片或结果附件并返回最新实验。"""
+        experiment = self.get_object(request, experiment_key)
+        get_object_or_404(
+            ExperimentAttachment,
+            id=attachment_id,
+            experiment=experiment,
+            organization_id=experiment.organization_id,
+        )
+        delete_experiment_attachment(
+            experiment=experiment,
+            attachment_id=attachment_id,
+            actor=request.user,
+        )
+        return _experiment_response(experiment, request)
 
 
 class ExperimentCopyView(ExperimentObjectMixin, APIView):

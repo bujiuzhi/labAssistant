@@ -4,12 +4,14 @@ from django.urls import path
 
 from .views import (
     DashboardSummaryView,
+    ProjectArchiveView,
     ProjectDetailView,
     ProjectDocumentContentView,
     ProjectDocumentListCreateView,
     ProjectDocumentPreviewView,
     ProjectFollowView,
     ProjectListCreateView,
+    ProjectOperationLogListView,
 )
 
 urlpatterns = [
@@ -39,5 +41,15 @@ urlpatterns = [
         "projects/<str:project_key>/follow",
         ProjectFollowView.as_view(),
         name="project-follow",
+    ),
+    path(
+        "projects/<str:project_key>/archive",
+        ProjectArchiveView.as_view(),
+        name="project-archive",
+    ),
+    path(
+        "projects/<str:project_key>/operation-logs",
+        ProjectOperationLogListView.as_view(),
+        name="project-operation-log-list",
     ),
 ]

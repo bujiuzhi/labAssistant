@@ -1,7 +1,16 @@
 """项目文档接口核心路径测试。"""
 
+from io import BytesIO
+from zipfile import ZipFile
+
 import pytest
-from apps.projects.models import Project, ProjectMember, ProjectMemberRole, ProjectStatus
+from apps.projects.document_formats import ODF_MIME_TYPES
+from apps.projects.models import (
+    Project,
+    ProjectMember,
+    ProjectMemberRole,
+    ProjectStatus,
+)
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 
@@ -13,7 +22,7 @@ def document_project(manager_user) -> Project:
         organization=manager_user.organization,
         project_no="PRJ-2026-DOC-001",
         name="项目文档测试",
-        project_type_code="功能材料",
+        project_type_code="环氧树脂",
         owner=manager_user,
         status=ProjectStatus.ACTIVE,
         created_by=manager_user,
@@ -137,6 +146,10 @@ def test_project_document_preview_returns_original_pdf(
 
         assert preview_response.status_code == 200
         assert preview_response.headers["Content-Type"] == "application/pdf"
+        assert preview_response.headers["X-Frame-Options"] == "SAMEORIGIN"
+        assert preview_response.headers["Content-Security-Policy"] == (
+            "frame-ancestors 'self'"
+        )
         assert b"".join(preview_response.streaming_content) == (
             b"%PDF-1.4\nactual-project-document\n%%EOF"
         )
@@ -176,3 +189,154 @@ def test_project_document_preview_converts_text_file(
         assert preview_response.status_code == 200
         assert preview_response.headers["Content-Type"] == "application/pdf"
         assert b"".join(preview_response.streaming_content).startswith(b"%PDF-")
+
+
+@pytest.mark.django_db
+def test_document_upload_rejects_forged_file_extension(
+    api_client,
+    manager_user,
+    document_project,
+    tmp_path,
+) -> None:
+    """文件扩展名与真实内容不匹配时不得保存。"""
+    api_client.force_authenticate(manager_user)
+    with override_settings(MEDIA_ROOT=tmp_path):
+        response = api_client.post(
+            f"/api/v1/projects/{document_project.project_no}/documents",
+            {
+                "file": SimpleUploadedFile(
+                    "伪造报告.pdf",
+                    b"this-is-not-a-pdf",
+                    content_type="application/pdf",
+                ),
+                "category": "stage_report",
+                "related_content": "项目整体",
+                "version_label": "V1.0",
+            },
+            format="multipart",
+        )
+    assert response.status_code == 400
+
+
+def _odf_payload(mime_type: str) -> bytes:
+    """生成用于上传签名校验的最小 OpenDocument 压缩包。"""
+    output = BytesIO()
+    with ZipFile(output, "w") as archive:
+        archive.writestr("mimetype", mime_type)
+        archive.writestr(
+            "content.xml",
+            '<?xml version="1.0" encoding="UTF-8"?><office:document-content/>',
+        )
+    return output.getvalue()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("file_name", "content", "content_type", "expected_mime_type"),
+    [
+        (
+            "过程照片.gif",
+            (
+                b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00"
+                b"\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00"
+                b"\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
+            ),
+            "application/octet-stream",
+            "image/gif",
+        ),
+        (
+            "显微图.bmp",
+            b"BM" + b"\x00" * 64,
+            "application/octet-stream",
+            "image/bmp",
+        ),
+        (
+            "会议记录.rtf",
+            b"{\\rtf1\\ansi real laboratory note}",
+            "application/octet-stream",
+            "application/rtf",
+        ),
+        (
+            "开放文档.odt",
+            _odf_payload(ODF_MIME_TYPES["odt"]),
+            "application/octet-stream",
+            ODF_MIME_TYPES["odt"],
+        ),
+        (
+            "开放表格.ods",
+            _odf_payload(ODF_MIME_TYPES["ods"]),
+            "application/octet-stream",
+            ODF_MIME_TYPES["ods"],
+        ),
+        (
+            "开放演示.odp",
+            _odf_payload(ODF_MIME_TYPES["odp"]),
+            "application/octet-stream",
+            ODF_MIME_TYPES["odp"],
+        ),
+    ],
+)
+def test_upload_accepts_extended_preview_formats_with_trusted_mime_type(
+    api_client,
+    manager_user,
+    document_project,
+    tmp_path,
+    file_name,
+    content,
+    content_type,
+    expected_mime_type,
+) -> None:
+    """扩展预览格式应校验真实签名并保存服务端可信 MIME 类型。"""
+    api_client.force_authenticate(manager_user)
+    with override_settings(MEDIA_ROOT=tmp_path):
+        response = api_client.post(
+            f"/api/v1/projects/{document_project.project_no}/documents",
+            {
+                "file": SimpleUploadedFile(
+                    file_name,
+                    content,
+                    content_type=content_type,
+                ),
+                "category": "other",
+                "related_content": "格式验证",
+                "version_label": "V1.0",
+            },
+            format="multipart",
+        )
+
+    assert response.status_code == 201
+    assert response.json()["data"]["mime_type"] == expected_mime_type
+
+
+@pytest.mark.django_db
+def test_upload_rejects_office_archive_with_path_traversal(
+    api_client,
+    manager_user,
+    document_project,
+    tmp_path,
+) -> None:
+    """包含目录穿越路径的办公压缩包不得进入浏览器预览链路。"""
+    payload = BytesIO()
+    with ZipFile(payload, "w") as archive:
+        archive.writestr("[Content_Types].xml", "<Types/>")
+        archive.writestr("word/document.xml", "<document/>")
+        archive.writestr("../outside.xml", "<unsafe/>")
+
+    api_client.force_authenticate(manager_user)
+    with override_settings(MEDIA_ROOT=tmp_path):
+        response = api_client.post(
+            f"/api/v1/projects/{document_project.project_no}/documents",
+            {
+                "file": SimpleUploadedFile(
+                    "不安全文档.docx",
+                    payload.getvalue(),
+                    content_type="application/octet-stream",
+                ),
+                "category": "other",
+                "related_content": "安全验证",
+                "version_label": "V1.0",
+            },
+            format="multipart",
+        )
+
+    assert response.status_code == 400

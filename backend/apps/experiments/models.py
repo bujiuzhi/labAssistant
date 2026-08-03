@@ -1,5 +1,7 @@
 """实验计划、参与人员与电子实验记录模型。"""
 
+from __future__ import annotations
+
 import uuid
 from pathlib import Path
 
@@ -12,7 +14,7 @@ from apps.identity.models import Organization
 from apps.projects.models import Project
 
 
-def experiment_attachment_upload_to(instance: "ExperimentAttachment", filename: str) -> str:
+def experiment_attachment_upload_to(instance: ExperimentAttachment, filename: str) -> str:
     """生成实验附件的组织和实验隔离路径。"""
     suffix = Path(filename).suffix.lower()
     return (
@@ -168,17 +170,7 @@ class ExperimentRecord(TimeStampedModel):
         blank=True,
         db_comment="自定义实验过程模块",
     )
-    process_images = models.JSONField(
-        default=list,
-        blank=True,
-        db_comment="过程图片元数据和内容",
-    )
     result_text = models.TextField(blank=True, db_comment="实验结果")
-    result_files = models.JSONField(
-        default=list,
-        blank=True,
-        db_comment="结果附件元数据",
-    )
 
     class Meta:
         """电子实验记录表配置。"""

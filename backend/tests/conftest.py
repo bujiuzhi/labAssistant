@@ -27,24 +27,22 @@ def manager_user(organization: Organization) -> User:
     user = User.objects.create_user(
         organization=organization,
         username="manager",
-        display_name="项目负责人",
+        display_name="项目管理员",
         password="test-password-123",
     )
     role = Role.objects.create(
         organization=organization,
         role_code="project_manager",
-        name="项目负责人",
+        name="项目管理员",
     )
     for permission_code in [
         "project.view",
-        "project.view_all",
         "project.create",
         "project.update",
         "project.manage_members",
         "document.view",
         "document.upload",
         "experiment.view",
-        "experiment.view_all",
         "experiment.create",
         "experiment.update",
         "experiment.execute",
@@ -61,20 +59,23 @@ def manager_user(organization: Organization) -> User:
 
 @pytest.fixture
 def researcher_user(organization: Organization, manager_user: User) -> User:
-    """创建普通研究人员。"""
+    """创建具备同等业务功能权限的实验员。"""
     user = User.objects.create_user(
         organization=organization,
         username="researcher",
-        display_name="研究人员",
+        display_name="实验员",
         password="test-password-123",
     )
     role = Role.objects.create(
         organization=organization,
         role_code="researcher",
-        name="研究人员",
+        name="实验员",
     )
     for permission_code in [
         "project.view",
+        "project.create",
+        "project.update",
+        "project.manage_members",
         "document.view",
         "document.upload",
         "experiment.view",

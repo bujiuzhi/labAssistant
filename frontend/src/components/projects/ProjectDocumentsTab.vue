@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { Icon } from "@iconify/vue";
 import { ElMessage } from "element-plus";
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { onMounted, reactive, ref, watch } from "vue";
 
 import { getProblemDetail } from "@/api/http";
 import { projectApi } from "@/api/projects";
+import DocumentPreviewViewer from "@/components/projects/DocumentPreviewViewer.vue";
 import type {
   ProjectDocument,
   ProjectDocumentCategory,
@@ -63,16 +64,6 @@ const uploadForm = reactive<{
   versionLabel: "V1.0",
 });
 let searchTimer: number | undefined;
-
-const previewKind = computed(() => {
-  const extension = previewDocument.value?.extension.toLowerCase() ?? "";
-  if (["png", "jpg", "jpeg", "webp"].includes(extension)) return "image";
-  if (extension === "pdf") return "pdf";
-  if (["xls", "xlsx", "csv"].includes(extension)) return "sheet";
-  if (["ppt", "pptx"].includes(extension)) return "slide";
-  if (["doc", "docx"].includes(extension)) return "word";
-  return "generic";
-});
 
 /**
  * 查询当前项目文档和分类统计
@@ -145,11 +136,20 @@ function formatDateTime(value: string): string {
  * @returns Iconify 图标名
  */
 function fileIcon(extension: string): string {
-  if (["doc", "docx"].includes(extension)) return "tabler:file-type-docx";
+  if (["doc", "docx", "odt", "rtf"].includes(extension)) {
+    return "tabler:file-type-docx";
+  }
   if (extension === "pdf") return "tabler:file-type-pdf";
-  if (["xls", "xlsx", "csv"].includes(extension)) return "tabler:file-spreadsheet";
-  if (["ppt", "pptx"].includes(extension)) return "tabler:presentation";
-  if (["png", "jpg", "jpeg", "webp"].includes(extension)) return "tabler:photo";
+  if (["xls", "xlsx", "csv", "ods"].includes(extension)) {
+    return "tabler:file-spreadsheet";
+  }
+  if (["ppt", "pptx", "odp"].includes(extension)) {
+    return "tabler:presentation";
+  }
+  if (["png", "jpg", "jpeg", "webp", "gif", "bmp"].includes(extension)) {
+    return "tabler:photo";
+  }
+  if (extension === "txt") return "tabler:file-text";
   return "tabler:file";
 }
 
@@ -271,6 +271,7 @@ onMounted(loadDocuments);
           <option value="excel">Excel</option>
           <option value="powerpoint">PowerPoint</option>
           <option value="image">图片</option>
+          <option value="text">文本</option>
         </select>
         <select v-model="updatedRange" aria-label="更新时间">
           <option value="">最近更新</option>
@@ -354,8 +355,15 @@ onMounted(loadDocuments);
       <div class="upload-form">
         <label>
           <span>选择文件 <i>*</i></span>
-          <input type="file" @change="selectUploadFile" />
-          <small>单个文件不超过 25 MB</small>
+          <input
+            type="file"
+            accept=".doc,.docx,.odt,.rtf,.pdf,.xls,.xlsx,.ods,.csv,.ppt,.pptx,.odp,.txt,.png,.jpg,.jpeg,.webp,.gif,.bmp"
+            @change="selectUploadFile"
+          />
+          <small>
+            支持 Word、PDF、Excel、PowerPoint、OpenDocument、文本和常用图片，单个文件不超过
+            100 MB
+          </small>
         </label>
         <div>
           <label>
@@ -404,27 +412,11 @@ onMounted(loadDocuments);
         <strong>{{ previewDocument?.name }}</strong>
       </template>
       <div v-if="previewDocument" class="preview-body">
-        <img
-          v-if="previewKind === 'image'"
-          :src="projectApi.documentPreviewUrl(projectId, previewDocument.id)"
-          :alt="previewDocument.name"
+        <DocumentPreviewViewer
+          class="project-document-preview"
+          :project-id="projectId"
+          :document-item="previewDocument"
         />
-        <iframe
-          v-else-if="previewKind !== 'generic'"
-          class="pdf-frame"
-          :src="projectApi.documentPreviewUrl(projectId, previewDocument.id)"
-          :title="`${previewDocument.name} 在线预览`"
-        />
-        <article v-else class="file-preview-unavailable">
-          <h2>{{ previewDocument.name }}</h2>
-          <dl>
-            <div><dt>文档分类</dt><dd>{{ previewDocument.category_label }}</dd></div>
-            <div><dt>关联内容</dt><dd>{{ previewDocument.related_content }}</dd></div>
-            <div><dt>业务版本</dt><dd>{{ previewDocument.version_label }}</dd></div>
-            <div><dt>更新人员</dt><dd>{{ previewDocument.uploaded_by_name }}</dd></div>
-          </dl>
-          <p>该格式暂不支持在线预览，请下载原文件查看。</p>
-        </article>
       </div>
       <template #footer>
         <el-button
@@ -705,161 +697,15 @@ onMounted(loadDocuments);
 }
 
 .preview-body {
-  min-height: 480px;
-  max-height: 70vh;
-  padding: 22px;
-  overflow: auto;
+  height: min(70vh, 760px);
+  min-height: 520px;
+  overflow: hidden;
   background: #eef1f5;
 }
 
-.preview-body > img {
-  display: block;
-  width: 100%;
-  min-height: 520px;
-  object-fit: contain;
-  background: #ffffff;
-  border: 0;
-}
-
-.pdf-frame {
-  width: min(980px, 100%);
-  min-height: 62vh;
-  border: 0;
-  background: #fff;
-}
-
-.file-preview-unavailable {
-  width: min(820px, 100%);
-  min-height: 320px;
-  padding: 48px 54px;
-  background: #fff;
-  box-shadow: 0 12px 36px rgb(20 32 50 / 12%);
-}
-
-.file-preview-unavailable h2 {
-  margin: 0 0 28px;
-  text-align: center;
-}
-
-.file-preview-unavailable dl {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  padding: 18px;
-  background: #f8fafc;
-  gap: 14px;
-}
-
-.file-preview-unavailable dl div {
-  display: flex;
-  gap: 10px;
-}
-
-.file-preview-unavailable dt { color: var(--color-muted); }
-.file-preview-unavailable dd { margin: 0; }
-.file-preview-unavailable p { color: var(--color-ink-2); line-height: 1.9; }
-
-.word-preview,
-.pdf-preview,
-.sheet-preview,
-.slide-preview {
-  width: min(820px, 100%);
-  min-height: 460px;
-  padding: 48px 54px;
-  margin: 0 auto;
-  background: #ffffff;
-  box-shadow: 0 12px 36px rgb(20 32 50 / 12%);
-}
-
-.word-preview h2 {
-  margin: 0 0 28px;
-  text-align: center;
-}
-
-.pdf-preview > span {
-  float: right;
-  color: var(--color-muted);
-}
-
-.pdf-preview h2 {
-  padding: 58px 0 28px;
-  margin: 0;
-  font-size: 24px;
-  text-align: center;
-}
-
-.pdf-preview h3 {
-  margin-top: 28px;
-  font-size: 15px;
-}
-
-.pdf-preview p {
-  color: var(--color-ink-2);
-  line-height: 1.9;
-}
-
-.word-preview dl {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  padding: 18px;
-  border: 1px solid var(--color-rule);
-  gap: 14px;
-}
-
-.word-preview dl div {
-  display: flex;
-  gap: 10px;
-}
-
-.word-preview dt {
-  color: var(--color-muted);
-}
-
-.word-preview dd {
-  margin: 0;
-}
-
-.word-preview h3 {
-  margin-top: 30px;
-}
-
-.word-preview p {
-  color: var(--color-ink-2);
-  line-height: 1.9;
-}
-
-.sheet-preview {
-  overflow-x: auto;
-}
-
-.sheet-preview table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.sheet-preview th,
-.sheet-preview td {
-  padding: 12px;
-  border: 1px solid #ccd3dc;
-}
-
-.sheet-preview th {
-  background: #edf3fb;
-}
-
-.slide-preview {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  color: #ffffff;
-  text-align: center;
-  background: linear-gradient(135deg, #1e407e, #527fe8);
-}
-
-.slide-preview h2 {
-  max-width: 620px;
-  margin: 26px 0 12px;
-  font-size: 30px;
+.project-document-preview {
+  height: 100%;
+  min-height: 0;
 }
 
 @media (max-width: 900px) {
@@ -873,6 +719,50 @@ onMounted(loadDocuments);
 
   .documents-toolbar > span {
     display: none;
+  }
+}
+
+@media (max-width: 700px) {
+  .documents-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .folder-panel {
+    display: flex;
+    align-items: center;
+    padding: 8px;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-rule);
+    gap: 4px;
+  }
+
+  .folder-panel h2 {
+    display: none;
+  }
+
+  .folder-panel button {
+    width: auto;
+    min-width: max-content;
+    grid-template-columns: 18px auto auto;
+  }
+
+  .documents-main {
+    padding: 10px;
+  }
+
+  .documents-toolbar {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .document-search,
+  .upload-button {
+    grid-column: 1 / -1;
+  }
+
+  .preview-body {
+    height: 62vh;
+    min-height: 360px;
   }
 }
 </style>

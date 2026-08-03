@@ -662,4 +662,45 @@ onMounted(async () => {
   color: var(--color-text-secondary);
   font-size: 13px;
 }
+
+@media (max-width: 760px) {
+  .filter-bar {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .search-input,
+  .status-select,
+  .role-select {
+    width: 100%;
+  }
+
+  .filter-summary {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .table-wrap {
+    min-height: 420px;
+    overflow-x: auto;
+  }
+
+  .pagination-bar {
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form-grid .wide {
+    grid-column: auto;
+  }
+
+  :deep(.el-dialog) {
+    width: calc(100vw - 20px) !important;
+    margin: 10px;
+  }
+}
 </style>

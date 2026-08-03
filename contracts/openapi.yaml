@@ -1,33 +1,26 @@
 openapi: 3.1.0
 info:
-  title: 材料实验管理系统 API
-  version: 0.3.0
+  title: 材料实验助手 API
+  version: 1.0.0
   description: |
-    项目接口的机器可读草案。已实现接口的业务语义、分页、错误和并发规则见
-    docs/detailed-design.md；Testing、Reports、Notifications 等标签为后续规划，
-    不代表当前服务已提供对应接口。
+    仅描述当前代码已经实现的会话、用户、工作台、项目、文档、实验和电子实验记录本接口。
+    数据资产与任务管理仍为原型中的研发中页签，不提供 API。
 servers:
   - url: /api/v1
-    description: 当前环境
+    description: 当前同源环境
 tags:
   - name: Health
-    description: 健康检查
+    description: 服务健康检查
   - name: Auth
-    description: 会话认证
+    description: 会话与超级管理员用户管理
+  - name: Dashboard
+    description: 实时工作台统计
   - name: Projects
-    description: 项目管理
+    description: 项目、里程碑、成员、归档和操作记录
+  - name: Documents
+    description: 项目文档上传、下载与真实预览
   - name: Experiments
-    description: 实验管理
-  - name: ELN
-    description: 电子实验记录
-  - name: Files
-    description: 文件上传与下载
-  - name: Testing
-    description: 检测委托与结果
-  - name: Reports
-    description: 报告生成
-  - name: Notifications
-    description: 站内通知
+    description: 实验计划、电子实验记录本和真实附件
 security:
   - cookieAuth: []
 paths:
@@ -35,11 +28,10 @@ paths:
     get:
       tags: [Health]
       summary: 检查进程存活
-      operationId: getLiveness
       security: []
       responses:
         "200":
-          description: 进程可响应
+          description: 服务进程正常
           content:
             application/json:
               schema:
@@ -47,103 +39,107 @@ paths:
   /health/ready:
     get:
       tags: [Health]
-      summary: 检查服务就绪
-      operationId: getReadiness
+      summary: 检查数据库和对象存储就绪
       security: []
       responses:
         "200":
-          description: 服务已就绪
+          description: 服务依赖正常
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthResponse"
         "503":
-          $ref: "#/components/responses/ServiceUnavailable"
-  /auth/session:
-    get:
-      tags: [Auth]
-      summary: 获取当前会话
-      operationId: getSession
-      responses:
-        "200":
-          description: 当前登录会话
+          description: 数据库或对象存储依赖未就绪
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SessionResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
+                $ref: "#/components/schemas/HealthResponse"
   /auth/csrf:
     get:
       tags: [Auth]
-      summary: 获取登录所需 CSRF 令牌
-      operationId: getCsrfToken
+      summary: 获取 CSRF 令牌
       security: []
       responses:
         "200":
-          description: 返回 CSRF 令牌并设置 CSRF Cookie
+          description: 设置 CSRF Cookie 并返回令牌
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CsrfResponse"
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [csrf_token]
+                    properties:
+                      csrf_token:
+                        type: string
   /auth/login:
     post:
       tags: [Auth]
       summary: 登录
-      operationId: login
       security:
-        - csrfToken: []
+        - csrfHeader: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/LoginRequest"
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                  maxLength: 64
+                password:
+                  type: string
+                  format: password
+                  maxLength: 256
       responses:
         "200":
-          description: 登录成功并设置 Session Cookie
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SessionResponse"
+          $ref: "#/components/responses/Session"
+        "400":
+          $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "422":
-          $ref: "#/components/responses/ValidationError"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
   /auth/logout:
     post:
       tags: [Auth]
       summary: 注销当前会话
-      operationId: logout
       security:
         - cookieAuth: []
-          csrfToken: []
+          csrfHeader: []
       responses:
         "204":
           description: 注销成功
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /auth/session:
+    get:
+      tags: [Auth]
+      summary: 获取当前会话
+      responses:
+        "200":
+          $ref: "#/components/responses/Session"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /auth/users/options:
     get:
       tags: [Auth]
-      summary: 查询当前组织可选项目人员
-      operationId: listOrganizationUserOptions
+      summary: 查询可选负责人和成员
+      description: 返回本人组织及下级组织中的有效用户。
       responses:
         "200":
-          description: 当前组织有效用户
+          description: 用户选项
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/OrganizationUserOptionListResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-  /projects:
+                $ref: "#/components/schemas/UserOptionListResponse"
+  /auth/users:
     get:
-      tags: [Projects]
-      summary: 查询可见项目
-      operationId: listProjects
+      tags: [Auth]
+      summary: 分页查询当前组织用户
+      description: 仅超级管理员。
       parameters:
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PageSize"
@@ -151,16 +147,182 @@ paths:
         - name: status
           in: query
           schema:
-            $ref: "#/components/schemas/ProjectStatus"
+            $ref: "#/components/schemas/UserStatus"
+        - name: role_code
+          in: query
+          schema:
+            $ref: "#/components/schemas/AssignableRoleCode"
+      responses:
+        "200":
+          description: 用户分页列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedUserListResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Auth]
+      summary: 创建组织用户
+      description: 仅超级管理员；密码至少 8 位。
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManagedUserCreate"
+      responses:
+        "201":
+          description: 用户创建成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedUserResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /auth/users/{user_id}:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    get:
+      tags: [Auth]
+      summary: 查询组织用户详情
+      responses:
+        "200":
+          description: 用户详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedUserResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Auth]
+      summary: 更新组织用户
+      description: 可更新用户名、显示名称、邮箱、状态和系统角色；超级管理员账号受保护。
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManagedUserUpdate"
+      responses:
+        "200":
+          description: 用户更新成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedUserResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /auth/users/{user_id}/reset-password:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    post:
+      tags: [Auth]
+      summary: 重置组织用户密码
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+                  format: password
+                  minLength: 8
+                  maxLength: 128
+      responses:
+        "204":
+          description: 密码重置成功
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /auth/roles/options:
+    get:
+      tags: [Auth]
+      summary: 查询可分配系统角色
+      description: 仅返回超级管理员、项目管理员、实验员三类有效角色。
+      responses:
+        "200":
+          description: 角色选项
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RoleOption"
+  /dashboard:
+    get:
+      tags: [Dashboard]
+      summary: 获取实时工作台
+      parameters:
+        - name: project_id
+          in: query
+          description: 仅统计指定项目的近 30 天实验趋势；空值表示全部项目。
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 项目、实验、类型分布、趋势和进行中项目
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardResponse"
+  /projects:
+    get:
+      tags: [Projects]
+      summary: 分页查询可见项目
+      description: 可见范围为本人组织及下级组织项目，并合并本人作为成员的跨组织项目。
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/Search"
+        - name: status
+          in: query
+          schema:
+            oneOf:
+              - $ref: "#/components/schemas/ProjectStatus"
+              - type: string
+                enum: [running, not_started, ended]
+        - name: project_type
+          in: query
+          schema:
+            $ref: "#/components/schemas/ProjectType"
         - name: owner_id
           in: query
           schema:
-            $ref: "#/components/schemas/Uuid"
+            type: string
+            format: uuid
         - name: ordering
           in: query
           schema:
             type: string
-            enum: [updated_at, -updated_at, project_no, -project_no, planned_end_date, -planned_end_date]
+            enum:
+              - updated_at
+              - -updated_at
+              - project_no
+              - -project_no
+              - planned_end_date
+              - -planned_end_date
             default: -updated_at
       responses:
         "200":
@@ -169,15 +331,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ProjectListResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
     post:
       tags: [Projects]
       summary: 创建项目
-      operationId: createProject
       security:
         - cookieAuth: []
-          csrfToken: []
+          csrfHeader: []
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -188,46 +347,30 @@ paths:
               $ref: "#/components/schemas/ProjectCreate"
       responses:
         "201":
-          description: 项目创建成功
-          headers:
-            ETag:
-              $ref: "#/components/headers/ETag"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ProjectResponse"
+          $ref: "#/components/responses/Project"
+        "400":
+          $ref: "#/components/responses/ValidationError"
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
           $ref: "#/components/responses/Conflict"
-        "422":
-          $ref: "#/components/responses/ValidationError"
-  /projects/{project_id}:
+  /projects/{project_key}:
     parameters:
-      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/ProjectKey"
     get:
       tags: [Projects]
       summary: 获取项目详情
-      operationId: getProject
       responses:
         "200":
-          description: 项目详情
-          headers:
-            ETag:
-              $ref: "#/components/headers/ETag"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ProjectResponse"
+          $ref: "#/components/responses/Project"
         "404":
           $ref: "#/components/responses/NotFound"
     patch:
       tags: [Projects]
-      summary: 更新项目
-      operationId: updateProject
+      summary: 更新项目、成员或里程碑
       security:
         - cookieAuth: []
-          csrfToken: []
+          csrfHeader: []
       parameters:
         - $ref: "#/components/parameters/IfMatch"
       requestBody:
@@ -238,82 +381,87 @@ paths:
               $ref: "#/components/schemas/ProjectUpdate"
       responses:
         "200":
-          description: 更新后的项目
-          headers:
-            ETag:
-              $ref: "#/components/headers/ETag"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ProjectResponse"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "412":
-          $ref: "#/components/responses/PreconditionFailed"
-        "422":
+          $ref: "#/components/responses/Project"
+        "400":
           $ref: "#/components/responses/ValidationError"
-  /projects/{project_id}/members:
-    parameters:
-      - $ref: "#/components/parameters/ProjectId"
-    get:
-      tags: [Projects]
-      summary: 查询项目成员
-      operationId: listProjectMembers
-      responses:
-        "200":
-          description: 项目成员列表
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ProjectMemberListResponse"
-        "404":
-          $ref: "#/components/responses/NotFound"
-    post:
-      tags: [Projects]
-      summary: 添加项目成员
-      operationId: addProjectMember
-      security:
-        - cookieAuth: []
-          csrfToken: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ProjectMemberCreate"
-      responses:
-        "201":
-          description: 成员添加成功
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ProjectMemberResponse"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
-  /projects/{project_id}/documents:
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+  /projects/{project_key}/follow:
     parameters:
-      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/ProjectKey"
+    post:
+      tags: [Projects]
+      summary: 关注项目
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      responses:
+        "200":
+          $ref: "#/components/responses/FollowState"
+    delete:
+      tags: [Projects]
+      summary: 取消关注项目
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      responses:
+        "200":
+          $ref: "#/components/responses/FollowState"
+  /projects/{project_key}/archive:
+    parameters:
+      - $ref: "#/components/parameters/ProjectKey"
+      - $ref: "#/components/parameters/IfMatch"
+    post:
+      tags: [Projects]
+      summary: 归档项目
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Project"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+  /projects/{project_key}/operation-logs:
+    parameters:
+      - $ref: "#/components/parameters/ProjectKey"
     get:
       tags: [Projects]
+      summary: 查询项目最近操作记录
+      responses:
+        "200":
+          description: 最近 100 条项目域操作记录
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/OperationLog"
+  /projects/{project_key}/documents:
+    parameters:
+      - $ref: "#/components/parameters/ProjectKey"
+    get:
+      tags: [Documents]
       summary: 查询项目文档
-      operationId: listProjectDocuments
       parameters:
         - $ref: "#/components/parameters/Search"
         - name: category
           in: query
           schema:
-            $ref: "#/components/schemas/ProjectDocumentCategory"
+            $ref: "#/components/schemas/DocumentCategory"
         - name: file_type
           in: query
           schema:
             type: string
-            enum: [word, pdf, excel, powerpoint, image]
+            enum: [word, pdf, excel, powerpoint, image, text]
         - name: updated_range
           in: query
           schema:
@@ -321,96 +469,138 @@ paths:
             enum: [week, month]
       responses:
         "200":
-          description: 项目文档列表、过滤数量与分类统计
+          description: 文档列表和分类统计
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ProjectDocumentListResponse"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
+                $ref: "#/components/schemas/DocumentListResponse"
     post:
-      tags: [Projects]
+      tags: [Documents]
       summary: 上传项目文档
-      operationId: createProjectDocument
+      description: |
+        单文件最大 100 MB，服务端校验扩展名、真实内容签名和办公压缩包安全边界。
+        支持 DOC/DOCX/ODT/RTF、PDF、XLS/XLSX/ODS/CSV、PPT/PPTX/ODP、
+        TXT、PNG/JPG/JPEG/WebP/GIF/BMP。
       security:
         - cookieAuth: []
-          csrfToken: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
           multipart/form-data:
             schema:
-              $ref: "#/components/schemas/ProjectDocumentCreate"
+              type: object
+              required: [file, category, related_content, version_label]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                category:
+                  $ref: "#/components/schemas/DocumentCategory"
+                related_content:
+                  type: string
+                  maxLength: 200
+                version_label:
+                  type: string
+                  pattern: "^[A-Za-z0-9._-]{1,32}$"
       responses:
         "201":
           description: 文档上传成功
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ProjectDocumentResponse"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "422":
+                $ref: "#/components/schemas/DocumentResponse"
+        "400":
           $ref: "#/components/responses/ValidationError"
-  /projects/{project_id}/documents/{document_id}/content:
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /projects/{project_key}/documents/{document_id}/content:
     parameters:
-      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/ProjectKey"
       - $ref: "#/components/parameters/DocumentId"
     get:
-      tags: [Projects]
-      summary: 预览或下载项目文档
-      operationId: getProjectDocumentContent
+      tags: [Documents]
+      summary: 读取或下载原始文档
       parameters:
         - name: download
           in: query
           schema:
-            type: integer
-            enum: [0, 1]
-            default: 0
+            type: string
+            enum: ["0", "1"]
       responses:
         "200":
-          description: 原始文档内容；download=1 时按附件下载
+          description: 真实原文件流
           content:
             application/octet-stream:
               schema:
                 type: string
                 format: binary
-        "403":
-          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /projects/{project_key}/documents/{document_id}/preview:
+    parameters:
+      - $ref: "#/components/parameters/ProjectKey"
+      - $ref: "#/components/parameters/DocumentId"
+    get:
+      tags: [Documents]
+      summary: 在线预览真实文档
+      description: |
+        该接口是组件失败和旧版格式的服务端兜底。PDF/图片返回原件；
+        DOC/DOCX/ODT/RTF、XLS/XLSX/ODS/CSV、PPT/PPTX/ODP、TXT
+        通过 LibreOffice 转换为缓存 PDF。前端优先从 content 接口读取
+        DOCX、XLS/XLSX、PPTX、PDF 原件并使用专用组件渲染。
+      responses:
+        "200":
+          description: 原始图片、PDF 或转换后的 PDF
+          headers:
+            X-Frame-Options:
+              schema:
+                type: string
+                const: SAMEORIGIN
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/gif:
+              schema:
+                type: string
+                format: binary
+            image/bmp:
+              schema:
+                type: string
+                format: binary
+        "406":
+          description: 文件无法转换或服务器未配置转换程序
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
   /experiments:
-    x-implementation-status: implemented
     get:
       tags: [Experiments]
-      summary: 查询可见实验
-      operationId: listExperiments
+      summary: 分页查询可见实验
       parameters:
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/Search"
-        - name: project_id
-          in: query
-          schema:
-            $ref: "#/components/schemas/Uuid"
         - name: status
           in: query
           schema:
             $ref: "#/components/schemas/ExperimentStatus"
-        - name: owner_id
-          in: query
-          schema:
-            $ref: "#/components/schemas/Uuid"
-        - name: ordering
+        - name: project_id
           in: query
           schema:
             type: string
-            enum: [updated_at, -updated_at, experiment_no, -experiment_no, planned_start_at, -planned_start_at]
-            default: -updated_at
+            format: uuid
       responses:
         "200":
           description: 实验分页列表
@@ -418,15 +608,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ExperimentListResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
     post:
       tags: [Experiments]
-      summary: 创建实验草稿
-      operationId: createExperiment
+      summary: 创建实验及默认 ELN
+      description: 实验目的必填；未提供配方结构时默认创建 4 列、2 行。
       security:
         - cookieAuth: []
-          csrfToken: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -435,45 +623,25 @@ paths:
               $ref: "#/components/schemas/ExperimentCreate"
       responses:
         "201":
-          description: 实验创建成功
-          headers:
-            ETag:
-              $ref: "#/components/headers/ETag"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ExperimentResponse"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "422":
+          $ref: "#/components/responses/Experiment"
+        "400":
           $ref: "#/components/responses/ValidationError"
-  /experiments/{experiment_id}:
-    x-implementation-status: implemented
+  /experiments/{experiment_key}:
     parameters:
-      - $ref: "#/components/parameters/ExperimentId"
+      - $ref: "#/components/parameters/ExperimentKey"
     get:
       tags: [Experiments]
-      summary: 获取实验详情
-      operationId: getExperiment
+      summary: 获取实验与 ELN 详情
       responses:
         "200":
-          description: 实验详情
-          headers:
-            ETag:
-              $ref: "#/components/headers/ETag"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ExperimentResponse"
-        "404":
-          $ref: "#/components/responses/NotFound"
+          $ref: "#/components/responses/Experiment"
     patch:
       tags: [Experiments]
-      summary: 更新实验计划
-      operationId: updateExperiment
+      summary: 更新实验或 ELN
+      description: 已完成实验仍可进行带版本校验和操作记录的修订。
       security:
         - cookieAuth: []
-          csrfToken: []
+          csrfHeader: []
       parameters:
         - $ref: "#/components/parameters/IfMatch"
       requestBody:
@@ -484,69 +652,40 @@ paths:
               $ref: "#/components/schemas/ExperimentUpdate"
       responses:
         "200":
-          description: 更新后的实验
-          headers:
-            ETag:
-              $ref: "#/components/headers/ETag"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ExperimentResponse"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
+          $ref: "#/components/responses/Experiment"
+        "400":
+          $ref: "#/components/responses/ValidationError"
         "412":
           $ref: "#/components/responses/PreconditionFailed"
-        "422":
-          $ref: "#/components/responses/ValidationError"
-  /experiments/{experiment_id}/copy:
-    x-implementation-status: implemented
+  /experiments/{experiment_key}/copy:
     parameters:
-      - $ref: "#/components/parameters/ExperimentId"
+      - $ref: "#/components/parameters/ExperimentKey"
     post:
       tags: [Experiments]
-      summary: 复制实验计划
-      operationId: copyExperiment
+      summary: 复制实验计划与 ELN 结构
       security:
         - cookieAuth: []
-          csrfToken: []
+          csrfHeader: []
       responses:
         "201":
-          description: 新建实验副本
-          headers:
-            ETag:
-              $ref: "#/components/headers/ETag"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ExperimentResponse"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "422":
-          $ref: "#/components/responses/ValidationError"
-  /experiments/{experiment_id}/transition:
-    x-implementation-status: implemented
+          $ref: "#/components/responses/Experiment"
+  /experiments/{experiment_key}/transition:
     parameters:
-      - $ref: "#/components/parameters/ExperimentId"
+      - $ref: "#/components/parameters/ExperimentKey"
+      - $ref: "#/components/parameters/IfMatch"
     post:
       tags: [Experiments]
       summary: 开始或完成实验
-      operationId: transitionExperiment
+      description: 只允许未开始→进行中→已完成；完成前必须填写实验结果。
       security:
         - cookieAuth: []
-          csrfToken: []
-      parameters:
-        - $ref: "#/components/parameters/IfMatch"
+          csrfHeader: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              additionalProperties: false
               required: [target_status]
               properties:
                 target_status:
@@ -554,427 +693,88 @@ paths:
                   enum: [in_progress, completed]
       responses:
         "200":
-          description: 状态迁移后的实验
-          headers:
-            ETag:
-              $ref: "#/components/headers/ETag"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ExperimentResponse"
-        "403":
-          $ref: "#/components/responses/Forbidden"
+          $ref: "#/components/responses/Experiment"
+        "400":
+          $ref: "#/components/responses/ValidationError"
         "409":
           $ref: "#/components/responses/Conflict"
         "412":
           $ref: "#/components/responses/PreconditionFailed"
-  /eln-records/{record_id}:
-    x-implementation-status: planned
+  /experiments/{experiment_key}/attachments:
     parameters:
-      - $ref: "#/components/parameters/ElnRecordId"
-    get:
-      tags: [ELN]
-      summary: 获取电子实验记录
-      operationId: getElnRecord
-      responses:
-        "200":
-          description: 电子实验记录
-          headers:
-            ETag:
-              $ref: "#/components/headers/ETag"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ElnRecordResponse"
-        "404":
-          $ref: "#/components/responses/NotFound"
-    patch:
-      tags: [ELN]
-      summary: 保存电子实验记录草稿
-      operationId: updateElnRecord
+      - $ref: "#/components/parameters/ExperimentKey"
+    post:
+      tags: [Experiments]
+      summary: 上传 ELN 真实附件
+      description: 过程图片最多 20 张、单张 10 MB 且限真实 JPG/PNG；结果附件最多 30 个、单个 25 MB。
       security:
         - cookieAuth: []
-          csrfToken: []
-      parameters:
-        - $ref: "#/components/parameters/IfMatch"
+          csrfHeader: []
       requestBody:
         required: true
         content:
-          application/json:
+          multipart/form-data:
             schema:
-              $ref: "#/components/schemas/ElnRecordUpdate"
-      responses:
-        "200":
-          description: 保存后的电子实验记录
-          headers:
-            ETag:
-              $ref: "#/components/headers/ETag"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ElnRecordResponse"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "412":
-          $ref: "#/components/responses/PreconditionFailed"
-        "422":
-          $ref: "#/components/responses/ValidationError"
-  /eln-records/{record_id}/steps/{step_id}:
-    x-implementation-status: planned
-    parameters:
-      - $ref: "#/components/parameters/ElnRecordId"
-      - $ref: "#/components/parameters/ElnStepId"
-    put:
-      tags: [ELN]
-      summary: 保存单个实验步骤记录
-      operationId: updateElnStepRecord
-      security:
-        - cookieAuth: []
-          csrfToken: []
-      parameters:
-        - $ref: "#/components/parameters/IfMatch"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ElnStepRecordUpdate"
-      responses:
-        "200":
-          description: 保存后的步骤记录
-          headers:
-            ETag:
-              $ref: "#/components/headers/ETag"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ElnStepRecordResponse"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "412":
-          $ref: "#/components/responses/PreconditionFailed"
-        "422":
-          $ref: "#/components/responses/ValidationError"
-  /eln-records/{record_id}/submit:
-    x-implementation-status: planned
-    parameters:
-      - $ref: "#/components/parameters/ElnRecordId"
-    post:
-      tags: [ELN]
-      summary: 提交电子实验记录并生成快照
-      operationId: submitElnRecord
-      security:
-        - cookieAuth: []
-          csrfToken: []
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/IfMatch"
-      responses:
-        "200":
-          description: 提交后的电子实验记录
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ElnRecordResponse"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "412":
-          $ref: "#/components/responses/PreconditionFailed"
-        "422":
-          $ref: "#/components/responses/ValidationError"
-  /eln-records/{record_id}/archive:
-    x-implementation-status: planned
-    parameters:
-      - $ref: "#/components/parameters/ElnRecordId"
-    post:
-      tags: [ELN]
-      summary: 归档电子实验记录
-      operationId: archiveElnRecord
-      security:
-        - cookieAuth: []
-          csrfToken: []
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/IfMatch"
-      responses:
-        "200":
-          description: 已归档电子实验记录
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ElnRecordResponse"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "412":
-          $ref: "#/components/responses/PreconditionFailed"
-  /files/uploads:
-    post:
-      tags: [Files]
-      summary: 初始化文件上传
-      operationId: initializeFileUpload
-      security:
-        - cookieAuth: []
-          csrfToken: []
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/FileUploadInitialize"
+              type: object
+              required: [kind, file]
+              properties:
+                kind:
+                  type: string
+                  enum: [process_image, result_file]
+                file:
+                  type: string
+                  format: binary
       responses:
         "201":
-          description: 上传会话初始化成功
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/FileUploadInitializeResponse"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "413":
-          description: 文件超过大小限制
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/Problem"
-        "422":
+          $ref: "#/components/responses/Experiment"
+        "400":
           $ref: "#/components/responses/ValidationError"
-  /files/{file_id}/complete:
+  /experiments/{experiment_key}/attachments/{attachment_id}:
     parameters:
-      - $ref: "#/components/parameters/FileId"
-    post:
-      tags: [Files]
-      summary: 确认文件上传完成
-      operationId: completeFileUpload
+      - $ref: "#/components/parameters/ExperimentKey"
+      - $ref: "#/components/parameters/AttachmentId"
+    delete:
+      tags: [Experiments]
+      summary: 删除 ELN 附件和存储文件
       security:
         - cookieAuth: []
-          csrfToken: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/FileUploadComplete"
-      responses:
-        "202":
-          description: 文件已进入校验或扫描
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/FileObjectResponse"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "422":
-          $ref: "#/components/responses/ValidationError"
-  /test-orders:
-    get:
-      tags: [Testing]
-      summary: 查询检测委托
-      operationId: listTestOrders
-      parameters:
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PageSize"
-        - $ref: "#/components/parameters/Search"
-        - name: experiment_id
-          in: query
-          schema:
-            $ref: "#/components/schemas/Uuid"
-        - name: status
-          in: query
-          schema:
-            $ref: "#/components/schemas/TestOrderStatus"
-        - name: assignee_id
-          in: query
-          schema:
-            $ref: "#/components/schemas/Uuid"
+          csrfHeader: []
       responses:
         "200":
-          description: 检测委托分页列表
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/TestOrderListResponse"
-    post:
-      tags: [Testing]
-      summary: 创建检测委托
-      operationId: createTestOrder
-      security:
-        - cookieAuth: []
-          csrfToken: []
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/TestOrderCreate"
-      responses:
-        "201":
-          description: 检测委托创建成功
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/TestOrderResponse"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "422":
-          $ref: "#/components/responses/ValidationError"
-  /test-orders/{test_order_id}/items/{item_id}/result:
-    parameters:
-      - $ref: "#/components/parameters/TestOrderId"
-      - $ref: "#/components/parameters/TestOrderItemId"
-    put:
-      tags: [Testing]
-      summary: 录入检测项结果
-      operationId: upsertTestResult
-      security:
-        - cookieAuth: []
-          csrfToken: []
-      parameters:
-        - $ref: "#/components/parameters/IfMatchOptional"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/TestResultUpsert"
-      responses:
-        "200":
-          description: 检测结果已更新
-          headers:
-            ETag:
-              $ref: "#/components/headers/ETag"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/TestResultResponse"
-        "201":
-          description: 检测结果已创建
-          headers:
-            ETag:
-              $ref: "#/components/headers/ETag"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/TestResultResponse"
-        "403":
-          $ref: "#/components/responses/Forbidden"
+          $ref: "#/components/responses/Experiment"
         "404":
           $ref: "#/components/responses/NotFound"
-        "412":
-          $ref: "#/components/responses/PreconditionFailed"
-        "422":
-          $ref: "#/components/responses/ValidationError"
-  /reports:
+  /experiments/{experiment_key}/attachments/{attachment_id}/content:
+    parameters:
+      - $ref: "#/components/parameters/ExperimentKey"
+      - $ref: "#/components/parameters/AttachmentId"
     get:
-      tags: [Reports]
-      summary: 查询报告
-      operationId: listReports
+      tags: [Experiments]
+      summary: 读取或下载 ELN 附件
       parameters:
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PageSize"
-        - name: status
-          in: query
-          schema:
-            $ref: "#/components/schemas/ReportStatus"
-        - name: source_type
+        - name: download
           in: query
           schema:
             type: string
-            enum: [experiment, test_order, project]
-        - name: source_id
-          in: query
-          schema:
-            $ref: "#/components/schemas/Uuid"
+            enum: ["0", "1"]
       responses:
         "200":
-          description: 报告分页列表
+          description: 真实附件文件流
           content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ReportListResponse"
-    post:
-      tags: [Reports]
-      summary: 发起报告生成
-      operationId: createReport
-      security:
-        - cookieAuth: []
-          csrfToken: []
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ReportCreate"
-      responses:
-        "202":
-          description: 报告任务已受理
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ReportResponse"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "422":
-          $ref: "#/components/responses/ValidationError"
-  /reports/{report_id}:
-    parameters:
-      - $ref: "#/components/parameters/ReportId"
-    get:
-      tags: [Reports]
-      summary: 查询报告状态
-      operationId: getReport
-      responses:
-        "200":
-          description: 报告详情
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ReportResponse"
-        "404":
-          $ref: "#/components/responses/NotFound"
-  /notifications/stream:
-    get:
-      tags: [Notifications]
-      summary: 订阅轻量通知事件
-      operationId: streamNotifications
-      responses:
-        "200":
-          description: Server-Sent Events 事件流
-          content:
-            text/event-stream:
+            application/octet-stream:
               schema:
                 type: string
-                examples:
-                  - "event: report.ready\ndata: {\"report_id\":\"6f4640ca-9b70-4f6e-a0fe-c53b969ee89f\"}\n\n"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
+                format: binary
 components:
   securitySchemes:
     cookieAuth:
       type: apiKey
       in: cookie
       name: sessionid
-      description: Django Session Cookie
-    csrfToken:
+    csrfHeader:
       type: apiKey
       in: header
       name: X-CSRFToken
-      description: Django CSRF Token
   parameters:
     Page:
       name: page
@@ -996,7 +796,6 @@ components:
       in: query
       schema:
         type: string
-        maxLength: 200
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -1009,88 +808,90 @@ components:
       name: If-Match
       in: header
       required: true
+      description: 当前资源版本，例如 `"3"`。
       schema:
         type: string
         pattern: '^"[1-9][0-9]*"$'
-      description: 当前资源版本，例如 `"7"`
-    IfMatchOptional:
-      name: If-Match
-      in: header
-      required: false
+    ProjectKey:
+      name: project_key
+      in: path
+      required: true
+      description: 项目 UUID 或项目编号。
       schema:
         type: string
-        pattern: '^"[1-9][0-9]*"$'
-      description: 更新已有结果时必须提供；首次创建可省略
-    ProjectId:
-      name: project_id
+    ExperimentKey:
+      name: experiment_key
+      in: path
+      required: true
+      description: 实验 UUID 或实验编号。
+      schema:
+        type: string
+    UserId:
+      name: user_id
       in: path
       required: true
       schema:
-        oneOf:
-          - $ref: "#/components/schemas/Uuid"
-          - type: string
-            pattern: "^PRJ-[A-Z0-9-]+$"
-      description: 项目 UUID 或项目业务编号
+        type: string
+        format: uuid
     DocumentId:
       name: document_id
       in: path
       required: true
       schema:
-        $ref: "#/components/schemas/Uuid"
-      description: 项目文档 UUID
-    ExperimentId:
-      name: experiment_id
+        type: string
+        format: uuid
+    AttachmentId:
+      name: attachment_id
       in: path
       required: true
-      schema:
-        oneOf:
-          - $ref: "#/components/schemas/Uuid"
-          - type: string
-            pattern: "^EXP-[A-Z0-9-]+$"
-      description: 实验 UUID 或实验业务编号
-    ElnRecordId:
-      name: record_id
-      in: path
-      required: true
-      schema:
-        $ref: "#/components/schemas/Uuid"
-    ElnStepId:
-      name: step_id
-      in: path
-      required: true
-      schema:
-        $ref: "#/components/schemas/Uuid"
-    FileId:
-      name: file_id
-      in: path
-      required: true
-      schema:
-        $ref: "#/components/schemas/Uuid"
-    TestOrderId:
-      name: test_order_id
-      in: path
-      required: true
-      schema:
-        $ref: "#/components/schemas/Uuid"
-    TestOrderItemId:
-      name: item_id
-      in: path
-      required: true
-      schema:
-        $ref: "#/components/schemas/Uuid"
-    ReportId:
-      name: report_id
-      in: path
-      required: true
-      schema:
-        $ref: "#/components/schemas/Uuid"
-  headers:
-    ETag:
-      description: 资源乐观锁版本
       schema:
         type: string
-        pattern: '^"[1-9][0-9]*"$'
+        format: uuid
   responses:
+    Session:
+      description: 当前会话
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data:
+                $ref: "#/components/schemas/SessionUser"
+    Project:
+      description: 项目对象
+      headers:
+        ETag:
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ProjectResponse"
+    Experiment:
+      description: 实验及 ELN
+      headers:
+        ETag:
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ExperimentResponse"
+    FollowState:
+      description: 关注状态
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data:
+                type: object
+                required: [is_followed]
+                properties:
+                  is_followed:
+                    type: boolean
     Unauthorized:
       description: 未登录或会话失效
       content:
@@ -1098,184 +899,306 @@ components:
           schema:
             $ref: "#/components/schemas/Problem"
     Forbidden:
-      description: 无动作权限
+      description: 无操作权限
       content:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/Problem"
     NotFound:
-      description: 对象不存在或不可见
-      content:
-        application/problem+json:
-          schema:
-            $ref: "#/components/schemas/Problem"
-    Conflict:
-      description: 资源状态或唯一约束冲突
-      content:
-        application/problem+json:
-          schema:
-            $ref: "#/components/schemas/Problem"
-    PreconditionFailed:
-      description: 资源版本冲突
+      description: 对象不存在或不在可见范围
       content:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/Problem"
     ValidationError:
-      description: 字段或业务规则校验失败
+      description: 请求字段校验失败
       content:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/Problem"
-    TooManyRequests:
-      description: 请求频率超限
-      headers:
-        Retry-After:
-          description: 建议重试等待秒数
+    Conflict:
+      description: 业务状态或保护规则冲突
+      content:
+        application/problem+json:
           schema:
-            type: integer
+            $ref: "#/components/schemas/Problem"
+    PreconditionFailed:
+      description: 乐观锁版本冲突
       content:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/Problem"
     ServiceUnavailable:
-      description: 服务依赖未就绪
+      description: 依赖未就绪
       content:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/Problem"
   schemas:
-    Uuid:
-      type: string
-      format: uuid
-    DateTime:
-      type: string
-      format: date-time
-    DecimalString:
-      type: string
-      pattern: '^-?(0|[1-9][0-9]*)(\.[0-9]{1,6})?$'
-      examples: ["12.500000"]
     HealthResponse:
       type: object
       required: [status]
       properties:
         status:
           type: string
-          enum: [ok]
+          enum: [ok, error]
         checks:
           type: object
           additionalProperties:
             type: string
-    PageMeta:
-      type: object
-      required: [page, page_size, total, total_pages]
-      properties:
-        page:
-          type: integer
-          minimum: 1
-        page_size:
-          type: integer
-          minimum: 1
-        total:
-          type: integer
-          minimum: 0
-        total_pages:
-          type: integer
-          minimum: 0
+            enum: [ok, error]
     Problem:
       type: object
       required: [type, title, status, code, request_id]
       properties:
         type:
           type: string
-          format: uri-reference
         title:
           type: string
         status:
           type: integer
-          minimum: 400
-          maximum: 599
         code:
           type: string
-          pattern: "^[A-Z][A-Z0-9_]*$"
         detail:
           type: string
         instance:
           type: string
-          format: uri-reference
         request_id:
-          $ref: "#/components/schemas/Uuid"
+          type: string
         field_errors:
           type: object
           additionalProperties:
             type: array
             items:
               type: string
-    LoginRequest:
+    PageMeta:
       type: object
-      additionalProperties: false
-      required: [username, password]
+      required: [page, page_size, total, total_pages]
       properties:
-        username:
-          type: string
-          minLength: 1
-          maxLength: 64
-        password:
-          type: string
-          minLength: 1
-          maxLength: 256
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total:
+          type: integer
+        total_pages:
+          type: integer
+    UserStatus:
+      type: string
+      enum: [active, locked, disabled]
+    AssignableRoleCode:
+      type: string
+      enum: [system_admin, project_manager, researcher]
     SessionUser:
       type: object
-      required: [id, organization_id, username, display_name, permissions, role_codes, role_names]
+      required:
+        - id
+        - organization_id
+        - username
+        - display_name
+        - is_super_admin
+        - permissions
+        - role_codes
+        - role_names
       properties:
         id:
-          $ref: "#/components/schemas/Uuid"
+          type: string
+          format: uuid
         organization_id:
-          $ref: "#/components/schemas/Uuid"
+          type: string
+          format: uuid
         username:
           type: string
         display_name:
           type: string
+        is_super_admin:
+          type: boolean
         permissions:
           type: array
-          uniqueItems: true
           items:
             type: string
-            pattern: "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
         role_codes:
           type: array
-          uniqueItems: true
           items:
-            type: string
+            $ref: "#/components/schemas/AssignableRoleCode"
         role_names:
           type: array
-          uniqueItems: true
           items:
             type: string
-    SessionResponse:
+            enum: [超级管理员, 项目管理员, 实验员]
+    UserOption:
       type: object
-      required: [data, request_id]
+      required: [id, organization_id, organization_name, username, display_name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        organization_name:
+          type: string
+        username:
+          type: string
+        display_name:
+          type: string
+    UserOptionListResponse:
+      type: object
+      required: [data]
       properties:
         data:
-          $ref: "#/components/schemas/SessionUser"
-        request_id:
-          $ref: "#/components/schemas/Uuid"
-    CsrfResponse:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserOption"
+    RoleOption:
       type: object
-      required: [data, request_id]
+      required: [role_code, name, description]
+      properties:
+        role_code:
+          $ref: "#/components/schemas/AssignableRoleCode"
+        name:
+          type: string
+        description:
+          type: string
+    ManagedUser:
+      type: object
+      required:
+        - id
+        - username
+        - display_name
+        - status
+        - is_active
+        - is_super_admin
+        - role_codes
+        - role_names
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        display_name:
+          type: string
+        email:
+          type: string
+          format: email
+        status:
+          $ref: "#/components/schemas/UserStatus"
+        is_active:
+          type: boolean
+        is_super_admin:
+          type: boolean
+        role_codes:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssignableRoleCode"
+        role_names:
+          type: array
+          items:
+            type: string
+        last_login:
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ManagedUserCreate:
+      type: object
+      required: [username, display_name, password, role_codes]
+      properties:
+        username:
+          type: string
+          pattern: "^[A-Za-z0-9._-]{3,64}$"
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 128
+        role_codes:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/AssignableRoleCode"
+    ManagedUserUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        username:
+          type: string
+          pattern: "^[A-Za-z0-9._-]{3,64}$"
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        email:
+          type: string
+          format: email
+        status:
+          $ref: "#/components/schemas/UserStatus"
+        role_codes:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/AssignableRoleCode"
+    ManagedUserResponse:
+      type: object
+      required: [data]
       properties:
         data:
-          type: object
-          required: [csrf_token]
-          properties:
-            csrf_token:
-              type: string
-              minLength: 32
-        request_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: "#/components/schemas/ManagedUser"
+    ManagedUserListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManagedUser"
+        meta:
+          $ref: "#/components/schemas/PageMeta"
     ProjectStatus:
       type: string
       enum: [draft, not_started, active, at_risk, suspended, completed, archived]
+    ProjectType:
+      type: string
+      enum: [聚酰亚胺, 环氧树脂]
+    ProjectMilestone:
+      type: object
+      required: [name, date, state]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 500
+        date:
+          type: string
+          format: date
+        state:
+          type: string
+          enum: [todo, current, done]
+    ProjectMember:
+      type: object
+      required: [user_id, display_name, member_role]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        member_role:
+          type: string
+          enum: [owner, researcher, inspector, viewer]
+          description: inspector、viewer 为历史项目成员值；当前页面统一显示为项目成员。
     Project:
       type: object
       required:
@@ -1283,29 +1206,23 @@ components:
         - project_no
         - name
         - project_type_code
-        - current_stage
-        - progress_percent
-        - document_count
-        - experiment_count
-        - data_resource_count
-        - objectives
-        - milestones
         - status
         - owner_id
         - owner_display_name
         - members
+        - objectives
+        - milestones
         - version
-        - created_at
-        - updated_at
       properties:
         id:
-          $ref: "#/components/schemas/Uuid"
+          type: string
+          format: uuid
         project_no:
           type: string
         name:
           type: string
         project_type_code:
-          type: string
+          $ref: "#/components/schemas/ProjectType"
         description:
           type: string
         current_stage:
@@ -1316,13 +1233,10 @@ components:
           maximum: 100
         document_count:
           type: integer
-          minimum: 0
         experiment_count:
           type: integer
-          minimum: 0
         data_resource_count:
           type: integer
-          minimum: 0
         objectives:
           type: array
           items:
@@ -1330,148 +1244,105 @@ components:
         milestones:
           type: array
           items:
-            type: object
-            required: [date, name, state]
-            properties:
-              date:
-                type: string
-                format: date
-              name:
-                type: string
-              state:
-                type: string
+            $ref: "#/components/schemas/ProjectMilestone"
         status:
           $ref: "#/components/schemas/ProjectStatus"
         owner_id:
-          $ref: "#/components/schemas/Uuid"
+          type: string
+          format: uuid
         owner_display_name:
           type: string
         members:
           type: array
           items:
-            type: object
-            required: [user_id, display_name, member_role]
-            properties:
-              user_id:
-                $ref: "#/components/schemas/Uuid"
-              display_name:
-                type: string
-              member_role:
-                $ref: "#/components/schemas/ProjectMemberRole"
+            $ref: "#/components/schemas/ProjectMember"
         planned_start_date:
           type: [string, "null"]
-          format: date
+          format: date-time
         planned_end_date:
           type: [string, "null"]
-          format: date
+          format: date-time
         actual_end_at:
-          oneOf:
-            - $ref: "#/components/schemas/DateTime"
-            - type: "null"
+          type: [string, "null"]
+          format: date-time
         archived_at:
-          oneOf:
-            - $ref: "#/components/schemas/DateTime"
-            - type: "null"
+          type: [string, "null"]
+          format: date-time
         version:
           type: integer
           minimum: 1
         created_at:
-          $ref: "#/components/schemas/DateTime"
+          type: string
+          format: date-time
         updated_at:
-          $ref: "#/components/schemas/DateTime"
+          type: string
+          format: date-time
+    ProjectWrite:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        project_type_code:
+          $ref: "#/components/schemas/ProjectType"
+        description:
+          type: string
+          maxLength: 10000
+        owner_id:
+          type: string
+          format: uuid
+        member_ids:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        planned_start_date:
+          type: string
+          format: date-time
+        planned_end_date:
+          type: string
+          format: date-time
+        objectives:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            minLength: 1
+            maxLength: 1000
+        milestones:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ProjectMilestone"
     ProjectCreate:
-      type: object
-      additionalProperties: false
-      required: [name, project_type_code, owner_id]
-      properties:
-        name:
-          type: string
-          minLength: 1
-          maxLength: 200
-        project_type_code:
-          type: string
-          minLength: 1
-          maxLength: 64
-        description:
-          type: string
-          maxLength: 10000
-        current_stage:
-          type: string
-          maxLength: 64
-        objectives:
-          type: array
-          items:
-            type: string
-            maxLength: 1000
-        milestones:
-          type: array
-          items:
-            type: object
-        owner_id:
-          $ref: "#/components/schemas/Uuid"
-        member_ids:
-          type: array
-          uniqueItems: true
-          items:
-            $ref: "#/components/schemas/Uuid"
-        planned_start_date:
-          type: string
-          format: date
-        planned_end_date:
-          type: string
-          format: date
+      allOf:
+        - $ref: "#/components/schemas/ProjectWrite"
+        - type: object
+          required:
+            - name
+            - project_type_code
+            - owner_id
+            - planned_start_date
+            - planned_end_date
+            - objectives
+            - milestones
     ProjectUpdate:
-      type: object
-      additionalProperties: false
-      minProperties: 1
-      properties:
-        name:
-          type: string
-          minLength: 1
-          maxLength: 200
-        project_type_code:
-          type: string
-          minLength: 1
-          maxLength: 64
-        description:
-          type: [string, "null"]
-          maxLength: 10000
-        current_stage:
-          type: string
-          maxLength: 64
-        objectives:
-          type: array
-          items:
-            type: string
-            maxLength: 1000
-        milestones:
-          type: array
-          items:
-            type: object
-        owner_id:
-          $ref: "#/components/schemas/Uuid"
-        member_ids:
-          type: array
-          uniqueItems: true
-          items:
-            $ref: "#/components/schemas/Uuid"
-        planned_start_date:
-          type: [string, "null"]
-          format: date
-        planned_end_date:
-          type: [string, "null"]
-          format: date
+      allOf:
+        - $ref: "#/components/schemas/ProjectWrite"
+        - type: object
+          minProperties: 1
+      description: 与创建字段相同，但全部字段可选且至少提供一项。
     ProjectResponse:
       type: object
-      required: [data, request_id]
+      required: [data]
       properties:
         data:
           $ref: "#/components/schemas/Project"
-        request_id:
-          $ref: "#/components/schemas/Uuid"
     ProjectListResponse:
       type: object
-      required: [data, meta, request_id]
+      required: [data, meta]
       properties:
         data:
           type: array
@@ -1479,99 +1350,40 @@ components:
             $ref: "#/components/schemas/Project"
         meta:
           $ref: "#/components/schemas/PageMeta"
-        request_id:
-          $ref: "#/components/schemas/Uuid"
-    ProjectMemberRole:
-      type: string
-      enum: [owner, researcher, inspector, viewer]
-    OrganizationUserOption:
+    OperationLog:
       type: object
-      required: [id, username, display_name]
+      required: [id, action_type, description, changes, actor_display_name, created_at]
       properties:
         id:
-          $ref: "#/components/schemas/Uuid"
-        username:
           type: string
-        display_name:
+          format: uuid
+        action_type:
           type: string
-    OrganizationUserOptionListResponse:
-      type: object
-      required: [data, request_id]
-      properties:
-        data:
-          type: array
-          items:
-            $ref: "#/components/schemas/OrganizationUserOption"
-        request_id:
-          $ref: "#/components/schemas/Uuid"
-    ProjectMember:
-      type: object
-      required: [id, project_id, user_id, member_role, joined_at]
-      properties:
-        id:
-          $ref: "#/components/schemas/Uuid"
-        project_id:
-          $ref: "#/components/schemas/Uuid"
-        user_id:
-          $ref: "#/components/schemas/Uuid"
-        member_role:
-          $ref: "#/components/schemas/ProjectMemberRole"
-        joined_at:
-          $ref: "#/components/schemas/DateTime"
-    ProjectMemberCreate:
-      type: object
-      additionalProperties: false
-      required: [user_id, member_role]
-      properties:
-        user_id:
-          $ref: "#/components/schemas/Uuid"
-        member_role:
-          $ref: "#/components/schemas/ProjectMemberRole"
-    ProjectMemberResponse:
-      type: object
-      required: [data, request_id]
-      properties:
-        data:
-          $ref: "#/components/schemas/ProjectMember"
-        request_id:
-          $ref: "#/components/schemas/Uuid"
-    ProjectMemberListResponse:
-      type: object
-      required: [data, request_id]
-      properties:
-        data:
-          type: array
-          items:
-            $ref: "#/components/schemas/ProjectMember"
-        request_id:
-          $ref: "#/components/schemas/Uuid"
-    ProjectDocumentCategory:
-      type: string
-      enum:
-        - project_plan
-        - literature
-        - experiment_plan
-        - stage_report
-        - meeting_minutes
-        - other
+        description:
+          type: string
+        changes:
+          type: object
+        actor_display_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
     ProjectDocument:
       type: object
       required:
         - id
         - name
         - extension
-        - mime_type
         - file_size
         - category
         - category_label
         - related_content
         - version_label
         - uploaded_by_name
-        - created_at
-        - updated_at
       properties:
         id:
-          $ref: "#/components/schemas/Uuid"
+          type: string
+          format: uuid
         name:
           type: string
         extension:
@@ -1580,9 +1392,8 @@ components:
           type: string
         file_size:
           type: integer
-          minimum: 0
         category:
-          $ref: "#/components/schemas/ProjectDocumentCategory"
+          $ref: "#/components/schemas/DocumentCategory"
         category_label:
           type: string
         related_content:
@@ -1592,166 +1403,128 @@ components:
         uploaded_by_name:
           type: string
         created_at:
-          $ref: "#/components/schemas/DateTime"
+          type: string
+          format: date-time
         updated_at:
-          $ref: "#/components/schemas/DateTime"
-    ProjectDocumentCreate:
+          type: string
+          format: date-time
+    DocumentCategory:
+      type: string
+      enum: [project_plan, literature, experiment_plan, stage_report, meeting_minutes, other]
+    DocumentResponse:
       type: object
-      additionalProperties: false
-      required: [file, category]
-      properties:
-        file:
-          type: string
-          format: binary
-        category:
-          $ref: "#/components/schemas/ProjectDocumentCategory"
-        related_content:
-          type: string
-          default: 项目整体
-          maxLength: 200
-        version_label:
-          type: string
-          default: V1.0
-          pattern: "^[A-Za-z0-9._-]{1,32}$"
-    ProjectDocumentResponse:
-      type: object
-      required: [data, request_id]
+      required: [data]
       properties:
         data:
           $ref: "#/components/schemas/ProjectDocument"
-        request_id:
-          $ref: "#/components/schemas/Uuid"
-    ProjectDocumentListResponse:
+    DocumentListResponse:
       type: object
-      required: [data, meta, request_id]
+      required: [data, category_counts]
       properties:
         data:
           type: array
           items:
             $ref: "#/components/schemas/ProjectDocument"
-        meta:
+        category_counts:
           type: object
-          required: [total, filtered_total, category_counts]
+          additionalProperties:
+            type: integer
+    DashboardResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required:
+            - project_metrics
+            - experiment_metrics
+            - type_distribution
+            - trend
+            - active_projects
           properties:
-            total:
-              type: integer
-              minimum: 0
-            filtered_total:
-              type: integer
-              minimum: 0
-            category_counts:
+            project_metrics:
               type: object
-              additionalProperties:
-                type: integer
-                minimum: 0
-        request_id:
-          $ref: "#/components/schemas/Uuid"
+              required: [total, active, archived, at_risk]
+              properties:
+                total:
+                  type: integer
+                active:
+                  type: integer
+                archived:
+                  type: integer
+                at_risk:
+                  type: integer
+            experiment_metrics:
+              type: object
+              required: [total, in_progress, completed]
+              properties:
+                total:
+                  type: integer
+                in_progress:
+                  type: integer
+                completed:
+                  type: integer
+            type_distribution:
+              type: array
+              items:
+                type: object
+                required: [name, project_count, experiment_count]
+                properties:
+                  name:
+                    $ref: "#/components/schemas/ProjectType"
+                  project_count:
+                    type: integer
+                  experiment_count:
+                    type: integer
+            trend:
+              type: object
+              required: [dates, series, selected_project_id, project_options]
+              properties:
+                dates:
+                  type: array
+                  items:
+                    type: string
+                    format: date
+                series:
+                  type: array
+                  items:
+                    type: object
+                    required: [name, values]
+                    properties:
+                      name:
+                        type: string
+                      values:
+                        type: array
+                        items:
+                          type: integer
+                selected_project_id:
+                  type: string
+                project_options:
+                  type: array
+                  items:
+                    type: object
+                    required: [id, project_no, name]
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      project_no:
+                        type: string
+                      name:
+                        type: string
+            active_projects:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
     ExperimentStatus:
       type: string
       enum: [not_started, in_progress, completed]
-    ExperimentStep:
-      type: object
-      required: [id, sequence_no, title, planned_parameters, schema_version, is_required]
-      properties:
-        id:
-          $ref: "#/components/schemas/Uuid"
-        source_template_step_id:
-          oneOf:
-            - $ref: "#/components/schemas/Uuid"
-            - type: "null"
-        sequence_no:
-          type: integer
-          minimum: 1
-        title:
-          type: string
-        instructions:
-          type: [string, "null"]
-        planned_parameters:
-          type: object
-          additionalProperties: true
-        schema_version:
-          type: integer
-          minimum: 1
-        planned_duration_minutes:
-          type: [integer, "null"]
-          minimum: 0
-        is_required:
-          type: boolean
-    ExperimentStepInput:
-      type: object
-      additionalProperties: false
-      required: [sequence_no, title]
-      properties:
-        source_template_step_id:
-          $ref: "#/components/schemas/Uuid"
-        sequence_no:
-          type: integer
-          minimum: 1
-        title:
-          type: string
-          minLength: 1
-          maxLength: 200
-        instructions:
-          type: string
-          maxLength: 10000
-        planned_parameters:
-          type: object
-          additionalProperties: true
-          default: {}
-        schema_version:
-          type: integer
-          minimum: 1
-          default: 1
-        planned_duration_minutes:
-          type: integer
-          minimum: 0
-        is_required:
-          type: boolean
-          default: true
-    ExperimentParticipantInput:
-      type: object
-      additionalProperties: false
-      required: [user_id, participant_role]
-      properties:
-        user_id:
-          $ref: "#/components/schemas/Uuid"
-        participant_role:
-          type: string
-          enum: [executor, collaborator, viewer]
-    ExperimentParticipant:
-      type: object
-      required: [id, user_id, participant_role]
-      properties:
-        id:
-          $ref: "#/components/schemas/Uuid"
-        user_id:
-          $ref: "#/components/schemas/Uuid"
-        participant_role:
-          type: string
-          enum: [executor, collaborator, viewer]
-    ExperimentMaterialInput:
-      type: object
-      additionalProperties: false
-      required: [material_id, unit_id]
-      properties:
-        material_id:
-          $ref: "#/components/schemas/Uuid"
-        material_batch_id:
-          $ref: "#/components/schemas/Uuid"
-        purpose:
-          type: string
-          maxLength: 200
-        planned_quantity:
-          $ref: "#/components/schemas/DecimalString"
-        unit_id:
-          $ref: "#/components/schemas/Uuid"
-        sort_order:
-          type: integer
-          minimum: 0
-          default: 0
+    ExperimentType:
+      type: string
+      enum: [单体, 聚合, 其他]
     FormulaColumn:
       type: object
-      additionalProperties: false
       required: [id, label]
       properties:
         id:
@@ -1761,6 +1534,49 @@ components:
         label:
           type: string
           maxLength: 100
+    ExtraTable:
+      type: object
+      required: [id, name, columns, rows]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          maxLength: 100
+        columns:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/FormulaColumn"
+        rows:
+          type: array
+          items:
+            type: object
+    ExtraProcess:
+      type: object
+      required: [id, name, content]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          maxLength: 100
+        content:
+          type: string
+          maxLength: 1000
+    AttachmentSummary:
+      type: object
+      required: [id, name, size, url]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        size:
+          type: string
+        url:
+          type: string
     ExperimentRecord:
       type: object
       required:
@@ -1775,66 +1591,44 @@ components:
       properties:
         formula_columns:
           type: array
-          minItems: 1
           items:
             $ref: "#/components/schemas/FormulaColumn"
         formula_rows:
           type: array
           items:
             type: object
-            additionalProperties:
-              type: string
         extra_tables:
           type: array
           items:
-            type: object
-            additionalProperties: true
+            $ref: "#/components/schemas/ExtraTable"
         process_text:
           type: string
-          maxLength: 50000
         extra_processes:
           type: array
           items:
-            type: object
-            additionalProperties: true
+            $ref: "#/components/schemas/ExtraProcess"
         process_images:
           type: array
-          maxItems: 20
+          description: 从 experiment_attachment 实时派生。
           items:
-            type: object
-            required: [name, url]
-            properties:
-              name:
-                type: string
-              url:
-                type: string
-              size:
-                type: string
+            $ref: "#/components/schemas/AttachmentSummary"
         result_text:
           type: string
-          maxLength: 1000
         result_files:
           type: array
-          maxItems: 30
+          description: 从 experiment_attachment 实时派生。
           items:
-            type: object
-            required: [name, size]
-            properties:
-              name:
-                type: string
-              size:
-                type: string
+            $ref: "#/components/schemas/AttachmentSummary"
     Experiment:
       type: object
       required:
         - id
         - experiment_no
+        - name
         - project_id
         - project_no
         - project_name
-        - name
         - experiment_type
-        - phase
         - status
         - purpose
         - owner_id
@@ -1843,23 +1637,23 @@ components:
         - participant_names
         - record
         - version
-        - created_at
-        - updated_at
       properties:
         id:
-          $ref: "#/components/schemas/Uuid"
+          type: string
+          format: uuid
         experiment_no:
           type: string
+        name:
+          type: string
         project_id:
-          $ref: "#/components/schemas/Uuid"
+          type: string
+          format: uuid
         project_no:
           type: string
         project_name:
           type: string
-        name:
-          type: string
         experiment_type:
-          type: string
+          $ref: "#/components/schemas/ExperimentType"
         phase:
           type: string
         status:
@@ -1867,29 +1661,27 @@ components:
         purpose:
           type: string
         estimated_start:
-          oneOf:
-            - $ref: "#/components/schemas/DateTime"
-            - type: "null"
+          type: [string, "null"]
+          format: date-time
         estimated_end:
-          oneOf:
-            - $ref: "#/components/schemas/DateTime"
-            - type: "null"
+          type: [string, "null"]
+          format: date-time
         started_at:
-          oneOf:
-            - $ref: "#/components/schemas/DateTime"
-            - type: "null"
+          type: [string, "null"]
+          format: date-time
         completed_at:
-          oneOf:
-            - $ref: "#/components/schemas/DateTime"
-            - type: "null"
+          type: [string, "null"]
+          format: date-time
         owner_id:
-          $ref: "#/components/schemas/Uuid"
+          type: string
+          format: uuid
         owner_display_name:
           type: string
         participant_ids:
           type: array
           items:
-            $ref: "#/components/schemas/Uuid"
+            type: string
+            format: uuid
         participant_names:
           type: array
           items:
@@ -1900,96 +1692,83 @@ components:
           type: integer
           minimum: 1
         created_at:
-          $ref: "#/components/schemas/DateTime"
+          type: string
+          format: date-time
         updated_at:
-          $ref: "#/components/schemas/DateTime"
-    ExperimentCreate:
+          type: string
+          format: date-time
+    ExperimentWrite:
       type: object
-      additionalProperties: true
-      required: [project_id, name, experiment_type]
       properties:
         project_id:
-          $ref: "#/components/schemas/Uuid"
+          type: string
+          format: uuid
         name:
           type: string
           minLength: 1
           maxLength: 200
         experiment_type:
-          type: string
-          minLength: 1
-          maxLength: 64
+          $ref: "#/components/schemas/ExperimentType"
         purpose:
           type: string
           maxLength: 10000
+        estimated_start:
+          type: [string, "null"]
+          format: date-time
+        estimated_end:
+          type: [string, "null"]
+          format: date-time
         owner_id:
-          $ref: "#/components/schemas/Uuid"
+          type: string
+          format: uuid
         participant_ids:
           type: array
+          uniqueItems: true
           items:
-            $ref: "#/components/schemas/Uuid"
-        estimated_start:
-          oneOf:
-            - $ref: "#/components/schemas/DateTime"
-            - type: "null"
-        estimated_end:
-          oneOf:
-            - $ref: "#/components/schemas/DateTime"
-            - type: "null"
+            type: string
+            format: uuid
         formula_columns:
           type: array
+          minItems: 1
           items:
             $ref: "#/components/schemas/FormulaColumn"
         formula_rows:
           type: array
           items:
             type: object
-            additionalProperties:
-              type: string
-    ExperimentUpdate:
-      type: object
-      additionalProperties: true
-      minProperties: 1
-      properties:
-        project_id:
-          $ref: "#/components/schemas/Uuid"
-        name:
-          type: string
-          minLength: 1
-          maxLength: 200
-        experiment_type:
-          type: string
-          minLength: 1
-          maxLength: 64
-        purpose:
-          type: string
-          maxLength: 10000
-        owner_id:
-          $ref: "#/components/schemas/Uuid"
-        estimated_start:
-          oneOf:
-            - $ref: "#/components/schemas/DateTime"
-            - type: "null"
-        estimated_end:
-          oneOf:
-            - $ref: "#/components/schemas/DateTime"
-            - type: "null"
+        extra_tables:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExtraTable"
         process_text:
           type: string
           maxLength: 50000
+        extra_processes:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExtraProcess"
         result_text:
           type: string
           maxLength: 1000
+    ExperimentCreate:
+      allOf:
+        - $ref: "#/components/schemas/ExperimentWrite"
+        - type: object
+          required: [project_id, name, experiment_type, purpose]
+    ExperimentUpdate:
+      allOf:
+        - $ref: "#/components/schemas/ExperimentWrite"
+        - type: object
+          minProperties: 1
     ExperimentResponse:
       type: object
-      required: [data, request_id]
+      required: [data]
       properties:
         data:
           $ref: "#/components/schemas/Experiment"
-        request_id:
-          $ref: "#/components/schemas/Uuid"
     ExperimentListResponse:
       type: object
-      required: [data, meta, request_id]
+      required: [data, meta]
       properties:
         data:
           type: array
@@ -1997,549 +1776,3 @@ components:
             $ref: "#/components/schemas/Experiment"
         meta:
           $ref: "#/components/schemas/PageMeta"
-        request_id:
-          $ref: "#/components/schemas/Uuid"
-    ElnStatus:
-      type: string
-      enum: [draft, recording, submitted, rejected, archived]
-    ElnStepRecord:
-      type: object
-      required:
-        - id
-        - experiment_step_id
-        - actual_parameters
-        - schema_version
-        - version
-        - updated_at
-      properties:
-        id:
-          $ref: "#/components/schemas/Uuid"
-        experiment_step_id:
-          $ref: "#/components/schemas/Uuid"
-        actual_parameters:
-          type: object
-          additionalProperties: true
-        schema_version:
-          type: integer
-          minimum: 1
-        observation:
-          type: [string, "null"]
-        result_summary:
-          type: [string, "null"]
-        anomaly_description:
-          type: [string, "null"]
-        completed_at:
-          oneOf:
-            - $ref: "#/components/schemas/DateTime"
-            - type: "null"
-        version:
-          type: integer
-          minimum: 1
-        updated_at:
-          $ref: "#/components/schemas/DateTime"
-    ElnRecord:
-      type: object
-      required:
-        - id
-        - record_no
-        - experiment_id
-        - recorder_id
-        - status
-        - current_revision_no
-        - steps
-        - version
-        - updated_at
-      properties:
-        id:
-          $ref: "#/components/schemas/Uuid"
-        record_no:
-          type: string
-        experiment_id:
-          $ref: "#/components/schemas/Uuid"
-        recorder_id:
-          $ref: "#/components/schemas/Uuid"
-        status:
-          $ref: "#/components/schemas/ElnStatus"
-        summary:
-          type: [string, "null"]
-        conclusion:
-          type: [string, "null"]
-        started_at:
-          oneOf:
-            - $ref: "#/components/schemas/DateTime"
-            - type: "null"
-        submitted_at:
-          oneOf:
-            - $ref: "#/components/schemas/DateTime"
-            - type: "null"
-        archived_at:
-          oneOf:
-            - $ref: "#/components/schemas/DateTime"
-            - type: "null"
-        current_revision_no:
-          type: integer
-          minimum: 0
-        steps:
-          type: array
-          items:
-            $ref: "#/components/schemas/ElnStepRecord"
-        version:
-          type: integer
-          minimum: 1
-        updated_at:
-          $ref: "#/components/schemas/DateTime"
-    ElnRecordUpdate:
-      type: object
-      additionalProperties: false
-      minProperties: 1
-      properties:
-        summary:
-          type: [string, "null"]
-          maxLength: 20000
-        conclusion:
-          type: [string, "null"]
-          maxLength: 20000
-    ElnStepRecordUpdate:
-      type: object
-      additionalProperties: false
-      minProperties: 1
-      properties:
-        actual_parameters:
-          type: object
-          additionalProperties: true
-        schema_version:
-          type: integer
-          minimum: 1
-        observation:
-          type: [string, "null"]
-          maxLength: 20000
-        result_summary:
-          type: [string, "null"]
-          maxLength: 20000
-        anomaly_description:
-          type: [string, "null"]
-          maxLength: 20000
-        completed_at:
-          oneOf:
-            - $ref: "#/components/schemas/DateTime"
-            - type: "null"
-    ElnRecordResponse:
-      type: object
-      required: [data, request_id]
-      properties:
-        data:
-          $ref: "#/components/schemas/ElnRecord"
-        request_id:
-          $ref: "#/components/schemas/Uuid"
-    ElnStepRecordResponse:
-      type: object
-      required: [data, request_id]
-      properties:
-        data:
-          $ref: "#/components/schemas/ElnStepRecord"
-        request_id:
-          $ref: "#/components/schemas/Uuid"
-    FileStatus:
-      type: string
-      enum: [initialized, uploading, scanning, available, rejected, deleted]
-    FileObject:
-      type: object
-      required:
-        - id
-        - original_file_name
-        - content_type
-        - size_bytes
-        - status
-        - uploaded_by_id
-        - created_at
-      properties:
-        id:
-          $ref: "#/components/schemas/Uuid"
-        original_file_name:
-          type: string
-        content_type:
-          type: string
-        size_bytes:
-          type: integer
-          minimum: 0
-        sha256:
-          type: [string, "null"]
-          pattern: "^[a-f0-9]{64}$"
-        status:
-          $ref: "#/components/schemas/FileStatus"
-        uploaded_by_id:
-          $ref: "#/components/schemas/Uuid"
-        uploaded_at:
-          oneOf:
-            - $ref: "#/components/schemas/DateTime"
-            - type: "null"
-        created_at:
-          $ref: "#/components/schemas/DateTime"
-    FileUploadInitialize:
-      type: object
-      additionalProperties: false
-      required: [file_name, content_type, size_bytes]
-      properties:
-        file_name:
-          type: string
-          minLength: 1
-          maxLength: 255
-        content_type:
-          type: string
-          minLength: 1
-          maxLength: 128
-        size_bytes:
-          type: integer
-          minimum: 1
-          maximum: 104857600
-        sha256:
-          type: string
-          pattern: "^[a-f0-9]{64}$"
-    FileUploadInstruction:
-      type: object
-      required: [file_id, upload_url, method, headers, expires_at]
-      properties:
-        file_id:
-          $ref: "#/components/schemas/Uuid"
-        upload_url:
-          type: string
-          format: uri
-        method:
-          type: string
-          enum: [PUT]
-        headers:
-          type: object
-          additionalProperties:
-            type: string
-        expires_at:
-          $ref: "#/components/schemas/DateTime"
-    FileUploadComplete:
-      type: object
-      additionalProperties: false
-      required: [size_bytes]
-      properties:
-        size_bytes:
-          type: integer
-          minimum: 1
-        sha256:
-          type: string
-          pattern: "^[a-f0-9]{64}$"
-    FileUploadInitializeResponse:
-      type: object
-      required: [data, request_id]
-      properties:
-        data:
-          $ref: "#/components/schemas/FileUploadInstruction"
-        request_id:
-          $ref: "#/components/schemas/Uuid"
-    FileObjectResponse:
-      type: object
-      required: [data, request_id]
-      properties:
-        data:
-          $ref: "#/components/schemas/FileObject"
-        request_id:
-          $ref: "#/components/schemas/Uuid"
-    TestOrderStatus:
-      type: string
-      enum: [draft, submitted, awaiting_result, reviewing, completed, cancelled]
-    TestOrderItemInput:
-      type: object
-      additionalProperties: false
-      required: [item_code, item_name, sequence_no]
-      properties:
-        test_standard_id:
-          $ref: "#/components/schemas/Uuid"
-        item_code:
-          type: string
-          minLength: 1
-          maxLength: 64
-        item_name:
-          type: string
-          minLength: 1
-          maxLength: 200
-        unit_id:
-          $ref: "#/components/schemas/Uuid"
-        acceptance_rule:
-          type: object
-          additionalProperties: true
-        schema_version:
-          type: integer
-          minimum: 1
-          default: 1
-        sequence_no:
-          type: integer
-          minimum: 1
-    TestOrderCreate:
-      type: object
-      additionalProperties: false
-      required: [experiment_id, sample_name, items]
-      properties:
-        experiment_id:
-          $ref: "#/components/schemas/Uuid"
-        assignee_id:
-          $ref: "#/components/schemas/Uuid"
-        priority:
-          type: string
-          enum: [low, normal, high, urgent]
-          default: normal
-        sample_name:
-          type: string
-          minLength: 1
-          maxLength: 200
-        sample_quantity:
-          $ref: "#/components/schemas/DecimalString"
-        sample_unit_id:
-          $ref: "#/components/schemas/Uuid"
-        due_at:
-          $ref: "#/components/schemas/DateTime"
-        notes:
-          type: string
-          maxLength: 10000
-        items:
-          type: array
-          minItems: 1
-          maxItems: 100
-          items:
-            $ref: "#/components/schemas/TestOrderItemInput"
-    TestOrder:
-      type: object
-      required:
-        - id
-        - test_order_no
-        - experiment_id
-        - requester_id
-        - status
-        - priority
-        - sample_name
-        - version
-        - created_at
-        - updated_at
-      properties:
-        id:
-          $ref: "#/components/schemas/Uuid"
-        test_order_no:
-          type: string
-        experiment_id:
-          $ref: "#/components/schemas/Uuid"
-        requester_id:
-          $ref: "#/components/schemas/Uuid"
-        assignee_id:
-          oneOf:
-            - $ref: "#/components/schemas/Uuid"
-            - type: "null"
-        status:
-          $ref: "#/components/schemas/TestOrderStatus"
-        priority:
-          type: string
-          enum: [low, normal, high, urgent]
-        sample_name:
-          type: string
-        sample_quantity:
-          oneOf:
-            - $ref: "#/components/schemas/DecimalString"
-            - type: "null"
-        sample_unit_id:
-          oneOf:
-            - $ref: "#/components/schemas/Uuid"
-            - type: "null"
-        due_at:
-          oneOf:
-            - $ref: "#/components/schemas/DateTime"
-            - type: "null"
-        version:
-          type: integer
-          minimum: 1
-        created_at:
-          $ref: "#/components/schemas/DateTime"
-        updated_at:
-          $ref: "#/components/schemas/DateTime"
-    TestOrderResponse:
-      type: object
-      required: [data, request_id]
-      properties:
-        data:
-          $ref: "#/components/schemas/TestOrder"
-        request_id:
-          $ref: "#/components/schemas/Uuid"
-    TestOrderListResponse:
-      type: object
-      required: [data, meta, request_id]
-      properties:
-        data:
-          type: array
-          items:
-            $ref: "#/components/schemas/TestOrder"
-        meta:
-          $ref: "#/components/schemas/PageMeta"
-        request_id:
-          $ref: "#/components/schemas/Uuid"
-    TestResultUpsert:
-      type: object
-      additionalProperties: false
-      anyOf:
-        - required: [value_numeric]
-        - required: [value_text]
-        - required: [structured_result]
-      properties:
-        value_numeric:
-          oneOf:
-            - $ref: "#/components/schemas/DecimalString"
-            - type: "null"
-        value_text:
-          type: [string, "null"]
-          maxLength: 20000
-        unit_id:
-          oneOf:
-            - $ref: "#/components/schemas/Uuid"
-            - type: "null"
-        structured_result:
-          type: object
-          additionalProperties: true
-        schema_version:
-          type: integer
-          minimum: 1
-          default: 1
-        conclusion:
-          type: string
-          enum: [pending, pass, fail, invalid]
-          default: pending
-    TestResult:
-      type: object
-      required:
-        - id
-        - test_order_item_id
-        - structured_result
-        - schema_version
-        - conclusion
-        - entered_by_id
-        - entered_at
-        - version
-      properties:
-        id:
-          $ref: "#/components/schemas/Uuid"
-        test_order_item_id:
-          $ref: "#/components/schemas/Uuid"
-        value_numeric:
-          oneOf:
-            - $ref: "#/components/schemas/DecimalString"
-            - type: "null"
-        value_text:
-          type: [string, "null"]
-        unit_id:
-          oneOf:
-            - $ref: "#/components/schemas/Uuid"
-            - type: "null"
-        structured_result:
-          type: object
-          additionalProperties: true
-        schema_version:
-          type: integer
-          minimum: 1
-        conclusion:
-          type: string
-          enum: [pending, pass, fail, invalid]
-        entered_by_id:
-          $ref: "#/components/schemas/Uuid"
-        entered_at:
-          $ref: "#/components/schemas/DateTime"
-        reviewed_by_id:
-          oneOf:
-            - $ref: "#/components/schemas/Uuid"
-            - type: "null"
-        reviewed_at:
-          oneOf:
-            - $ref: "#/components/schemas/DateTime"
-            - type: "null"
-        version:
-          type: integer
-          minimum: 1
-    TestResultResponse:
-      type: object
-      required: [data, request_id]
-      properties:
-        data:
-          $ref: "#/components/schemas/TestResult"
-        request_id:
-          $ref: "#/components/schemas/Uuid"
-    ReportStatus:
-      type: string
-      enum: [queued, generating, ready, failed, void]
-    ReportCreate:
-      type: object
-      additionalProperties: false
-      required: [report_type, source_type, source_id]
-      properties:
-        report_type:
-          type: string
-          enum: [experiment, test, project_summary]
-        source_type:
-          type: string
-          enum: [experiment, test_order, project]
-        source_id:
-          $ref: "#/components/schemas/Uuid"
-    Report:
-      type: object
-      required:
-        - id
-        - report_no
-        - report_type
-        - source_type
-        - source_id
-        - template_version
-        - status
-        - requested_by_id
-        - requested_at
-      properties:
-        id:
-          $ref: "#/components/schemas/Uuid"
-        report_no:
-          type: string
-        report_type:
-          type: string
-          enum: [experiment, test, project_summary]
-        source_type:
-          type: string
-          enum: [experiment, test_order, project]
-        source_id:
-          $ref: "#/components/schemas/Uuid"
-        template_version:
-          type: string
-        status:
-          $ref: "#/components/schemas/ReportStatus"
-        file_id:
-          oneOf:
-            - $ref: "#/components/schemas/Uuid"
-            - type: "null"
-        requested_by_id:
-          $ref: "#/components/schemas/Uuid"
-        requested_at:
-          $ref: "#/components/schemas/DateTime"
-        generated_at:
-          oneOf:
-            - $ref: "#/components/schemas/DateTime"
-            - type: "null"
-        error_code:
-          type: [string, "null"]
-        error_summary:
-          type: [string, "null"]
-    ReportResponse:
-      type: object
-      required: [data, request_id]
-      properties:
-        data:
-          $ref: "#/components/schemas/Report"
-        request_id:
-          $ref: "#/components/schemas/Uuid"
-    ReportListResponse:
-      type: object
-      required: [data, meta, request_id]
-      properties:
-        data:
-          type: array
-          items:
-            $ref: "#/components/schemas/Report"
-        meta:
-          $ref: "#/components/schemas/PageMeta"
-        request_id:
-          $ref: "#/components/schemas/Uuid"

@@ -79,3 +79,50 @@ class IdempotencyRequest(models.Model):
     def __str__(self) -> str:
         """返回幂等请求路由与键。"""
         return f"{self.route_key} {self.idempotency_key}"
+
+
+class BusinessOperationLog(models.Model):
+    """记录项目、实验和文档等业务对象的关键操作。"""
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="主键",
+    )
+    organization_id = models.UUIDField(db_comment="所属组织")
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="business_operation_logs",
+        db_comment="操作用户",
+    )
+    domain = models.CharField(max_length=32, db_comment="业务域")
+    object_id = models.UUIDField(db_comment="业务对象主键")
+    object_no = models.CharField(max_length=64, blank=True, db_comment="业务对象编号")
+    action_type = models.CharField(max_length=64, db_comment="操作类型")
+    description = models.CharField(max_length=1000, db_comment="操作内容说明")
+    changes = models.JSONField(default=dict, blank=True, db_comment="结构化变更摘要")
+    created_at = models.DateTimeField(auto_now_add=True, db_comment="操作时间")
+
+    class Meta:
+        """业务操作日志表配置。"""
+
+        db_table = "business_operation_log"
+        db_table_comment = "业务操作日志"
+        indexes = [
+            models.Index(
+                fields=["organization_id", "domain", "object_id", "-created_at"],
+                name="idx_operation_log_object",
+            ),
+            models.Index(
+                fields=["organization_id", "actor", "-created_at"],
+                name="idx_operation_log_actor",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        """返回业务对象与操作类型。"""
+        return f"{self.domain}:{self.object_no or self.object_id} {self.action_type}"

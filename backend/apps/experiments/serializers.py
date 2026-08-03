@@ -1,5 +1,7 @@
 """电子实验记录本接口序列化器。"""
 
+from pathlib import Path
+
 from rest_framework import serializers
 
 from apps.identity.models import User, UserStatus
@@ -12,6 +14,8 @@ from .models import (
     ExperimentRecord,
     ExperimentStatus,
 )
+
+EXPERIMENT_TYPE_CHOICES = ["单体", "聚合", "其他"]
 
 
 class FormulaColumnSerializer(serializers.Serializer):
@@ -35,22 +39,7 @@ class ExtraProcessSerializer(serializers.Serializer):
 
     id = serializers.CharField(min_length=1, max_length=100)
     name = serializers.CharField(min_length=1, max_length=100)
-    content = serializers.CharField(max_length=20000, allow_blank=True)
-
-
-class ProcessImageSerializer(serializers.Serializer):
-    """过程图片结构。"""
-
-    name = serializers.CharField(min_length=1, max_length=255)
-    url = serializers.CharField(min_length=1)
-    size = serializers.CharField(max_length=40, allow_blank=True, required=False)
-
-
-class ResultFileSerializer(serializers.Serializer):
-    """结果附件元数据结构。"""
-
-    name = serializers.CharField(min_length=1, max_length=255)
-    size = serializers.CharField(max_length=40, allow_blank=True)
+    content = serializers.CharField(max_length=1000, allow_blank=True)
 
 
 class ExperimentAttachmentUploadSerializer(serializers.Serializer):
@@ -59,13 +48,39 @@ class ExperimentAttachmentUploadSerializer(serializers.Serializer):
     file = serializers.FileField()
     kind = serializers.ChoiceField(choices=ExperimentAttachmentKind.choices)
 
-    def validate_file(self, value):
-        """按文件用途校验真实上传文件。"""
-        if value.size > 25 * 1024 * 1024:
-            raise serializers.ValidationError("单个附件不得超过 25 MB")
-        if not value.name or len(value.name) > 255:
-            raise serializers.ValidationError("文件名长度必须为 1–255 个字符")
-        return value
+    def validate(self, attrs):
+        """按用途校验文件大小、扩展名和真实签名。"""
+        upload = attrs["file"]
+        kind = attrs["kind"]
+        if not upload.name or len(upload.name) > 255:
+            raise serializers.ValidationError(
+                {"file": ["文件名长度必须为 1–255 个字符"]}
+            )
+        if kind == ExperimentAttachmentKind.PROCESS_IMAGE:
+            if upload.size > 10 * 1024 * 1024:
+                raise serializers.ValidationError(
+                    {"file": ["单张过程图片不得超过 10 MB"]}
+                )
+            extension = Path(upload.name).suffix.lower()
+            upload.seek(0)
+            head = upload.read(12)
+            upload.seek(0)
+            valid_image = (
+                extension in {".jpg", ".jpeg"}
+                and head.startswith(b"\xff\xd8\xff")
+            ) or (
+                extension == ".png"
+                and head.startswith(b"\x89PNG\r\n\x1a\n")
+            )
+            if not valid_image:
+                raise serializers.ValidationError(
+                    {"file": ["过程图片仅支持内容有效的 JPG、PNG 文件"]}
+                )
+        elif upload.size > 25 * 1024 * 1024:
+            raise serializers.ValidationError(
+                {"file": ["单个结果附件不得超过 25 MB"]}
+            )
+        return attrs
 
 
 class ExperimentRecordWriteSerializer(serializers.Serializer):
@@ -84,42 +99,7 @@ class ExperimentRecordWriteSerializer(serializers.Serializer):
         allow_empty=True,
         required=False,
     )
-    process_images = ProcessImageSerializer(
-        many=True,
-        allow_empty=True,
-        required=False,
-    )
     result_text = serializers.CharField(max_length=1000, allow_blank=True, required=False)
-    result_files = ResultFileSerializer(many=True, allow_empty=True, required=False)
-
-    def validate_process_images(self, value: list[dict]) -> list[dict]:
-        """限制过程图片数量与总数据量。
-
-        Args:
-            value: 图片列表。
-
-        Returns:
-            校验后的图片列表。
-        """
-        if len(value) > 20:
-            raise serializers.ValidationError("过程图片最多 20 张")
-        total_chars = sum(len(item["url"]) for item in value)
-        if total_chars > 28 * 1024 * 1024:
-            raise serializers.ValidationError("过程图片总大小不得超过 20 MB")
-        return value
-
-    def validate_result_files(self, value: list[dict]) -> list[dict]:
-        """限制结果附件数量。
-
-        Args:
-            value: 附件元数据列表。
-
-        Returns:
-            校验后的附件列表。
-        """
-        if len(value) > 30:
-            raise serializers.ValidationError("结果附件最多 30 个")
-        return value
 
 
 class ExperimentSerializer(serializers.ModelSerializer):
@@ -197,9 +177,19 @@ class ExperimentSerializer(serializers.ModelSerializer):
         try:
             record = instance.record
         except ExperimentRecord.DoesNotExist:
+            columns = [
+                {
+                    "id": f"col_{index + 1}",
+                    "label": "原料名称" if index == 0 else "",
+                }
+                for index in range(4)
+            ]
             return {
-                "formula_columns": [{"id": "material", "label": "原料名称"}],
-                "formula_rows": [{"material": ""}, {"material": ""}],
+                "formula_columns": columns,
+                "formula_rows": [
+                    {column["id"]: "" for column in columns},
+                    {column["id"]: "" for column in columns},
+                ],
                 "extra_tables": [],
                 "process_text": "",
                 "extra_processes": [],
@@ -208,13 +198,18 @@ class ExperimentSerializer(serializers.ModelSerializer):
                 "result_files": [],
             }
         attachments = list(instance.attachments.all())
+
         def attachment_data(item: ExperimentAttachment) -> dict:
             return {
                 "id": str(item.id),
                 "name": item.name,
                 "size": f"{item.file_size} B",
-                "url": f"/api/v1/experiments/{instance.experiment_no}/attachments/{item.id}/content",
+                "url": (
+                    f"/api/v1/experiments/{instance.experiment_no}/"
+                    f"attachments/{item.id}/content"
+                ),
             }
+
         return {
             "formula_columns": record.formula_columns,
             "formula_rows": record.formula_rows,
@@ -244,7 +239,10 @@ class ExperimentWriteSerializer(ExperimentRecordWriteSerializer):
         required=False,
     )
     name = serializers.CharField(min_length=1, max_length=200, required=False)
-    experiment_type = serializers.CharField(min_length=1, max_length=64, required=False)
+    experiment_type = serializers.ChoiceField(
+        choices=EXPERIMENT_TYPE_CHOICES,
+        required=False,
+    )
     purpose = serializers.CharField(max_length=10000, allow_blank=True, required=False)
     estimated_start = serializers.DateTimeField(allow_null=True, required=False)
     estimated_end = serializers.DateTimeField(allow_null=True, required=False)
@@ -313,7 +311,12 @@ class ExperimentCreateSerializer(ExperimentWriteSerializer):
         queryset=Project.objects.all(),
     )
     name = serializers.CharField(min_length=1, max_length=200)
-    experiment_type = serializers.CharField(min_length=1, max_length=64)
+    experiment_type = serializers.ChoiceField(choices=EXPERIMENT_TYPE_CHOICES)
+    purpose = serializers.CharField(
+        min_length=1,
+        max_length=10000,
+        allow_blank=False,
+    )
 
 
 class ExperimentUpdateSerializer(ExperimentWriteSerializer):

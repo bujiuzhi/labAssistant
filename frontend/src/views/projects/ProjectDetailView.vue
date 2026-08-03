@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Icon } from "@iconify/vue";
-import { ElMessage } from "element-plus";
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { ElMessage, ElMessageBox } from "element-plus";
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { getProblemDetail } from "@/api/http";
@@ -10,13 +10,14 @@ import { projectApi } from "@/api/projects";
 import { userApi } from "@/api/users";
 import ProjectDataAssetsTab from "@/components/projects/ProjectDataAssetsTab.vue";
 import ProjectDocumentsTab from "@/components/projects/ProjectDocumentsTab.vue";
-import ProjectExperimentsTab from "@/components/projects/ProjectExperimentsTab.vue";
+import ProjectTasksTab from "@/components/projects/ProjectTasksTab.vue";
 import { useSessionStore } from "@/stores/session";
 import type {
   OrganizationUserOption,
   Experiment,
   Project,
   ProjectMilestone,
+  ProjectOperationLog,
 } from "@/types/api";
 
 interface MilestoneStage {
@@ -38,8 +39,11 @@ const apiProject = ref<Project | null>(null);
 const userOptions = ref<OrganizationUserOption[]>([]);
 const recentExperiments = ref<Experiment[]>([]);
 const recentExperimentsLoading = ref(false);
+const operationLogs = ref<ProjectOperationLog[]>([]);
+const operationLogsLoading = ref(false);
+const milestoneEditor = ref<HTMLElement | null>(null);
 
-const projectTypes = ["聚酰亚胺", "环氧树脂", "新能源材料", "绿色化工", "功能材料"];
+const projectTypes = ["聚酰亚胺", "环氧树脂"];
 const editableStatuses = ["draft", "not_started", "active", "at_risk", "suspended"];
 
 const basicForm = reactive({
@@ -79,12 +83,6 @@ interface ProjectView {
   updatedAt: string;
 }
 
-const projectTypeLabels: Record<string, string> = {
-  research: "研发项目",
-  validation: "验证项目",
-  commissioned: "委托项目",
-};
-
 /**
  * 将真实 API 项目转换为原型详情页所需的展示结构
  *
@@ -100,9 +98,9 @@ function adaptApiProject(source: Project): ProjectView {
   return {
     id: source.project_no,
     name: source.name,
-    startDate: source.planned_start_date ?? "未设置",
-    endDate: source.planned_end_date ?? "未设置",
-    type: projectTypeLabels[source.project_type_code] ?? source.project_type_code,
+    startDate: formatProjectDateTime(source.planned_start_date),
+    endDate: formatProjectDateTime(source.planned_end_date),
+    type: source.project_type_code,
     owner: source.owner_display_name,
     objective: extended.objectives?.[0] ?? (source.description || "暂无项目目标"),
     status: isArchived ? "已归档" : isAtRisk ? "有风险" : isActive ? "进行中" : "待开始",
@@ -122,7 +120,7 @@ const project = computed<ProjectView | null>(() =>
   apiProject.value ? adaptApiProject(apiProject.value) : null,
 );
 
-const projectTabs = ["概览", "文档资料", "实验管理", "数据资产"];
+const projectTabs = ["概览", "文档资料", "数据资产", "任务管理"];
 const activeProjectTab = ref("概览");
 const canEdit = computed(
   () =>
@@ -143,19 +141,7 @@ const canUploadDocuments = computed(
     projectIsWritable.value &&
     sessionStore.hasPermission("document.upload"),
 );
-const canCreateExperiment = computed(
-  () =>
-    projectIsWritable.value &&
-    sessionStore.hasPermission("experiment.create"),
-);
-const canEditExperiment = computed(() =>
-  sessionStore.hasPermission("experiment.update"),
-);
-const projectTypeOptions = computed(() =>
-  basicForm.projectTypeCode && !projectTypes.includes(basicForm.projectTypeCode)
-    ? [...projectTypes, basicForm.projectTypeCode]
-    : projectTypes,
-);
+const projectTypeOptions = computed(() => projectTypes);
 const memberOptions = computed(() =>
   userOptions.value.filter((user) => user.id !== basicForm.ownerId),
 );
@@ -194,7 +180,45 @@ const statusLabel = computed(() => {
   return "进行中";
 });
 
-const projectMembers = computed(() => apiProject.value?.members ?? []);
+const projectDeadline = computed(() => {
+  if (!apiProject.value || ["completed", "archived"].includes(apiProject.value.status)) {
+    return "";
+  }
+  const pendingMilestones = apiProject.value.milestones
+    .filter((item) => item.state !== "done" && item.date)
+    .sort((left, right) => left.date.localeCompare(right.date));
+  const target = pendingMilestones[0]?.date ?? apiProject.value.planned_end_date;
+  if (!target) return "";
+  const targetDate = new Date(`${target.slice(0, 10)}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const days = Math.round((targetDate.getTime() - today.getTime()) / 86_400_000);
+  if (days < 0) return `里程碑已逾期 ${Math.abs(days)} 天`;
+  if (days === 0) return "里程碑今日到期";
+  return `距离下一里程碑 ${days} 天`;
+});
+
+/** 格式化项目计划日期时间。 */
+function formatProjectDateTime(value: string | null): string {
+  if (!value) return "未设置";
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  })
+    .format(new Date(value))
+    .replaceAll("/", "-");
+}
+
+function toInputDateTime(value: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
 
 /** 格式化实验开始时间，未设置时不伪造日期。 */
 function formatExperimentStart(value: string | null): string {
@@ -209,6 +233,30 @@ function experimentStatusLabel(status: Experiment["status"]): string {
     completed: "已完成",
   };
   return labels[status];
+}
+
+/** 返回项目操作类型的用户可读名称。 */
+function operationLogActionLabel(actionType: string): string {
+  const labels: Record<string, string> = {
+    project_created: "创建项目",
+    project_updated: "编辑项目",
+    milestones_updated: "修改项目里程碑",
+    project_archived: "归档项目",
+    document_uploaded: "上传文档",
+  };
+  return labels[actionType] ?? "项目操作";
+}
+
+/** 返回项目操作类型对应的图标。 */
+function operationLogIcon(actionType: string): string {
+  const icons: Record<string, string> = {
+    project_created: "tabler:plus",
+    project_updated: "tabler:edit",
+    milestones_updated: "tabler:flag",
+    project_archived: "tabler:archive",
+    document_uploaded: "tabler:upload",
+  };
+  return icons[actionType] ?? "tabler:history";
 }
 
 /** 加载项目最近更新的三条真实实验记录。 */
@@ -228,6 +276,20 @@ async function loadRecentExperiments(projectId: string): Promise<void> {
   }
 }
 
+/** 加载项目创建、编辑、里程碑、文档与归档的真实操作记录。 */
+async function loadOperationLogs(projectId: string): Promise<void> {
+  operationLogsLoading.value = true;
+  try {
+    operationLogs.value = await projectApi.listOperationLogs(projectId);
+  } catch (error) {
+    operationLogs.value = [];
+    const problem = getProblemDetail(error);
+    ElMessage.error(problem?.detail ?? "项目操作日志加载失败");
+  } finally {
+    operationLogsLoading.value = false;
+  }
+}
+
 /**
  * 根据路由参数加载项目详情
  *
@@ -239,7 +301,10 @@ async function loadProject(): Promise<void> {
   apiProject.value = null;
   try {
     apiProject.value = await projectApi.get(String(route.params.projectId));
-    await loadRecentExperiments(apiProject.value.id);
+    await Promise.all([
+      loadRecentExperiments(apiProject.value.id),
+      loadOperationLogs(apiProject.value.id),
+    ]);
   } catch (error) {
     const problem = getProblemDetail(error);
     loadError.value = problem?.detail ?? "项目详情加载失败";
@@ -272,8 +337,8 @@ function openBasicEditor(): void {
   basicForm.name = apiProject.value.name;
   basicForm.projectTypeCode = apiProject.value.project_type_code;
   basicForm.ownerId = apiProject.value.owner_id;
-  basicForm.startDate = apiProject.value.planned_start_date ?? "";
-  basicForm.endDate = apiProject.value.planned_end_date ?? "";
+  basicForm.startDate = toInputDateTime(apiProject.value.planned_start_date);
+  basicForm.endDate = toInputDateTime(apiProject.value.planned_end_date);
   basicForm.memberIds = apiProject.value.members
     .filter((member) => member.user_id !== apiProject.value?.owner_id)
     .map((member) => member.user_id);
@@ -330,6 +395,7 @@ async function submitBasicEdit(): Promise<void> {
         ...(canManageMembers.value ? { member_ids: basicForm.memberIds } : {}),
       },
     );
+    await loadOperationLogs(apiProject.value.id);
     editVisible.value = false;
     ElMessage.success("项目基础信息已更新");
   } catch (error) {
@@ -377,6 +443,12 @@ function cancelMilestoneEdit(): void {
  */
 function addMilestone(): void {
   milestoneForm.value.push({ date: "", name: "", state: "todo" });
+  void nextTick(() => {
+    const rows = milestoneEditor.value?.querySelectorAll<HTMLElement>(
+      ".milestone-editor-row",
+    );
+    rows?.[rows.length - 1]?.querySelector<HTMLInputElement>("input")?.focus();
+  });
 }
 
 /**
@@ -418,6 +490,7 @@ async function submitMilestones(): Promise<void> {
       apiProject.value.version,
       { milestones: milestonesToSave },
     );
+    await loadOperationLogs(apiProject.value.id);
     milestoneEditing.value = false;
     ElMessage.success("项目里程碑已更新");
   } catch (error) {
@@ -428,6 +501,38 @@ async function submitMilestones(): Promise<void> {
     } else {
       ElMessage.error(problem?.detail ?? "里程碑更新失败");
     }
+  } finally {
+    submitting.value = false;
+  }
+}
+
+/** 二次确认后归档项目，归档操作会写入项目审计记录。 */
+async function archiveCurrentProject(): Promise<void> {
+  if (!apiProject.value || !canEdit.value || submitting.value) return;
+  try {
+    await ElMessageBox.confirm(
+      "归档后项目基础信息、里程碑和文档将转为只读，是否继续？",
+      "归档项目",
+      {
+        confirmButtonText: "确认归档",
+        cancelButtonText: "取消",
+        type: "warning",
+      },
+    );
+  } catch {
+    return;
+  }
+  submitting.value = true;
+  try {
+    apiProject.value = await projectApi.archive(
+      apiProject.value.id,
+      apiProject.value.version,
+    );
+    await loadOperationLogs(apiProject.value.id);
+    ElMessage.success("项目已归档");
+  } catch (error) {
+    const problem = getProblemDetail(error);
+    ElMessage.error(problem?.detail ?? "项目归档失败");
   } finally {
     submitting.value = false;
   }
@@ -461,6 +566,21 @@ watch(() => route.params.projectId, loadProject);
             <span>·</span>
             <span>当前阶段&nbsp; <strong>{{ project.stage }}</strong></span>
           </p>
+        </div>
+        <div class="project-hero-actions">
+          <strong v-if="projectDeadline" class="deadline-hint">{{ projectDeadline }}</strong>
+          <button v-if="canEdit" type="button" @click="openBasicEditor">
+            <Icon icon="tabler:edit" />编辑项目
+          </button>
+          <button
+            v-if="canEdit"
+            class="archive-button"
+            type="button"
+            :disabled="submitting"
+            @click="archiveCurrentProject"
+          >
+            <Icon icon="tabler:archive" />归档
+          </button>
         </div>
       </header>
 
@@ -582,6 +702,7 @@ watch(() => route.params.projectId, loadProject);
           </div>
           <div
             v-else
+            ref="milestoneEditor"
             class="milestone-editor"
             data-testid="milestone-inline-editor"
           >
@@ -630,7 +751,7 @@ watch(() => route.params.projectId, loadProject);
           </div>
         </section>
 
-        <section class="overview-bottom-grid" aria-label="项目实验与成员">
+        <section class="overview-bottom-grid" aria-label="项目实验与操作日志">
           <article class="detail-card recent-experiments-card">
             <header><h2>最近实验</h2></header>
             <div v-loading="recentExperimentsLoading" class="recent-experiment-list">
@@ -649,15 +770,23 @@ watch(() => route.params.projectId, loadProject);
             </div>
           </article>
 
-          <article class="detail-card member-role-card">
-            <header><h2>项目成员与角色</h2></header>
-            <div class="member-role-list">
-              <div v-for="member in projectMembers" :key="member.user_id" class="member-role-row">
-                <i>{{ member.display_name.slice(0, 1) }}</i>
-                <strong>{{ member.display_name }}</strong>
-                <span>{{ { owner: '项目负责人', researcher: '项目成员', inspector: '检测人员', viewer: '只读成员' }[member.member_role] }}</span>
+          <article class="detail-card operation-log-card">
+            <header><h2>项目操作日志</h2></header>
+            <div v-loading="operationLogsLoading" class="operation-log-list">
+              <div v-for="log in operationLogs" :key="log.id" class="operation-log-row">
+                <i><Icon :icon="operationLogIcon(log.action_type)" /></i>
+                <strong>
+                  {{ log.actor_display_name }} ·
+                  {{ operationLogActionLabel(log.action_type) }}
+                </strong>
+                <small>{{ log.description }}</small>
+                <time>{{ formatProjectDateTime(log.created_at) }}</time>
               </div>
-              <el-empty v-if="!projectMembers.length" description="暂无项目成员" :image-size="54" />
+              <el-empty
+                v-if="!operationLogsLoading && !operationLogs.length"
+                description="暂无项目操作日志"
+                :image-size="54"
+              />
             </div>
           </article>
         </section>
@@ -670,18 +799,9 @@ watch(() => route.params.projectId, loadProject);
         @changed="loadProject"
       />
 
-      <ProjectExperimentsTab
-        v-else-if="activeProjectTab === '实验管理'"
-        :project-id="apiProject?.id ?? project.id"
-        :project-name="project.name"
-        :owner-id="apiProject?.owner_id ?? ''"
-        :user-options="userOptions"
-        :can-create="canCreateExperiment"
-        :can-edit="canEditExperiment"
-        @changed="loadProject"
-      />
-
       <ProjectDataAssetsTab v-else-if="activeProjectTab === '数据资产'" />
+
+      <ProjectTasksTab v-else-if="activeProjectTab === '任务管理'" />
 
       <el-dialog v-model="editVisible" title="编辑项目基础信息" width="680px" align-center>
         <el-form label-position="top">
@@ -717,16 +837,16 @@ watch(() => route.params.projectId, loadProject);
             <el-form-item label="开始时间" required>
               <el-date-picker
                 v-model="basicForm.startDate"
-                type="date"
-                value-format="YYYY-MM-DD"
+                type="datetime"
+                value-format="YYYY-MM-DDTHH:mm"
                 style="width: 100%"
               />
             </el-form-item>
             <el-form-item label="结束时间" required>
               <el-date-picker
                 v-model="basicForm.endDate"
-                type="date"
-                value-format="YYYY-MM-DD"
+                type="datetime"
+                value-format="YYYY-MM-DDTHH:mm"
                 style="width: 100%"
               />
             </el-form-item>
@@ -798,12 +918,14 @@ watch(() => route.params.projectId, loadProject);
 .project-hero {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   min-height: 82px;
   padding: 12px 14px;
   background: var(--color-paper);
   border: 1px solid var(--color-rule);
   border-radius: 8px;
   box-shadow: var(--shadow-whisper);
+  gap: 18px;
 }
 
 .project-title-line {
@@ -826,6 +948,47 @@ watch(() => route.params.projectId, loadProject);
   color: var(--color-muted);
   font-size: 12px;
   gap: 10px;
+  flex-wrap: wrap;
+}
+
+.project-hero-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.project-hero-actions button {
+  display: inline-flex;
+  height: 34px;
+  align-items: center;
+  padding: 0 10px;
+  color: var(--color-ink-2);
+  background: var(--color-paper);
+  border: 1px solid var(--color-rule-2);
+  border-radius: 5px;
+  cursor: pointer;
+  gap: 5px;
+}
+
+.project-hero-actions button:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.project-hero-actions .archive-button:hover {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.deadline-hint {
+  padding: 5px 8px;
+  color: #a95200;
+  font-size: 12px;
+  background: var(--color-warning-soft);
+  border-radius: 5px;
 }
 
 .type-chip {
@@ -1204,23 +1367,23 @@ watch(() => route.params.projectId, loadProject);
 }
 
 .recent-experiments-card,
-.member-role-card {
+.operation-log-card {
   min-height: 228px;
 }
 
 .recent-experiments-card > header,
-.member-role-card > header {
+.operation-log-card > header {
   padding: 17px 16px 8px;
 }
 
 .recent-experiments-card h2,
-.member-role-card h2 {
+.operation-log-card h2 {
   margin: 0;
   font-size: 17px;
 }
 
 .recent-experiment-list,
-.member-role-list {
+.operation-log-list {
   min-height: 162px;
   padding: 4px 16px 16px;
 }
@@ -1247,52 +1410,63 @@ watch(() => route.params.projectId, loadProject);
 .recent-experiment-row span,
 .recent-experiment-row small { color: var(--color-muted); font-size: 12px; white-space: nowrap; }
 
-.member-role-row {
-  display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) auto;
-  align-items: center;
-  min-height: 50px;
-  border-bottom: 1px solid var(--color-rule-2);
-  gap: 10px;
+.operation-log-list {
+  max-height: 196px;
+  overflow-y: auto;
 }
 
-.member-role-row:last-child { border-bottom: 0; }
-.member-role-row > i {
+.operation-log-row {
   display: grid;
-  width: 34px;
-  height: 34px;
+  min-height: 52px;
+  padding: 7px 0;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  color: var(--color-ink-2);
+  border-bottom: 1px solid var(--color-rule-2);
+  column-gap: 9px;
+}
+
+.operation-log-row:last-child {
+  border-bottom: 0;
+}
+
+.operation-log-row i {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  grid-row: 1 / 3;
   color: var(--color-accent);
   font-style: normal;
-  background: #e8f3ff;
-  border-radius: 50%;
+  background: var(--color-accent-soft);
+  border-radius: 6px;
   place-items: center;
 }
-.member-role-row strong { font-size: 14px; }
-.member-role-row span { color: var(--color-muted); font-size: 12px; }
 
-.module-placeholder {
-  display: flex;
-  min-height: 360px;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  margin-top: 14px;
+.operation-log-row i svg {
+  width: 14px;
+  height: 14px;
+}
+
+.operation-log-row strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.operation-log-row small {
+  grid-column: 2;
+  overflow: hidden;
   color: var(--color-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.module-placeholder svg {
-  width: 36px;
-  height: 36px;
-  color: var(--color-accent);
-}
-
-.module-placeholder h2 {
-  margin-top: 12px;
-  color: var(--color-ink);
-}
-
-.module-placeholder p {
-  margin: 5px 0 0;
+.operation-log-row time {
+  grid-column: 3;
+  grid-row: 1 / 3;
+  color: var(--color-muted);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .dialog-grid {
@@ -1393,6 +1567,15 @@ watch(() => route.params.projectId, loadProject);
 }
 
 @media (max-width: 1180px) {
+  .project-hero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .project-hero-actions {
+    justify-content: flex-start;
+  }
+
   .basic-grid dl {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1405,6 +1588,38 @@ watch(() => route.params.projectId, loadProject);
 }
 
 @media (max-width: 720px) {
+  .project-tabs {
+    padding: 0 10px;
+    overflow-x: auto;
+    gap: 24px;
+  }
+
+  .project-tabs button {
+    flex: 0 0 auto;
+  }
+
+  .basic-grid {
+    padding: 0 16px;
+  }
+
+  .basic-grid dl {
+    grid-template-columns: 1fr;
+  }
+
+  .operation-log-row {
+    grid-template-columns: 28px minmax(0, 1fr);
+    padding: 8px 0;
+  }
+
+  .operation-log-row time {
+    grid-column: 2;
+    grid-row: auto;
+  }
+
+  .operation-log-row small {
+    white-space: normal;
+  }
+
   .milestone-editor-head {
     display: none;
   }

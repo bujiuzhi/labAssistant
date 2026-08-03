@@ -8,7 +8,9 @@ from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from apps.common.exceptions import BusinessRuleConflict, ResourceVersionConflict
+from apps.common.services import record_business_operation
 from apps.identity.models import User
+from apps.identity.selectors import visible_organization_ids
 from apps.projects.models import Project
 from apps.projects.selectors import projects_for_user
 
@@ -21,6 +23,7 @@ from .models import (
     ExperimentRecord,
     ExperimentStatus,
 )
+from .selectors import experiments_for_user
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +33,7 @@ RECORD_FIELDS = {
     "extra_tables",
     "process_text",
     "extra_processes",
-    "process_images",
     "result_text",
-    "result_files",
 }
 
 
@@ -46,18 +47,10 @@ def create_experiment_attachment(
     """保存电子实验记录的真实附件文件。"""
     if not actor.has_permission_code("experiment.update"):
         raise PermissionDenied("无实验记录编辑权限")
-    if experiment.status == ExperimentStatus.COMPLETED:
-        raise BusinessRuleConflict("已完成实验不可上传附件")
-    if (
-        not actor.has_permission_code("experiment.view_all")
-        and experiment.owner_id != actor.id
-        and not experiment.participants.filter(user=actor).exists()
-    ):
+    if not experiments_for_user(actor).filter(id=experiment.id).exists():
         raise PermissionDenied("只能为本人参与的实验上传附件")
     upload = validated_data["file"]
     kind = validated_data["kind"]
-    if kind == ExperimentAttachmentKind.PROCESS_IMAGE and getattr(upload, "content_type", "") not in {"image/jpeg", "image/png", "image/webp"}:
-        raise ValidationError({"file": ["过程图片仅支持 JPG、PNG、WEBP"]})
     attachment_limit = 20 if kind == ExperimentAttachmentKind.PROCESS_IMAGE else 30
     if experiment.attachments.filter(kind=kind).count() >= attachment_limit:
         label = "过程图片" if kind == ExperimentAttachmentKind.PROCESS_IMAGE else "结果附件"
@@ -74,9 +67,65 @@ def create_experiment_attachment(
     )
     logger.info(
         "上传实验附件",
-        extra={"experiment_no": experiment.experiment_no, "attachment_id": str(attachment.id), "actor_id": str(actor.id)},
+        extra={
+            "experiment_no": experiment.experiment_no,
+            "attachment_id": str(attachment.id),
+            "actor_id": str(actor.id),
+        },
+    )
+    record_business_operation(
+        actor=actor,
+        domain="experiment",
+        object_id=experiment.id,
+        object_no=experiment.experiment_no,
+        action_type="attachment_uploaded",
+        description=f"上传{attachment.get_kind_display()}“{attachment.name}”",
+        changes={"attachment_id": str(attachment.id), "kind": attachment.kind},
+        organization_id=experiment.organization_id,
     )
     return attachment
+
+
+@transaction.atomic
+def delete_experiment_attachment(
+    *,
+    experiment: Experiment,
+    attachment_id,
+    actor: User,
+) -> None:
+    """删除实验记录附件及其存储文件。
+
+    Args:
+        experiment: 当前可见实验。
+        attachment_id: 附件主键。
+        actor: 当前操作用户。
+    """
+    if not actor.has_permission_code("experiment.update"):
+        raise PermissionDenied("无实验记录编辑权限")
+    if not experiments_for_user(actor).filter(id=experiment.id).exists():
+        raise PermissionDenied("只能维护本人可见实验的附件")
+    attachment = ExperimentAttachment.objects.select_for_update().get(
+        id=attachment_id,
+        experiment=experiment,
+        organization_id=experiment.organization_id,
+    )
+    storage = attachment.file.storage
+    storage_name = attachment.file.name
+    attachment_name = attachment.name
+    attachment_kind = attachment.kind
+    attachment_kind_label = attachment.get_kind_display()
+    attachment.delete()
+    transaction.on_commit(lambda: storage.delete(storage_name))
+    record_business_operation(
+        actor=actor,
+        domain="experiment",
+        object_id=experiment.id,
+        object_no=experiment.experiment_no,
+        action_type="attachment_deleted",
+        description=f"删除{attachment_kind_label}“{attachment_name}”",
+        changes={"attachment_id": str(attachment_id), "kind": attachment_kind},
+        organization_id=experiment.organization_id,
+    )
 
 
 def _sync_project_experiment_count(project_id) -> None:
@@ -102,7 +151,7 @@ def _resolve_participants(actor: User, participant_ids: list) -> list[User]:
     """
     users = list(
         User.objects.filter(
-            organization_id=actor.organization_id,
+            organization_id__in=visible_organization_ids(actor),
             id__in=participant_ids,
             is_active=True,
         )
@@ -215,27 +264,37 @@ def create_experiment(*, actor: User, validated_data: dict[str, Any]) -> Experim
     if not projects_for_user(actor).filter(id=project.id).exists():
         raise PermissionDenied("无关联项目访问权限")
     owner = validated_data.pop("owner", actor)
-    if owner.organization_id != actor.organization_id:
-        raise ValidationError({"owner_id": ["实验负责人必须属于当前组织"]})
+    if owner.organization_id not in visible_organization_ids(actor):
+        raise ValidationError({"owner_id": ["实验负责人必须属于当前可见组织范围"]})
     participant_ids = validated_data.pop("participant_ids", [])
     record_data = _record_data(validated_data)
     experiment = Experiment.objects.create(
-        organization_id=actor.organization_id,
+        organization_id=project.organization_id,
         experiment_no=_next_experiment_number(actor.organization_id),
         owner=owner,
         created_by=actor,
         updated_by=actor,
         **validated_data,
     )
+    default_columns = [
+        {
+            "id": f"col_{index + 1}",
+            "label": "原料名称" if index == 0 else "",
+        }
+        for index in range(4)
+    ]
     ExperimentRecord.objects.create(
         experiment=experiment,
         formula_columns=record_data.pop(
             "formula_columns",
-            [{"id": "material", "label": "原料名称"}],
+            default_columns,
         ),
         formula_rows=record_data.pop(
             "formula_rows",
-            [{"material": ""}, {"material": ""}],
+            [
+                {column["id"]: "" for column in default_columns},
+                {column["id"]: "" for column in default_columns},
+            ],
         ),
         **record_data,
     )
@@ -249,6 +308,16 @@ def create_experiment(*, actor: User, validated_data: dict[str, Any]) -> Experim
     logger.info(
         "创建实验计划",
         extra={"experiment_no": experiment.experiment_no, "actor_id": str(actor.id)},
+    )
+    record_business_operation(
+        actor=actor,
+        domain="experiment",
+        object_id=experiment.id,
+        object_no=experiment.experiment_no,
+        action_type="experiment_created",
+        description=f"创建实验计划“{experiment.name}”",
+        changes={"project_id": str(project.id), "status": experiment.status},
+        organization_id=experiment.organization_id,
     )
     return experiment
 
@@ -274,28 +343,21 @@ def update_experiment(
     """
     experiment = Experiment.objects.select_for_update().get(
         id=experiment_id,
-        organization_id=actor.organization_id,
     )
     if not actor.has_permission_code("experiment.update"):
         raise PermissionDenied("无实验记录编辑权限")
-    if (
-        not actor.has_permission_code("experiment.view_all")
-        and experiment.owner_id != actor.id
-        and not experiment.participants.filter(user=actor).exists()
-    ):
+    if not experiments_for_user(actor).filter(id=experiment.id).exists():
         raise PermissionDenied("只能编辑本人参与的实验")
     if experiment.version != expected_version:
         raise ResourceVersionConflict()
-    if experiment.status == ExperimentStatus.COMPLETED:
-        raise BusinessRuleConflict("已完成实验不可编辑")
     previous_project_id = experiment.project_id
     new_project = validated_data.get("project")
     if new_project and not projects_for_user(actor).filter(id=new_project.id).exists():
         raise PermissionDenied("无关联项目访问权限")
     previous_owner_id = experiment.owner_id
     new_owner = validated_data.get("owner", experiment.owner)
-    if new_owner.organization_id != actor.organization_id:
-        raise ValidationError({"owner_id": ["实验负责人必须属于当前组织"]})
+    if new_owner.organization_id not in visible_organization_ids(actor):
+        raise ValidationError({"owner_id": ["实验负责人必须属于当前可见组织范围"]})
     participant_ids = validated_data.pop("participant_ids", None)
     retained_participant_ids = list(
         experiment.participants.exclude(
@@ -334,6 +396,16 @@ def update_experiment(
         "更新实验记录",
         extra={"experiment_no": experiment.experiment_no, "actor_id": str(actor.id)},
     )
+    record_business_operation(
+        actor=actor,
+        domain="experiment",
+        object_id=experiment.id,
+        object_no=experiment.experiment_no,
+        action_type="experiment_updated",
+        description=f"保存实验记录“{experiment.name}”",
+        changes={"status": experiment.status, "version": experiment.version},
+        organization_id=experiment.organization_id,
+    )
     return experiment
 
 
@@ -367,9 +439,7 @@ def copy_experiment(*, source: Experiment, actor: User) -> Experiment:
             "extra_tables": source_record.extra_tables,
             "process_text": source_record.process_text,
             "extra_processes": source_record.extra_processes,
-            "process_images": [],
             "result_text": "",
-            "result_files": [],
         },
     )
 
@@ -395,10 +465,11 @@ def transition_experiment(
     """
     experiment = Experiment.objects.select_for_update().get(
         id=experiment_id,
-        organization_id=actor.organization_id,
     )
     if not actor.has_permission_code("experiment.execute"):
         raise PermissionDenied("无实验执行权限")
+    if not experiments_for_user(actor).filter(id=experiment.id).exists():
+        raise PermissionDenied("只能执行本人可见的实验")
     if experiment.version != expected_version:
         raise ResourceVersionConflict()
     transitions = {
@@ -407,6 +478,10 @@ def transition_experiment(
     }
     if transitions.get(experiment.status) != target_status:
         raise BusinessRuleConflict("当前实验状态不允许执行目标迁移")
+    if target_status == ExperimentStatus.COMPLETED:
+        record = ExperimentRecord.objects.filter(experiment=experiment).first()
+        if not record or not record.result_text.strip():
+            raise ValidationError({"result_text": ["完成实验前必须填写实验结果"]})
     now = timezone.now()
     experiment.status = target_status
     experiment.phase = "实验执行" if target_status == ExperimentStatus.IN_PROGRESS else "检测分析"
@@ -424,5 +499,19 @@ def transition_experiment(
             "target_status": target_status,
             "actor_id": str(actor.id),
         },
+    )
+    record_business_operation(
+        actor=actor,
+        domain="experiment",
+        object_id=experiment.id,
+        object_no=experiment.experiment_no,
+        action_type="experiment_status_changed",
+        description=(
+            f"开始实验“{experiment.name}”"
+            if target_status == ExperimentStatus.IN_PROGRESS
+            else f"完成实验“{experiment.name}”"
+        ),
+        changes={"target_status": target_status},
+        organization_id=experiment.organization_id,
     )
     return experiment

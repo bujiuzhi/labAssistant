@@ -1,12 +1,23 @@
-"""项目接口序列化器。"""
+"""项目、操作日志与项目文档接口序列化器。"""
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from zipfile import BadZipFile, ZipFile
 
 from rest_framework import serializers
 
+from apps.common.models import BusinessOperationLog
 from apps.identity.models import User, UserStatus
 
+from .document_formats import (
+    ALLOWED_DOCUMENT_EXTENSIONS,
+    ODF_MIME_TYPES,
+    OOXML_REQUIRED_PREFIXES,
+)
 from .models import Project, ProjectDocument, ProjectDocumentCategory
+
+PROJECT_TYPE_CHOICES = ["聚酰亚胺", "环氧树脂"]
+MAX_OFFICE_ARCHIVE_ENTRIES = 10_000
+MAX_OFFICE_ARCHIVE_UNCOMPRESSED_BYTES = 512 * 1024 * 1024
 
 
 class ProjectMilestoneSerializer(serializers.Serializer):
@@ -80,15 +91,20 @@ class ProjectWriteSerializer(serializers.Serializer):
     """项目创建和更新字段。"""
 
     name = serializers.CharField(min_length=1, max_length=200, required=False)
-    project_type_code = serializers.CharField(min_length=1, max_length=64, required=False)
+    project_type_code = serializers.ChoiceField(
+        choices=PROJECT_TYPE_CHOICES,
+        required=False,
+    )
     description = serializers.CharField(max_length=10000, allow_blank=True, required=False)
     current_stage = serializers.CharField(max_length=64, required=False)
     objectives = serializers.ListField(
-        child=serializers.CharField(max_length=1000),
+        child=serializers.CharField(min_length=1, max_length=1000),
+        allow_empty=False,
         required=False,
     )
     milestones = serializers.ListField(
         child=ProjectMilestoneSerializer(),
+        allow_empty=False,
         required=False,
     )
     member_ids = serializers.ListField(
@@ -101,8 +117,8 @@ class ProjectWriteSerializer(serializers.Serializer):
         queryset=User.objects.filter(status=UserStatus.ACTIVE),
         required=False,
     )
-    planned_start_date = serializers.DateField(allow_null=True, required=False)
-    planned_end_date = serializers.DateField(allow_null=True, required=False)
+    planned_start_date = serializers.DateTimeField(allow_null=True, required=False)
+    planned_end_date = serializers.DateTimeField(allow_null=True, required=False)
 
     def validate(self, attrs):
         """校验计划日期顺序。
@@ -145,10 +161,20 @@ class ProjectCreateSerializer(ProjectWriteSerializer):
     """项目创建请求。"""
 
     name = serializers.CharField(min_length=1, max_length=200)
-    project_type_code = serializers.CharField(min_length=1, max_length=64)
+    project_type_code = serializers.ChoiceField(choices=PROJECT_TYPE_CHOICES)
     owner_id = serializers.PrimaryKeyRelatedField(
         source="owner",
         queryset=User.objects.filter(status=UserStatus.ACTIVE),
+    )
+    planned_start_date = serializers.DateTimeField()
+    planned_end_date = serializers.DateTimeField()
+    objectives = serializers.ListField(
+        child=serializers.CharField(min_length=1, max_length=1000),
+        allow_empty=False,
+    )
+    milestones = serializers.ListField(
+        child=ProjectMilestoneSerializer(),
+        allow_empty=False,
     )
 
 
@@ -168,6 +194,29 @@ class ProjectUpdateSerializer(ProjectWriteSerializer):
         if not attrs:
             raise serializers.ValidationError("至少提供一个待更新字段")
         return attrs
+
+
+class ProjectOperationLogSerializer(serializers.ModelSerializer):
+    """项目操作日志读取结构。"""
+
+    actor_display_name = serializers.CharField(
+        source="actor.display_name",
+        read_only=True,
+        default="已注销用户",
+    )
+
+    class Meta:
+        """序列化字段。"""
+
+        model = BusinessOperationLog
+        fields = [
+            "id",
+            "action_type",
+            "description",
+            "changes",
+            "actor_display_name",
+            "created_at",
+        ]
 
 
 class ProjectDocumentSerializer(serializers.ModelSerializer):
@@ -215,7 +264,7 @@ class ProjectDocumentCreateSerializer(serializers.Serializer):
     )
 
     def validate_file(self, value):
-        """校验文件大小和名称。
+        """校验文件大小、扩展名和真实文件签名。
 
         Args:
             value: 上传文件。
@@ -223,15 +272,84 @@ class ProjectDocumentCreateSerializer(serializers.Serializer):
         Returns:
             校验后的上传文件。
         """
-        if value.size > 25 * 1024 * 1024:
-            raise serializers.ValidationError("单个文档不得超过 25 MB")
+        if value.size > 100 * 1024 * 1024:
+            raise serializers.ValidationError("单个文档不得超过 100 MB")
         if not value.name or len(value.name) > 255:
             raise serializers.ValidationError("文件名长度必须为 1–255 个字符")
         extension = Path(value.name).suffix.lower().lstrip(".")
-        allowed_extensions = {
-            "doc", "docx", "pdf", "xls", "xlsx", "csv", "txt", "ppt", "pptx",
-            "png", "jpg", "jpeg", "webp",
-        }
-        if extension not in allowed_extensions:
+        if extension not in ALLOWED_DOCUMENT_EXTENSIONS:
             raise serializers.ValidationError("不支持该文件格式")
+        self._validate_file_signature(value, extension)
         return value
+
+    @staticmethod
+    def _validate_file_signature(value, extension: str) -> None:
+        """根据扩展名验证不可由请求头伪造的文件内容。
+
+        Args:
+            value: Django 上传文件。
+            extension: 小写无点扩展名。
+
+        Raises:
+            serializers.ValidationError: 文件内容与扩展名不匹配。
+        """
+        value.seek(0)
+        head = value.read(16)
+        value.seek(0)
+        valid = True
+        if extension == "pdf":
+            valid = head.startswith(b"%PDF-")
+        elif extension == "png":
+            valid = head.startswith(b"\x89PNG\r\n\x1a\n")
+        elif extension in {"jpg", "jpeg"}:
+            valid = head.startswith(b"\xff\xd8\xff")
+        elif extension == "webp":
+            valid = head.startswith(b"RIFF") and head[8:12] == b"WEBP"
+        elif extension == "gif":
+            valid = head.startswith((b"GIF87a", b"GIF89a"))
+        elif extension == "bmp":
+            valid = head.startswith(b"BM")
+        elif extension == "rtf":
+            valid = head.lstrip().startswith(b"{\\rtf")
+        elif extension in {"doc", "xls", "ppt"}:
+            valid = head.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")
+        elif extension in {*OOXML_REQUIRED_PREFIXES, *ODF_MIME_TYPES}:
+            try:
+                with ZipFile(value) as archive:
+                    file_infos = archive.infolist()
+                    names = archive.namelist()
+                    archive_is_safe = (
+                        len(file_infos) <= MAX_OFFICE_ARCHIVE_ENTRIES
+                        and sum(item.file_size for item in file_infos)
+                        <= MAX_OFFICE_ARCHIVE_UNCOMPRESSED_BYTES
+                        and all(not item.flag_bits & 0x1 for item in file_infos)
+                        and all(
+                            not PurePosixPath(name).is_absolute()
+                            and ".." not in PurePosixPath(name).parts
+                            for name in names
+                        )
+                    )
+                    if extension in OOXML_REQUIRED_PREFIXES:
+                        required_prefix = OOXML_REQUIRED_PREFIXES[extension]
+                        valid = (
+                            archive_is_safe
+                            and "[Content_Types].xml" in names
+                            and any(name.startswith(required_prefix) for name in names)
+                        )
+                    else:
+                        valid = (
+                            archive_is_safe
+                            and archive.read("mimetype").decode("ascii", errors="strict").strip()
+                            == ODF_MIME_TYPES[extension]
+                        )
+            except (BadZipFile, KeyError, OSError, UnicodeDecodeError):
+                valid = False
+            finally:
+                value.seek(0)
+        elif extension in {"csv", "txt"}:
+            value.seek(0)
+            sample = value.read(4096)
+            value.seek(0)
+            valid = b"\x00" not in sample
+        if not valid:
+            raise serializers.ValidationError("文件内容与扩展名不匹配或文件已损坏")

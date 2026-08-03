@@ -17,6 +17,7 @@ from apps.common.pagination import EnvelopePageNumberPagination
 from .authentication import CsrfEnforcedSessionAuthentication
 from .models import Role, RoleStatus, User, UserStatus
 from .permissions import IsOrganizationSuperAdmin
+from .selectors import visible_user_options
 from .serializers import (
     LoginSerializer,
     ManagedUserCreateSerializer,
@@ -154,11 +155,11 @@ class OrganizationUserOptionsView(APIView):
         Returns:
             用户选择项列表。
         """
-        users = User.objects.filter(
-            organization_id=request.user.organization_id,
-            status=UserStatus.ACTIVE,
-            is_active=True,
-        ).order_by("display_name", "username")
+        users = visible_user_options(request.user).order_by(
+            "organization__name",
+            "display_name",
+            "username",
+        )
         return Response(
             {
                 "data": OrganizationUserOptionSerializer(users, many=True).data,

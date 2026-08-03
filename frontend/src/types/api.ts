@@ -89,11 +89,11 @@ export interface ProjectCreateInput {
   project_type_code: string;
   description: string;
   owner_id: string;
-  planned_start_date: string | null;
-  planned_end_date: string | null;
+  planned_start_date: string;
+  planned_end_date: string;
   current_stage?: string;
-  objectives?: string[];
-  milestones?: ProjectMilestone[];
+  objectives: string[];
+  milestones: ProjectMilestone[];
   member_ids?: string[];
 }
 
@@ -101,6 +101,8 @@ export interface OrganizationUserOption {
   id: string;
   username: string;
   display_name: string;
+  organization_id: string;
+  organization_name: string;
 }
 
 export type ManagedUserStatus = "active" | "locked" | "disabled";
@@ -152,9 +154,19 @@ export interface ProjectFilters {
   page?: number;
   page_size?: number;
   search?: string;
-  status?: ProjectStatus | "";
+  status?: ProjectStatus | "running" | "ended" | "";
+  project_type?: "聚酰亚胺" | "环氧树脂" | "";
   owner_id?: string;
   ordering?: string;
+}
+
+export interface ProjectOperationLog {
+  id: string;
+  action_type: string;
+  description: string;
+  actor_display_name: string;
+  changes: Record<string, unknown>;
+  created_at: string;
 }
 
 export type ProjectDocumentCategory =
@@ -183,7 +195,14 @@ export interface ProjectDocument {
 export interface ProjectDocumentFilters {
   search?: string;
   category?: ProjectDocumentCategory | "";
-  file_type?: "word" | "pdf" | "excel" | "powerpoint" | "image" | "";
+  file_type?:
+    | "word"
+    | "pdf"
+    | "excel"
+    | "powerpoint"
+    | "image"
+    | "text"
+    | "";
   updated_range?: "week" | "month" | "";
 }
 
@@ -238,6 +257,14 @@ export interface DashboardActiveProject {
   milestone: ProjectMilestone | null;
   progress_percent: number;
   is_followed: boolean;
+  risk_level: "normal" | "countdown" | "overdue";
+  risk_days: number | null;
+}
+
+export interface DashboardProjectOption {
+  id: string;
+  project_no: string;
+  name: string;
 }
 
 export interface DashboardSummary {
@@ -247,6 +274,8 @@ export interface DashboardSummary {
   trend: {
     dates: string[];
     series: DashboardTrendSeries[];
+    selected_project_id: string;
+    project_options: DashboardProjectOption[];
   };
   active_projects: DashboardActiveProject[];
 }
@@ -343,7 +372,5 @@ export interface ExperimentWriteInput {
   extra_tables?: ExtraFormulaTable[];
   process_text?: string;
   extra_processes?: ExtraProcess[];
-  process_images?: ProcessImage[];
   result_text?: string;
-  result_files?: ResultFile[];
 }

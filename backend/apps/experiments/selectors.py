@@ -3,6 +3,7 @@
 from django.db.models import Q, QuerySet
 
 from apps.identity.models import User
+from apps.identity.selectors import visible_organization_ids
 
 from .models import Experiment
 
@@ -18,9 +19,11 @@ def experiments_for_user(user: User) -> QuerySet[Experiment]:
     """
     queryset = (
         Experiment.objects.select_related("project", "owner", "record")
-        .prefetch_related("participants__user")
-        .filter(organization_id=user.organization_id)
+        .prefetch_related("participants__user", "attachments")
     )
-    if user.has_permission_code("experiment.view_all"):
-        return queryset
-    return queryset.filter(Q(owner=user) | Q(participants__user=user)).distinct()
+    return queryset.filter(
+        Q(organization_id__in=visible_organization_ids(user))
+        | Q(project__members__user=user)
+        | Q(owner=user)
+        | Q(participants__user=user)
+    ).distinct()

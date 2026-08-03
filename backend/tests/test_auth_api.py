@@ -26,7 +26,7 @@ def test_login_requires_valid_csrf_and_returns_session(manager_user) -> None:
     assert login_response.json()["data"]["id"] == str(manager_user.id)
     assert "project.create" in login_response.json()["data"]["permissions"]
     assert login_response.json()["data"]["role_codes"] == ["project_manager"]
-    assert login_response.json()["data"]["role_names"] == ["项目负责人"]
+    assert login_response.json()["data"]["role_names"] == ["项目管理员"]
 
     session_response = client.get("/api/v1/auth/session")
     assert session_response.status_code == 200

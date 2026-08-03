@@ -31,24 +31,22 @@ PERMISSIONS = [
 
 ROLE_PERMISSIONS = {
     "system_admin": [code for code, _, _ in PERMISSIONS],
-    "project_manager": [code for code, _, _ in PERMISSIONS],
-    "researcher": [
-        "project.view",
-        "document.view",
-        "document.upload",
-        "experiment.view",
-        "experiment.create",
-        "experiment.update",
-        "experiment.execute",
+    "project_manager": [
+        code
+        for code, _, _ in PERMISSIONS
+        if code not in {"project.view_all", "experiment.view_all"}
     ],
-    "inspector": ["project.view", "document.view", "experiment.view"],
+    "researcher": [
+        code
+        for code, _, _ in PERMISSIONS
+        if code not in {"project.view_all", "experiment.view_all"}
+    ],
 }
 
 ROLE_NAMES = {
     "system_admin": "超级管理员",
-    "project_manager": "项目负责人",
-    "researcher": "研究人员",
-    "inspector": "检测人员",
+    "project_manager": "项目管理员",
+    "researcher": "实验员",
 }
 
 DEFAULT_DEVELOPMENT_PASSWORD = "00000000"
@@ -56,14 +54,14 @@ DEFAULT_DEVELOPMENT_PASSWORD = "00000000"
 DEVELOPMENT_USERS = [
     ("manager", "张伟", "project_manager"),
     ("researcher", "李娜", "researcher"),
-    ("inspector", "王强", "inspector"),
+    ("inspector", "王强", "researcher"),
 ]
 
 
 class Command(BaseCommand):
     """初始化可重复执行的开发数据。"""
 
-    help = "初始化开发组织、系统角色、权限和四类开发账号"
+    help = "初始化开发组织、三类系统角色和兼容开发账号"
 
     def add_arguments(self, parser) -> None:
         """注册命令参数。
@@ -151,6 +149,7 @@ class Command(BaseCommand):
                 user=user,
                 role=roles[role_code],
             )
+            UserRole.objects.filter(user=user).exclude(role=roles[role_code]).delete()
             action = "创建" if created else "更新"
             self.stdout.write(
                 self.style.SUCCESS(
