@@ -36,6 +36,8 @@ const statusOptions: Array<{ value: ExperimentStatus; label: string }> = [
   { value: "completed", label: "已完成" },
 ];
 const experimentTypes = ["单体", "聚合", "其他"];
+const LIST_MIN_WIDTH = 390;
+const LIST_MAX_WIDTH = 630;
 
 const experiments = ref<Experiment[]>([]);
 const projects = ref<Project[]>([]);
@@ -823,24 +825,49 @@ async function completeExperiment(): Promise<void> {
 }
 
 function beginResize(event: PointerEvent): void {
+  if (event.button !== 0) return;
+  event.preventDefault();
   resizing.value = true;
   resizerStartX = event.clientX;
   resizerStartWidth = listWidth.value;
   window.addEventListener("pointermove", resizeList);
   window.addEventListener("pointerup", finishResize, { once: true });
+  window.addEventListener("pointercancel", finishResize, { once: true });
 }
 
 function resizeList(event: PointerEvent): void {
   if (!resizing.value) return;
   listWidth.value = Math.min(
-    630,
-    Math.max(390, resizerStartWidth + event.clientX - resizerStartX),
+    LIST_MAX_WIDTH,
+    Math.max(
+      LIST_MIN_WIDTH,
+      resizerStartWidth + event.clientX - resizerStartX,
+    ),
   );
 }
 
 function finishResize(): void {
   resizing.value = false;
   window.removeEventListener("pointermove", resizeList);
+  window.removeEventListener("pointerup", finishResize);
+  window.removeEventListener("pointercancel", finishResize);
+}
+
+/** 使用键盘调整实验列表宽度。 */
+function resizeListByKeyboard(event: KeyboardEvent): void {
+  const step = event.shiftKey ? 40 : 10;
+  let nextWidth = listWidth.value;
+  if (event.key === "ArrowLeft") nextWidth -= step;
+  else if (event.key === "ArrowRight") nextWidth += step;
+  else if (event.key === "Home") nextWidth = LIST_MIN_WIDTH;
+  else if (event.key === "End") nextWidth = LIST_MAX_WIDTH;
+  else return;
+
+  event.preventDefault();
+  listWidth.value = Math.min(
+    LIST_MAX_WIDTH,
+    Math.max(LIST_MIN_WIDTH, nextWidth),
+  );
 }
 
 async function loadPage(): Promise<void> {
@@ -890,6 +917,8 @@ onBeforeUnmount(() => {
   document.removeEventListener("click", handleDocumentClick);
   document.removeEventListener("keydown", handleDocumentKeydown);
   window.removeEventListener("pointermove", resizeList);
+  window.removeEventListener("pointerup", finishResize);
+  window.removeEventListener("pointercancel", finishResize);
 });
 </script>
 
@@ -1071,14 +1100,21 @@ onBeforeUnmount(() => {
             <p>当前分类没有关联实验</p>
           </div>
         </div>
+        <div
+          class="layout-resizer"
+          role="separator"
+          tabindex="0"
+          aria-label="调整实验列表宽度"
+          aria-orientation="vertical"
+          :aria-valuemin="LIST_MIN_WIDTH"
+          :aria-valuemax="LIST_MAX_WIDTH"
+          :aria-valuenow="listWidth"
+          :aria-valuetext="`${listWidth} 像素`"
+          @pointerdown="beginResize"
+          @keydown="resizeListByKeyboard"
+        />
       </section>
     </aside>
-
-    <div
-      class="layout-resizer"
-      aria-label="调整实验列表宽度"
-      @pointerdown="beginResize"
-    />
 
     <article class="record-workspace">
       <div
@@ -1581,7 +1617,7 @@ onBeforeUnmount(() => {
 .eln-page {
   --list-width: 495px;
   display: grid;
-  grid-template-columns: var(--list-width) 6px minmax(0, 1fr);
+  grid-template-columns: var(--list-width) minmax(0, 1fr);
   width: 100%;
   height: 100%;
   min-height: 0;
@@ -1600,7 +1636,6 @@ onBeforeUnmount(() => {
   min-width: 390px;
   min-height: 0;
   background: #f5f7fb;
-  border-right: 1px solid var(--color-rule);
 }
 
 .experiment-list-card {
@@ -1610,7 +1645,7 @@ onBeforeUnmount(() => {
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  margin: 12px 6px 12px 0;
+  margin: 12px 0;
   overflow: visible;
   background: var(--color-paper);
   border: 1px solid var(--color-rule);
@@ -1907,7 +1942,17 @@ onBeforeUnmount(() => {
   min-height: 0;
   flex: 1;
   overflow: auto;
+  -ms-overflow-style: none;
   border-radius: 0 0 8px 8px;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.experiment-list::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .experiment-row {
@@ -2012,13 +2057,43 @@ onBeforeUnmount(() => {
 }
 
 .layout-resizer {
+  position: absolute;
+  z-index: 8;
+  top: 0;
+  right: -1px;
+  bottom: 0;
+  width: 10px;
+  padding: 0;
   cursor: col-resize;
   background: transparent;
+  border: 0;
+  outline: 0;
   touch-action: none;
 }
 
-.layout-resizer:hover {
-  background: rgb(37 99 235 / 10%);
+.layout-resizer::after {
+  position: absolute;
+  top: 10px;
+  right: 0;
+  bottom: 10px;
+  width: 1px;
+  background: var(--color-rule);
+  border-radius: 999px;
+  content: "";
+  transition:
+    width 140ms ease,
+    background-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.layout-resizer:hover::after,
+.layout-resizer:focus-visible::after,
+.eln-page.is-resizing .layout-resizer::after {
+  width: 2px;
+  background: color-mix(in srgb, var(--color-accent) 62%, white);
+  box-shadow:
+    0 0 0 3px rgb(8 124 240 / 8%),
+    0 0 8px rgb(8 124 240 / 22%);
 }
 
 .record-workspace {

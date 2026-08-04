@@ -240,7 +240,6 @@ class ProjectDocumentSerializer(serializers.ModelSerializer):
             "file_size",
             "category",
             "category_label",
-            "related_content",
             "version_label",
             "uploaded_by_name",
             "created_at",
@@ -253,11 +252,6 @@ class ProjectDocumentCreateSerializer(serializers.Serializer):
 
     file = serializers.FileField()
     category = serializers.ChoiceField(choices=ProjectDocumentCategory.choices)
-    related_content = serializers.CharField(
-        max_length=200,
-        default="项目整体",
-        allow_blank=False,
-    )
     version_label = serializers.RegexField(
         regex=r"^[A-Za-z0-9._-]{1,32}$",
         default="V1.0",

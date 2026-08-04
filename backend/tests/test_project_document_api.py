@@ -59,7 +59,6 @@ def test_upload_list_and_download_project_document(
             {
                 "file": uploaded,
                 "category": "experiment_plan",
-                "related_content": "EXP-2026-018",
                 "version_label": "V1.0",
             },
             format="multipart",
@@ -74,6 +73,7 @@ def test_upload_list_and_download_project_document(
         assert list_response.status_code == 200
         assert list_response.json()["meta"]["total"] == 1
         assert list_response.json()["data"][0]["category_label"] == "实验方案"
+        assert "related_content" not in list_response.json()["data"][0]
 
         content_response = api_client.get(
             f"/api/v1/projects/{document_project.project_no}/documents/"
@@ -102,7 +102,6 @@ def test_archived_project_rejects_document_upload(
             {
                 "file": SimpleUploadedFile("归档后.txt", b"blocked"),
                 "category": "other",
-                "related_content": "项目整体",
                 "version_label": "V1.0",
             },
             format="multipart",
@@ -132,7 +131,6 @@ def test_project_document_preview_returns_original_pdf(
             {
                 "file": uploaded,
                 "category": "stage_report",
-                "related_content": "项目整体",
                 "version_label": "V1.0",
             },
             format="multipart",
@@ -174,7 +172,6 @@ def test_project_document_preview_converts_text_file(
                     content_type="text/plain",
                 ),
                 "category": "experiment_plan",
-                "related_content": "EXP-2026-020",
                 "version_label": "V1.0",
             },
             format="multipart",
@@ -210,7 +207,6 @@ def test_document_upload_rejects_forged_file_extension(
                     content_type="application/pdf",
                 ),
                 "category": "stage_report",
-                "related_content": "项目整体",
                 "version_label": "V1.0",
             },
             format="multipart",
@@ -298,7 +294,6 @@ def test_upload_accepts_extended_preview_formats_with_trusted_mime_type(
                     content_type=content_type,
                 ),
                 "category": "other",
-                "related_content": "格式验证",
                 "version_label": "V1.0",
             },
             format="multipart",
@@ -333,7 +328,6 @@ def test_upload_rejects_office_archive_with_path_traversal(
                     content_type="application/octet-stream",
                 ),
                 "category": "other",
-                "related_content": "安全验证",
                 "version_label": "V1.0",
             },
             format="multipart",

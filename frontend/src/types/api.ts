@@ -185,7 +185,6 @@ export interface ProjectDocument {
   file_size: number;
   category: ProjectDocumentCategory;
   category_label: string;
-  related_content: string;
   version_label: string;
   uploaded_by_name: string;
   created_at: string;
@@ -221,7 +220,6 @@ export interface ProjectDocumentListResponse {
 export interface ProjectDocumentUploadInput {
   file: File;
   category: ProjectDocumentCategory;
-  related_content: string;
   version_label: string;
 }
 

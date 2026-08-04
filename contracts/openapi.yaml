@@ -490,16 +490,13 @@ paths:
           multipart/form-data:
             schema:
               type: object
-              required: [file, category, related_content, version_label]
+              required: [file, category, version_label]
               properties:
                 file:
                   type: string
                   format: binary
                 category:
                   $ref: "#/components/schemas/DocumentCategory"
-                related_content:
-                  type: string
-                  maxLength: 200
                 version_label:
                   type: string
                   pattern: "^[A-Za-z0-9._-]{1,32}$"
@@ -1377,7 +1374,6 @@ components:
         - file_size
         - category
         - category_label
-        - related_content
         - version_label
         - uploaded_by_name
       properties:
@@ -1395,8 +1391,6 @@ components:
         category:
           $ref: "#/components/schemas/DocumentCategory"
         category_label:
-          type: string
-        related_content:
           type: string
         version_label:
           type: string

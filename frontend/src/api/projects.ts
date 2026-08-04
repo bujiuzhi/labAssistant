@@ -91,7 +91,6 @@ export const projectApi = {
     const body = new FormData();
     body.append("file", payload.file);
     body.append("category", payload.category);
-    body.append("related_content", payload.related_content);
     body.append("version_label", payload.version_label);
     const response = await http.post<DataResponse<ProjectDocument>>(
       `/projects/${projectId}/documents`,

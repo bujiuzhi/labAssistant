@@ -149,28 +149,24 @@ class Command(BaseCommand):
                 (
                     "项目实施方案V3.docx",
                     ProjectDocumentCategory.PROJECT_PLAN,
-                    "项目整体",
                     "V3.0",
                     "docx",
                 ),
                 (
                     f"{project.name[:18]}研究综述.pdf",
                     ProjectDocumentCategory.LITERATURE,
-                    "第三轮配方筛选",
                     "V1.0",
                     "pdf",
                 ),
                 (
                     "第三轮配方筛选记录.xlsx",
                     ProjectDocumentCategory.EXPERIMENT_PLAN,
-                    "EXP-2026-018",
                     "V2.1",
                     "xlsx",
                 ),
                 (
                     "项目中期汇报-202607.pptx",
                     ProjectDocumentCategory.STAGE_REPORT,
-                    "项目整体",
                     "V1.2",
                     "pptx",
                 ),
@@ -183,7 +179,6 @@ class Command(BaseCommand):
                     (
                         f"{category.label}归档资料-{index + 1:02d}.{extension}",
                         category,
-                        "项目整体",
                         f"V1.{index + 1}",
                         extension,
                     )
@@ -192,7 +187,6 @@ class Command(BaseCommand):
             for index, (
                 name,
                 category,
-                related_content,
                 version_label,
                 extension,
             ) in enumerate(specs):
@@ -221,7 +215,6 @@ class Command(BaseCommand):
                 document.mime_type = MIME_TYPES[extension]
                 document.file_size = len(payload)
                 document.category = category
-                document.related_content = related_content
                 document.version_label = version_label
                 document.updated_by = project.owner
                 document.file.save(name, ContentFile(payload), save=False)

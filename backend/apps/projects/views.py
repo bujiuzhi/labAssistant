@@ -633,7 +633,6 @@ class ProjectDocumentListCreateView(APIView):
         if search:
             queryset = queryset.filter(
                 Q(name__icontains=search)
-                | Q(related_content__icontains=search)
                 | Q(uploaded_by__display_name__icontains=search)
             )
         category = request.query_params.get("category", "").strip()

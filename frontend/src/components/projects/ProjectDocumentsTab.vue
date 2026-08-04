@@ -55,12 +55,10 @@ const updatedRange = ref<ProjectDocumentFilters["updated_range"]>("");
 const uploadForm = reactive<{
   file: File | null;
   category: ProjectDocumentCategory;
-  relatedContent: string;
   versionLabel: string;
 }>({
   file: null,
   category: "project_plan",
-  relatedContent: "项目整体",
   versionLabel: "V1.0",
 });
 let searchTimer: number | undefined;
@@ -163,7 +161,6 @@ function openUpload(): void {
   }
   uploadForm.file = null;
   uploadForm.category = "project_plan";
-  uploadForm.relatedContent = "项目整体";
   uploadForm.versionLabel = "V1.0";
   uploadVisible.value = true;
 }
@@ -186,8 +183,8 @@ async function submitUpload(): Promise<void> {
     ElMessage.warning("请选择待上传文件");
     return;
   }
-  if (!uploadForm.relatedContent.trim() || !uploadForm.versionLabel.trim()) {
-    ElMessage.warning("请填写关联内容和版本");
+  if (!uploadForm.versionLabel.trim()) {
+    ElMessage.warning("请填写版本");
     return;
   }
   uploading.value = true;
@@ -195,7 +192,6 @@ async function submitUpload(): Promise<void> {
     await projectApi.uploadDocument(props.projectId, {
       file: uploadForm.file,
       category: uploadForm.category,
-      related_content: uploadForm.relatedContent.trim(),
       version_label: uploadForm.versionLabel.trim(),
     });
     uploadVisible.value = false;
@@ -294,7 +290,6 @@ onMounted(loadDocuments);
             <tr>
               <th>文档名称</th>
               <th>分类</th>
-              <th>关联内容</th>
               <th>版本</th>
               <th>更新人</th>
               <th>更新时间</th>
@@ -313,7 +308,6 @@ onMounted(loadDocuments);
                 </span>
               </td>
               <td>{{ item.category_label }}</td>
-              <td>{{ item.related_content }}</td>
               <td>{{ item.version_label }}</td>
               <td>{{ item.uploaded_by_name }}</td>
               <td>{{ formatDateTime(item.updated_at) }}</td>
@@ -341,7 +335,7 @@ onMounted(loadDocuments);
               </td>
             </tr>
             <tr v-if="!loading && !documents.length">
-              <td colspan="7" class="empty-row">没有匹配文档</td>
+              <td colspan="6" class="empty-row">没有匹配文档</td>
             </tr>
           </tbody>
         </table>
@@ -385,14 +379,6 @@ onMounted(loadDocuments);
             <input v-model="uploadForm.versionLabel" maxlength="32" />
           </label>
         </div>
-        <label>
-          <span>关联内容 <i>*</i></span>
-          <input
-            v-model="uploadForm.relatedContent"
-            maxlength="200"
-            placeholder="项目整体或实验编号"
-          />
-        </label>
       </div>
       <template #footer>
         <el-button @click="uploadVisible = false">取消</el-button>
@@ -405,7 +391,7 @@ onMounted(loadDocuments);
     <el-dialog
       :model-value="Boolean(previewDocument)"
       class="document-preview-dialog"
-      width="82%"
+      width="min(960px, calc(100vw - 32px))"
       align-center
       destroy-on-close
       @close="previewDocument = null"
@@ -696,8 +682,8 @@ onMounted(loadDocuments);
 }
 
 .preview-body {
-  height: min(70vh, 760px);
-  min-height: 520px;
+  height: clamp(360px, 64vh, 680px);
+  min-height: 0;
   overflow: hidden;
   background: #eef1f5;
 }

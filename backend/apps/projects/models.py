@@ -356,11 +356,6 @@ class ProjectDocument(TimeStampedModel):
         choices=ProjectDocumentCategory.choices,
         db_comment="文档分类",
     )
-    related_content = models.CharField(
-        max_length=200,
-        default="项目整体",
-        db_comment="关联项目内容或实验编号",
-    )
     version_label = models.CharField(
         max_length=32,
         default="V1.0",
