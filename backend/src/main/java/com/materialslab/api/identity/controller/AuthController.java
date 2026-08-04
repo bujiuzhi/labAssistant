@@ -1,0 +1,64 @@
+package com.materialslab.api.identity.controller;
+
+import com.materialslab.api.common.model.ApiResponse;
+import com.materialslab.api.identity.security.UserPrincipal;
+import com.materialslab.api.identity.service.IdentityService;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import java.util.Map;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.security.web.csrf.CsrfToken;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+/** 会话接口，URL 为 /api/v1/auth。 */
+@RestController
+@RequestMapping("/api/v1/auth")
+public class AuthController {
+    private final IdentityService identityService;
+    public AuthController(IdentityService identityService) { this.identityService = identityService; }
+
+    /** 获取 CSRF 令牌并写入 Cookie。 */
+    @GetMapping("/csrf")
+    public ApiResponse<Map<String, String>> csrf(CsrfToken csrfToken) { return ApiResponse.of(Map.of("csrf_token", csrfToken.getToken())); }
+
+    /** 登录并持久化同源 Session。 */
+    @PostMapping("/login")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
+        Authentication authentication = identityService.authenticate(request.username(), request.password());
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(authentication);
+        SecurityContextHolder.setContext(context);
+        httpRequest.getSession(true).setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, context);
+        return ResponseEntity.ok(ApiResponse.of(identityService.session((UserPrincipal) authentication.getPrincipal())));
+    }
+
+    /** 返回当前会话用户。 */
+    @GetMapping("/session")
+    public ApiResponse<Map<String, Object>> session() { return ApiResponse.of(identityService.session(IdentityService.currentPrincipal())); }
+
+    /** 注销并失效服务器会话。 */
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(HttpServletRequest request, HttpServletResponse response) {
+        request.getSession(false).invalidate();
+        SecurityContextHolder.clearContext();
+        return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
+    }
+
+    /** 查询当前组织的有效用户选项。 */
+    @GetMapping("/users/options")
+    public ApiResponse<?> userOptions() { return ApiResponse.of(identityService.visibleUserOptions(IdentityService.currentPrincipal())); }
+
+    /** 登录请求。 */
+    public record LoginRequest(@NotBlank String username, @NotBlank String password) { }
+}

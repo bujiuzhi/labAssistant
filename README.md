@@ -21,7 +21,7 @@ materials-lab-assistant/
 ├── docs/                         # 正式项目规范
 ├── contracts/                    # API 与系统间接口协议
 ├── audit/                        # 原型来源、证据和审计记录
-├── backend/                      # Django API、领域模型与测试
+├── backend/                      # Spring Boot、MyBatis API 与 Flyway 迁移
 ├── frontend/                     # Vue 3 工作台
 ├── infra/                        # PostgreSQL、Redis、RustFS 开发环境
 └── environment.yml              # Conda 开发环境
@@ -63,28 +63,15 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d
 set -a
 source .env
 set +a
-conda run -n materials-lab-assistant python3 backend/manage.py bootstrap_object_storage
-conda run -n materials-lab-assistant python3 backend/manage.py migrate
-conda run -n materials-lab-assistant python3 backend/manage.py bootstrap_development
-conda run -n materials-lab-assistant python3 backend/manage.py seed_development_projects
-conda run -n materials-lab-assistant python3 backend/manage.py seed_development_experiments
-conda run -n materials-lab-assistant python3 backend/manage.py seed_development_documents
-
-conda run -n materials-lab-assistant python3 backend/manage.py runserver 0.0.0.0:8000
+conda run -n materials-lab-assistant mvn -f backend/pom.xml test
+conda run -n materials-lab-assistant mvn -f backend/pom.xml spring-boot:run
 conda run -n materials-lab-assistant pnpm --dir frontend install
 conda run -n materials-lab-assistant pnpm --dir frontend dev
 ```
 
-`.env` 中必须为 RustFS 配置独立随机访问密钥，不能沿用模板值。项目文档、实验附件和
-转换后的预览 PDF 均保存到私有对象存储桶；PostgreSQL 只保存对象键和文件元数据。
-从历史目录存储首次切换时，在保留 `backend/media` 回滚副本的前提下执行：
-
-```bash
-conda run -n materials-lab-assistant python3 \
-  backend/manage.py migrate_media_to_object_storage
-conda run -n materials-lab-assistant python3 \
-  backend/manage.py migrate_media_to_object_storage --verify-only
-```
+`.env` 中必须为 RustFS 配置独立随机访问密钥，不能沿用模板值。Spring Boot 启动时由
+Flyway 执行 `backend/src/main/resources/db/migration/` 中的数据库迁移；切换现有历史
+数据库前必须先完成备份和只读验证。
 
 开发账号如下，密码统一为 `00000000`：
 

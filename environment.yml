@@ -2,8 +2,6 @@ name: materials-lab-assistant
 channels:
   - conda-forge
 dependencies:
-  - python=3.14
-  - pip=26.1
+  - openjdk=25
+  - maven=3.9.12
   - nodejs=24
-  - pip:
-      - -r backend/requirements/dev.txt

@@ -10,7 +10,7 @@
 | 代码基线 | `dev` 分支工作区（提交前审查） |
 | 更新日期 | 2026-07-30 |
 | 适用范围 | 项目管理、项目文档、实验管理、电子实验记录本、用户管理 |
-| 正式细化来源 | [详细设计](detailed-design.md)、`backend/apps/`、Django Migration、自动化测试 |
+| 正式细化来源 | [详细设计](detailed-design.md)、`backend/src/`、Flyway Migration、自动化测试 |
 
 ## 2. 建设目标与范围
 
@@ -49,9 +49,9 @@
 | 层级 | 已采用技术 | 选型原因 |
 |---|---|---|
 | 前端 | Vue 3、TypeScript、Vite、Pinia、Vue Router、Element Plus、ECharts | 适合单页业务系统、类型化接口和组件化交互 |
-| 后端 | Python 3、Django、Django REST Framework | 提供 ORM、迁移、会话认证、权限校验和管理能力 |
-| 数据库 | PostgreSQL（部署配置）；开发可切换 SQLite | 关系约束、事务和 JSON 字段满足业务模型需求 |
-| 缓存/任务 | Redis、Celery（基础配置已预留） | 为后续异步报告、文件处理和通知提供边界 |
+| 后端 | Java 25、Spring Boot、MyBatis、Flyway | 提供 Session/CSRF、事务、SQL Mapper 和可追溯迁移能力 |
+| 数据库 | PostgreSQL | 关系约束、事务和 JSON 字段满足业务模型需求 |
+| 缓存/任务 | Redis（基础配置已预留） | 为后续异步报告、文件处理和通知提供边界 |
 | 文件预览 | Vue Office 组件、浏览器图片/文本能力、LibreOffice 无头转换 | 现代格式优先组件渲染，旧格式、超大文件或组件失败时转换为真实 PDF |
 | 对象存储 | RustFS、S3 SigV4、path-style 私有桶 | 文件与应用进程解耦，保留 S3 兼容迁移能力 |
 | 部署 | Conda 运行环境、Docker Compose（PostgreSQL/Redis/RustFS） | 便于局域网部署和数据卷隔离 |
@@ -65,14 +65,14 @@ title: 材料实验助手总体架构
 flowchart TB
     Browser["浏览器<br/>Vue 单页应用"]:::process
     Web["Vite 静态资源服务<br/>开发环境"]:::process
-    Api["Django REST API<br/>Session / CSRF / RBAC"]:::process
+    Api["Spring Boot API<br/>Session / CSRF / RBAC"]:::process
     Project["项目域<br/>项目、成员、文档、关注"]:::process
     Experiment["实验域<br/>实验、ELN、附件、状态迁移"]:::process
     Identity["身份域<br/>组织、用户、角色、权限"]:::process
-    Db[("PostgreSQL / SQLite<br/>业务数据与版本")]:::storage
+    Db[("PostgreSQL<br/>业务数据与版本")]:::storage
     Media[("RustFS 私有桶<br/>文档、实验附件、预览缓存")]:::storage
     Preview["LibreOffice<br/>办公文档转 PDF"]:::process
-    Redis[("Redis / Celery<br/>后续异步边界")]:::storage
+    Redis[("Redis<br/>后续异步边界")]:::storage
 
     Browser -->|"HTTPS / HTTP"| Web
     Browser -->|"/api/v1/*"| Api
@@ -182,7 +182,7 @@ flowchart LR
 
 ## 7. 安全与一致性原则
 
-- 使用 Django Session 与 CSRF，浏览器不保存认证令牌。
+- 使用 Spring Security Session 与 CSRF，浏览器不保存认证令牌。
 - 业务查询合并本人组织及下级组织范围，以及跨组织项目成员关系；文件读取复用相同对象范围。
 - 项目和实验更新使用 `ETag` / `If-Match` 对应的 `version` 乐观锁；版本冲突返回 `412`。
 - 项目创建使用 `Idempotency-Key`，相同键只能重放相同请求。
@@ -191,23 +191,23 @@ flowchart LR
 
 ## 8. 部署架构与运行边界
 
-开发服务器当前采用前后端分离进程：前端 Vite 监听 `5173`，Django API 监听 `8000`。
+开发服务器当前采用前后端分离进程：前端 Vite 监听 `5173`，Spring Boot API 监听 `8000`。
 `infra/docker-compose.yml` 为 PostgreSQL、Redis 和 RustFS 提供独立数据目录映射；环境变量由
-未提交的 `.env` 文件提供。RustFS API 和控制台只绑定回环地址，文件访问继续经过 Django
+未提交的 `.env` 文件提供。RustFS API 和控制台只绑定回环地址，文件访问继续经过 Java API
 Session、权限码、组织范围和对象范围校验。
 
 | 组件 | 运行方式 | 数据位置/依赖 | 运维要点 |
 |---|---|---|---|
 | 前端 | `pnpm --dir frontend dev -- --host 0.0.0.0` | API 同源代理或 `/api/v1` 路径 | 生产环境应构建为静态文件并由反向代理托管 |
-| API | `python3 backend/manage.py runserver 0.0.0.0:8000` | 数据库、RustFS 私有桶 | 生产环境应替换为 WSGI/ASGI 进程管理器 |
+| API | `mvn -f backend/pom.xml spring-boot:run` | 数据库、RustFS 私有桶 | 生产环境应采用受控 Java 进程管理器 |
 | PostgreSQL | Docker Compose | 独立 Docker 数据卷 | 必须执行备份和恢复演练 |
-| Redis | Docker Compose | 独立 Docker 数据卷 | 后续 Celery 启用前配置监控和重试策略 |
+| Redis | Docker Compose | 独立 Docker 数据卷 | 后续异步任务启用前配置监控和重试策略 |
 | RustFS | Docker Compose，S3 API `19000`、控制台 `19001` | `${MATERIALS_LAB_DATA_ROOT}/rustfs` | 使用随机密钥、私有桶、备份和对象一致性校验 |
 | LibreOffice | 服务器系统依赖 | 临时转换目录、RustFS 预览缓存 | 转换失败不得降级为模拟预览 |
 
 ### 8.1 生产部署拓扑（目标架构）
 
-下图是生产环境推荐拓扑，不代表当前开发服务器已经部署 Nginx、Gunicorn/Uvicorn 或 Celery Worker。当前开发环境仍按本章开头的 Vite `5173` 和 Django `8000` 双进程运行；生产上线前应按《开发部署与运维指南》完成替换与演练。
+下图是生产环境推荐拓扑，不代表当前开发服务器已经部署 Nginx 或独立会话存储。当前开发环境仍按本章开头的 Vite `5173` 和 Spring Boot `8000` 双进程运行；生产上线前应按《开发部署与运维指南》完成替换与演练。
 
 ```mermaid
 ---
@@ -217,8 +217,8 @@ flowchart TB
     Browser["研发人员浏览器"]:::client
     Gateway["HTTPS 反向代理<br/>静态文件、TLS、访问日志"]:::gateway
     Web["Vue 构建产物<br/>静态资源"]:::process
-    Api["Django WSGI / ASGI 进程<br/>Session、CSRF、RBAC"]:::process
-    Worker["Celery Worker<br/>预览、通知等后续异步任务"]:::process
+    Api["Spring Boot 进程<br/>Session、CSRF、RBAC"]:::process
+    Worker["异步任务 Worker<br/>预览、通知等后续任务"]:::process
     Database[("PostgreSQL<br/>业务数据、迁移记录")]:::storage
     Cache[("Redis<br/>缓存、任务队列")]:::storage
     Media[("RustFS / S3 兼容对象存储<br/>文档、附件、预览缓存")]:::storage
@@ -253,7 +253,7 @@ flowchart TB
 ## 9. 质量与风险
 
 当前后端核心测试覆盖认证、用户、组织范围、项目、文档、实验和附件链路；本次基线
-`pytest -q backend/tests` 为 46 项通过。前端以 6 项 Node 单测、TypeScript 检查和 Vite
+以 Maven/JUnit 核心路径测试为后端门禁。前端以 Node 单测、TypeScript 检查和 Vite
 生产构建作为基础门禁。
 
 | 风险 | 当前处理 | 后续措施 |

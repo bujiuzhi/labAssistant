@@ -2,28 +2,26 @@
 
 ## 1. 文档范围与事实来源
 
-本文件是项目唯一的详细设计，描述 2026-07-30 `dev` 分支工作区中已经实现的结构。
-实现事实以 Django Model、Migration、Serializer、View、前端接口调用和自动化测试为准。
+本文件是项目唯一的详细设计，描述 `dev-java` 分支中 Java 后端的实现结构。
+实现事实以 Flyway Migration、Controller、Service、Mapper、前端接口调用和自动化测试为准。
 数据资产、任务管理、检测、报告、材料主数据和完整审计查询不在当前实现范围内。
 
 | 设计对象 | 当前事实来源 | 使用说明 |
 |---|---|---|
-| 数据库物理结构 | `backend/apps/*/migrations/` | 新增字段必须先更新 Migration，再更新本文 |
-| API 路径与行为 | `backend/apps/*/urls.py`、`views.py` | 本文仅汇总公开资源和关键行为 |
-| 权限与数据范围 | `identity/models.py`、selectors、services | 前端按钮不是授权依据 |
+| 数据库物理结构 | `backend/src/main/resources/db/migration/` | 新增字段必须先更新 Flyway Migration，再更新本文 |
+| API 路径与行为 | `backend/src/main/java/**/controller/` | 本文仅汇总公开资源和关键行为 |
+| 权限与数据范围 | `identity/service/`、Mapper、Service | 前端按钮不是授权依据 |
 | 页面与交互 | `frontend/src/` | 以真实 API 返回的数据和当前页面为准 |
 
 ## 2. 实现结构
 
 ```text
 backend/
-├── config/                       # Django 配置、总路由、WSGI/ASGI
-├── apps/
-│   ├── common/                   # 时间戳基类、幂等、操作日志、分页、异常、请求编号
-│   ├── identity/                 # 组织、用户、角色、权限和会话接口
-│   ├── projects/                 # 项目、成员、文档、关注、总览
-│   └── experiments/              # 实验、ELN、附件、参与人、状态迁移
-└── tests/                        # pytest 核心路径测试
+├── pom.xml                       # Spring Boot 与 Maven 依赖
+└── src/
+    ├── main/java/                # Controller、Service、Mapper、SQLProvider 与安全配置
+    ├── main/resources/db/migration/ # Flyway 数据库迁移
+    └── test/java/                # JUnit 核心路径测试
 
 frontend/src/
 ├── api/                          # Axios 请求封装及业务 API
@@ -38,11 +36,11 @@ frontend/src/
 
 ### 3.1 通用约定
 
-- `TimeStampedModel` 统一提供 `id UUID`、`created_at`、`updated_at`。
+- 各表统一使用 `UUID` 主键和 `created_at`、`updated_at` 审计字段。
 - 表名和字段名均为 `snake_case`，Migration 中定义中文表/字段注释。
 - 业务对象以 `organization_id` 作为组织隔离键；所有对象访问先通过组织范围过滤。
 - `project.version` 与 `experiment.version` 是乐观锁版本。更新请求必须携带 `If-Match: "<version>"`。
-- 当前数据库迁移为四个 App：`common`、`identity`、`projects`、`experiments`；不以设计文档中的未来实体替代已落地实体。
+- 当前数据库迁移由 Flyway 统一管理；不以设计文档中的未来实体替代已落地实体。
 
 ### 3.2 实体关系
 
@@ -173,7 +171,7 @@ classDiagram
 | 表 | 关键字段 | 约束/索引 | 说明 |
 |---|---|---|---|
 | `organization`* | `organization_code`, `name`, `parent_id`, `status` | `organization_code` 唯一；上级组织保护删除 | 组织层级与数据范围根 |
-| `user_account` | `id`, `organization_id`, `username`, `display_name`, `email`, `status`, `is_super_admin`, Django 密码与认证字段 | 组织内用户名唯一；非空邮箱组织内唯一；`idx_user_org_status` | 登录用户 |
+| `user_account` | `id`, `organization_id`, `username`, `display_name`, `email`, `status`, `is_super_admin`, 密码与认证字段 | 组织内用户名唯一；非空邮箱组织内唯一；`idx_user_org_status` | 登录用户 |
 | `role`* | `organization_id`, `role_code`, `name`, `description`, `is_system`, `status` | `(organization_id, role_code)` 唯一 | 组织内角色 |
 | `permission` | `id`, `permission_code`, `name`, `module_code`, `description` | `permission_code` 唯一 | 稳定权限码 |
 | `user_role` | `id`, `organization_id`, `user_id`, `role_id`, `created_at`, `created_by_id` | `(user_id, role_id)` 唯一 | 用户角色关联 |
@@ -292,7 +290,7 @@ title: 项目编辑与乐观锁时序
 ---
 sequenceDiagram
     participant UI as 前端
-    participant API as Django API
+    participant API as Spring Boot API
     participant DB as 数据库
 
     UI->>API: GET /projects/{key}
@@ -397,7 +395,7 @@ sequenceDiagram
 
 | 配置项 | 作用 | 注意事项 |
 |---|---|---|
-| `.env` | Django 密钥、数据库、允许域名、开发初始化参数 | 不提交仓库；以 `.env.example` 为模板 |
+| `.env` | Java 服务、数据库、对象存储、开发初始化参数 | 不提交仓库；以 `.env.example` 为模板 |
 | `DATABASE_ENGINE` | `postgresql` 或 `sqlite` | 环境切换前执行 Migration |
 | `OBJECT_STORAGE_*` | RustFS endpoint、私有桶、区域、SigV4 凭据和 TLS 校验 | 密钥不提交；应用端使用 path-style S3 |
 | `MEDIA_ROOT` | 切换对象存储前的历史原件迁移源或测试文件系统 | 迁移后只保留受控回滚副本，不作为运行时正式存储 |
@@ -423,7 +421,7 @@ sequenceDiagram
 本基线下，后端完整测试命令为：
 
 ```bash
-conda run -n materials-lab-assistant pytest backend -q
+conda run -n materials-lab-assistant mvn -f backend/pom.xml test
 ```
 
 前端构建命令为：

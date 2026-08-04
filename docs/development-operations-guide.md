@@ -2,13 +2,13 @@
 
 ## 1. 目的与适用范围
 
-本指南是项目唯一的开发、测试、部署、运维和协作规范，适用于当前 `dev` 分支。系统当前由 Vue 前端、Django API、PostgreSQL/SQLite、RustFS 私有对象存储和 LibreOffice 预览组件构成。
+本指南是项目唯一的开发、测试、部署、运维和协作规范，适用于当前 `dev-java` 分支。系统当前由 Vue 前端、Spring Boot API、PostgreSQL、RustFS 私有对象存储和 LibreOffice 预览组件构成。
 
 ## 2. 目录与资产边界
 
 ```text
 项目根目录/
-├── backend/          # Django 应用、Migration 与 pytest
+├── backend/          # Spring Boot、MyBatis、Flyway 与 JUnit
 ├── frontend/         # Vue 应用与前端构建配置
 ├── docs/             # 三份正式规范与索引
 ├── contracts/        # OpenAPI 草案
@@ -17,8 +17,8 @@
 └── .env              # 本地/服务器密钥配置，不提交 Git
 ```
 
-- `backend/apps/*/migrations/` 是数据库物理结构的唯一来源。
-- `backend/tests/` 是后端核心链路的自动化验证来源。
+- `backend/src/main/resources/db/migration/` 是数据库物理结构的唯一来源。
+- `backend/src/test/java/` 是后端核心链路的自动化验证来源。
 - `frontend/src/` 和后端接口共同定义实际页面行为。
 - 对象数据、预览缓存、数据库、依赖目录和 `.env` 不得提交 Git。
 
@@ -26,15 +26,12 @@
 
 ### 3.1 Conda 环境
 
-项目使用现有 Conda 环境 `materials-lab-assistant`。新环境按 `environment.yml` 创建；Python 命令统一使用 `python3`。
+项目使用现有 Conda 环境 `materials-lab-assistant`。新环境按 `environment.yml` 创建；后端命令统一使用 `mvn -f backend/pom.xml`。
 
 ```bash
 conda env create -f environment.yml
-conda run -n materials-lab-assistant python3 backend/manage.py migrate
-conda run -n materials-lab-assistant python3 backend/manage.py bootstrap_development
-conda run -n materials-lab-assistant python3 backend/manage.py seed_development_projects
-conda run -n materials-lab-assistant python3 backend/manage.py seed_development_experiments
-conda run -n materials-lab-assistant python3 backend/manage.py seed_development_documents
+conda run -n materials-lab-assistant mvn -f backend/pom.xml test
+conda run -n materials-lab-assistant mvn -f backend/pom.xml spring-boot:run
 ```
 
 ### 3.2 配置文件
@@ -43,9 +40,8 @@ conda run -n materials-lab-assistant python3 backend/manage.py seed_development_
 
 | 类别 | 关键配置 | 说明 |
 |---|---|---|
-| Django | `DJANGO_SECRET_KEY`、`DJANGO_DEBUG`、`ALLOWED_HOSTS`、`CSRF_TRUSTED_ORIGINS` | 生产环境关闭调试并限制来源 |
-| 数据库 | `DATABASE_ENGINE`、`POSTGRES_*` | 切换数据库后先执行 Migration |
-| 缓存/任务 | `CELERY_BROKER_URL`、`CELERY_RESULT_BACKEND` | 异步任务启用时必须可用 |
+| Spring Boot | `SERVER_*`、`SESSION_COOKIE_SECURE`、`DATABASE_MAX_POOL_SIZE` | 生产环境启用安全 Cookie 并限制网络入口 |
+| 数据库 | `POSTGRES_*`、`JDBC_DATABASE_URL` | 启动时由 Flyway 执行 Migration |
 | 对象存储 | `OBJECT_STORAGE_*` | RustFS 使用私有桶、SigV4 和 path-style，访问密钥不得提交 |
 | 开发初始化 | `MATERIALS_LAB_DEVELOPMENT_PASSWORD` | 仅开发环境使用 |
 | Docker 数据卷 | `MATERIALS_LAB_DATA_ROOT` | 指向独立数据目录，禁止映射到仓库 |
@@ -57,7 +53,7 @@ conda run -n materials-lab-assistant python3 backend/manage.py seed_development_
 ### 4.1 开发启动
 
 ```bash
-conda run -n materials-lab-assistant python3 backend/manage.py runserver 0.0.0.0:8000
+conda run -n materials-lab-assistant mvn -f backend/pom.xml spring-boot:run
 conda run -n materials-lab-assistant pnpm --dir frontend dev -- --host 0.0.0.0
 ```
 
@@ -71,8 +67,8 @@ docker compose --env-file .env -f infra/docker-compose.yml ps
 ```
 
 Compose 提供 PostgreSQL、Redis 和 RustFS。RustFS S3 API 与控制台默认仅绑定服务器回环地址
-`19000`、`19001`；Django 使用私有桶保存项目文档、实验附件和办公文档 PDF 预览缓存。
-运行项目前必须先执行 `bootstrap_object_storage`，运行办公文档预览前还必须安装
+`19000`、`19001`；Java API 使用私有桶保存项目文档、实验附件和办公文档 PDF 预览缓存。
+运行项目前必须确保目标桶和访问密钥已初始化，运行办公文档预览前还必须安装
 `libreoffice` 或 `soffice`。RustFS 单机数据映射到
 `${MATERIALS_LAB_DATA_ROOT}/rustfs`，不得放入代码仓库。
 
@@ -83,9 +79,9 @@ Compose 提供 PostgreSQL、Redis 和 RustFS。RustFS S3 API 与控制台默认�
 | 检查层次 | 命令或动作 | 预期结果 | 异常处理方向 |
 |---|---|---|---|
 | 依赖服务 | `docker compose --env-file .env -f infra/docker-compose.yml ps` | PostgreSQL、Redis、RustFS 为运行状态 | 查看容器日志和数据卷挂载，禁止重建并覆盖数据卷 |
-| 对象存储桶 | `python3 backend/manage.py bootstrap_object_storage` | 私有桶存在且凭据可读写 | 检查 RustFS、endpoint、SigV4、path-style 和密钥 |
-| 数据库迁移 | `python3 backend/manage.py showmigrations` | 已应用迁移无缺失 | 备份后执行 `migrate`，不要手工修改表结构 |
-| API 存活 | `GET /api/v1/health/live` | 返回 200 | 检查 Python 进程、端口、环境变量和日志 |
+| 对象存储桶 | 使用兼容 S3 的客户端检查桶 | 私有桶存在且凭据可读写 | 检查 RustFS、endpoint、SigV4、path-style 和密钥 |
+| 数据库迁移 | `mvn -f backend/pom.xml spring-boot:run` | Flyway 历史无缺失 | 备份后由 Flyway 执行迁移，禁止手工修改表结构 |
+| API 存活 | `GET /api/v1/health/live` | 返回 200 | 检查 Java 进程、端口、环境变量和日志 |
 | API 就绪 | `GET /api/v1/health/ready` | 返回 200，依赖可连接 | 检查数据库连接、网络与配置 |
 | 前端页面 | 浏览器打开前端地址并登录 | 无空白页、接口无跨域/会话错误 | 检查 Vite 代理、浏览器控制台和 API 地址 |
 | 文件预览 | 分别打开 DOCX、XLSX、PPTX、PDF、图片和文本样例 | 首选组件渲染；组件失败时显示转换 PDF | 检查浏览器控制台、私有桶权限、LibreOffice、临时目录和磁盘空间 |
@@ -98,8 +94,8 @@ Compose 提供 PostgreSQL、Redis 和 RustFS。RustFS S3 API 与控制台默认�
 
 | 层级 | 命令/方法 | 通过标准 |
 |---|---|---|
-| 后端 | `conda run -n materials-lab-assistant pytest backend -q` | 认证、项目、文档、实验、ELN 和附件核心测试通过 |
-| 后端静态检查 | `conda run -n materials-lab-assistant ruff check backend` | Python 源码与测试无静态检查错误 |
+| 后端 | `conda run -n materials-lab-assistant mvn -f backend/pom.xml test` | Java 单测和编译通过 |
+| 后端静态检查 | `conda run -n materials-lab-assistant mvn -f backend/pom.xml verify` | 编译、测试和打包校验通过 |
 | 前端单测 | `conda run -n materials-lab-assistant pnpm --dir frontend test` | 格式分流、文本解码和 CSV 解析通过 |
 | 前端类型与构建 | `conda run -n materials-lab-assistant pnpm --dir frontend run build` | TypeScript 检查、组件懒加载和 Vite 构建通过 |
 | 数据库 | 执行 `migrate` 并验证关键查询 | Migration 可重复执行，约束和索引生效 |
@@ -120,7 +116,7 @@ Compose 提供 PostgreSQL、Redis 和 RustFS。RustFS S3 API 与控制台默认�
 | 图示 | 对应事实来源 | 触发更新的变更 |
 |---|---|---|
 | 用例图 | 权限初始化、路由守卫、服务层权限校验 | 新角色、权限码或业务入口 |
-| 类图/ER 图 | Django Model、Migration | 新实体、字段、关联、约束或索引 |
+| 类图/ER 图 | Flyway Migration、领域对象 | 新实体、字段、关联、约束或索引 |
 | 时序图/状态机 | View、Service、异常处理、测试 | 写入流程、并发策略、状态迁移 |
 | 总体架构/部署拓扑 | `infra/`、环境变量、进程管理和网络策略 | 组件、端口、存储、反向代理或备份策略 |
 
@@ -148,7 +144,7 @@ Compose 提供 PostgreSQL、Redis 和 RustFS。RustFS S3 API 与控制台默认�
 | 资产 | 备份方式 | 恢复验证 |
 |---|---|---|
 | PostgreSQL | 使用与部署版本兼容的逻辑备份或物理备份 | 恢复到隔离环境并执行就绪检查、项目和实验抽查 |
-| SQLite（开发） | 停止写入后复制数据库文件 | 启动 Django 并执行只读查询 |
+| PostgreSQL（开发） | 逻辑备份与受控恢复 | 启动 Spring Boot 并执行只读查询 |
 | RustFS 对象原件 | 备份 `${MATERIALS_LAB_DATA_ROOT}/rustfs` 或复制私有桶到独立存储 | 比对对象清单并按文档、过程图片、结果附件抽样读取 |
 | `.env` 安全备份 | 受控密钥库或服务器权限目录 | 仅确认可恢复，禁止写入 Git 或普通日志 |
 | Compose 数据目录 | 按组件和应用版本记录 | 在隔离环境挂载后检查 PostgreSQL、Redis、RustFS 可启动 |
