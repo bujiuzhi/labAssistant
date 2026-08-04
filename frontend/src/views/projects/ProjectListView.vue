@@ -456,16 +456,26 @@ onBeforeUnmount(() => {
             @keyup.enter="applyFilters"
           />
         </label>
-        <button class="filter-icon-button" type="button" aria-label="查询" @click="applyFilters">
+        <button
+          class="ui-button ui-button--secondary ui-button--icon filter-icon-button"
+          type="button"
+          aria-label="查询"
+          @click="applyFilters"
+        >
           <Icon icon="tabler:search" />
         </button>
-        <button class="filter-icon-button" type="button" aria-label="重置筛选" @click="resetFilters">
+        <button
+          class="ui-button ui-button--secondary ui-button--icon filter-icon-button"
+          type="button"
+          aria-label="重置筛选"
+          @click="resetFilters"
+        >
           <Icon icon="tabler:refresh" />
         </button>
         <button
           v-if="sessionStore.hasPermission('project.create')"
           ref="createTrigger"
-          class="primary-button"
+          class="ui-button ui-button--primary primary-button"
           type="button"
           aria-controls="project-create-drawer"
           :aria-expanded="createVisible"
@@ -530,7 +540,13 @@ onBeforeUnmount(() => {
           <div v-if="!loading && !projects.length" class="empty-projects">
             <Icon icon="tabler:folder-search" />
             <strong>{{ emptyDescription }}</strong>
-            <button type="button" @click="resetFilters">重置筛选</button>
+            <button
+              class="ui-button ui-button--secondary"
+              type="button"
+              @click="resetFilters"
+            >
+              重置筛选
+            </button>
           </div>
         </div>
 
@@ -564,7 +580,12 @@ onBeforeUnmount(() => {
     >
       <header>
         <h2 id="create-project-title">新建项目</h2>
-        <button type="button" aria-label="关闭新建项目" @click="closeCreateDrawer()">
+        <button
+          class="ui-button ui-button--tertiary ui-button--icon"
+          type="button"
+          aria-label="关闭新建项目"
+          @click="closeCreateDrawer()"
+        >
           <Icon icon="tabler:x" />
         </button>
       </header>
@@ -675,7 +696,12 @@ onBeforeUnmount(() => {
           <section class="form-section">
             <div class="section-heading">
               <h3><Icon icon="tabler:flag-3" />重点里程碑</h3>
-              <button type="button" aria-label="增加里程碑" @click="addMilestone">
+              <button
+                class="ui-button ui-button--tertiary ui-button--icon"
+                type="button"
+                aria-label="增加里程碑"
+                @click="addMilestone"
+              >
                 <Icon icon="tabler:plus" />
               </button>
             </div>
@@ -700,7 +726,12 @@ onBeforeUnmount(() => {
                   type="date"
                   aria-label="完成日期"
                 />
-                <button type="button" aria-label="删除里程碑" @click="removeMilestone(index)">
+                <button
+                  class="ui-button ui-button--danger ui-button--icon"
+                  type="button"
+                  aria-label="删除里程碑"
+                  @click="removeMilestone(index)"
+                >
                   <Icon icon="tabler:trash" />
                 </button>
               </div>
@@ -710,8 +741,18 @@ onBeforeUnmount(() => {
         </div>
 
         <footer>
-          <button class="secondary-button" type="button" @click="closeCreateDrawer()">取消</button>
-          <button class="primary-button" type="submit" :disabled="submitting">
+          <button
+            class="ui-button ui-button--secondary secondary-button"
+            type="button"
+            @click="closeCreateDrawer()"
+          >
+            取消
+          </button>
+          <button
+            class="ui-button ui-button--primary primary-button"
+            type="submit"
+            :disabled="submitting"
+          >
             <Icon icon="tabler:check" />
             {{ submitting ? "创建中…" : "创建项目" }}
           </button>

@@ -516,6 +516,7 @@ async function archiveCurrentProject(): Promise<void> {
       {
         confirmButtonText: "确认归档",
         cancelButtonText: "取消",
+        confirmButtonClass: "el-button--danger",
         type: "warning",
       },
     );
@@ -569,12 +570,17 @@ watch(() => route.params.projectId, loadProject);
         </div>
         <div class="project-hero-actions">
           <strong v-if="projectDeadline" class="deadline-hint">{{ projectDeadline }}</strong>
-          <button v-if="canEdit" type="button" @click="openBasicEditor">
+          <button
+            v-if="canEdit"
+            class="ui-button ui-button--secondary"
+            type="button"
+            @click="openBasicEditor"
+          >
             <Icon icon="tabler:edit" />编辑项目
           </button>
           <button
             v-if="canEdit"
-            class="archive-button"
+            class="ui-button ui-button--danger archive-button"
             type="button"
             :disabled="submitting"
             @click="archiveCurrentProject"
@@ -602,7 +608,7 @@ watch(() => route.params.projectId, loadProject);
             <h2>基础信息</h2>
             <button
               v-if="canEdit"
-              class="edit-button"
+              class="ui-button ui-button--secondary edit-button"
               type="button"
               @click="openBasicEditor"
             >
@@ -654,7 +660,7 @@ watch(() => route.params.projectId, loadProject);
             </div>
             <button
               v-if="canEdit && !milestoneEditing"
-              class="edit-button"
+              class="ui-button ui-button--secondary edit-button"
               type="button"
               data-testid="milestone-edit-button"
               @click="openMilestoneEditor"
@@ -663,14 +669,14 @@ watch(() => route.params.projectId, loadProject);
             </button>
             <div v-else-if="milestoneEditing" class="milestone-card-actions">
               <button
-                class="milestone-action-button"
+                class="ui-button ui-button--secondary milestone-action-button"
                 type="button"
                 @click="cancelMilestoneEdit"
               >
                 取消
               </button>
               <button
-                class="milestone-action-button primary"
+                class="ui-button ui-button--primary milestone-action-button primary"
                 type="button"
                 :disabled="submitting"
                 @click="submitMilestones"
@@ -736,7 +742,7 @@ watch(() => route.params.projectId, loadProject);
                   <option value="done">已完成</option>
                 </select>
                 <button
-                  class="milestone-remove"
+                  class="ui-button ui-button--danger ui-button--icon milestone-remove"
                   type="button"
                   aria-label="删除里程碑"
                   @click="removeMilestone(index)"
@@ -745,7 +751,11 @@ watch(() => route.params.projectId, loadProject);
                 </button>
               </div>
             </div>
-            <button class="milestone-add" type="button" @click="addMilestone">
+            <button
+              class="ui-button ui-button--tertiary milestone-add"
+              type="button"
+              @click="addMilestone"
+            >
               <Icon icon="tabler:plus" />新增里程碑
             </button>
           </div>

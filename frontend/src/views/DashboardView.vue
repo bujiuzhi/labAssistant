@@ -124,7 +124,13 @@ onMounted(loadDashboard);
     <section class="project-section">
       <header class="project-section-heading">
         <h2>进行中项目</h2>
-        <button type="button" aria-label="查看全部项目" title="查看全部项目" @click="router.push('/projects')">
+        <button
+          class="ui-button ui-button--tertiary ui-button--icon"
+          type="button"
+          aria-label="查看全部项目"
+          title="查看全部项目"
+          @click="router.push('/projects')"
+        >
           <Icon icon="tabler:list-details" />
         </button>
       </header>
@@ -146,6 +152,7 @@ onMounted(loadDashboard);
             <Icon icon="ri:folder-3-line" />
             <h3>{{ project.name }}</h3>
             <button
+              class="ui-button ui-button--tertiary ui-button--icon"
               type="button"
               :aria-label="project.is_followed ? '取消关注项目' : '关注项目'"
               :title="project.is_followed ? '取消关注' : '关注项目'"
@@ -398,7 +405,7 @@ onMounted(loadDashboard);
 .project-card-heading {
   display: grid;
   align-items: center;
-  grid-template-columns: 16px minmax(0, 1fr) 30px;
+  grid-template-columns: 16px minmax(0, 1fr) 36px;
   gap: 10px;
 }
 

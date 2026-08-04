@@ -279,7 +279,7 @@ onMounted(loadDocuments);
           <option value="month">本月</option>
         </select>
         <button
-          class="upload-button"
+          class="ui-button ui-button--tertiary upload-button"
           type="button"
           :disabled="!canUpload"
           @click="openUpload"
@@ -320,6 +320,7 @@ onMounted(loadDocuments);
               <td>
                 <span class="document-actions">
                   <button
+                    class="ui-button ui-button--tertiary ui-button--icon"
                     type="button"
                     aria-label="预览文件"
                     title="预览"
@@ -328,6 +329,7 @@ onMounted(loadDocuments);
                     <Icon icon="tabler:eye" />
                   </button>
                   <button
+                    class="ui-button ui-button--tertiary ui-button--icon"
                     type="button"
                     aria-label="下载文件"
                     title="下载"
@@ -419,10 +421,7 @@ onMounted(loadDocuments);
         />
       </div>
       <template #footer>
-        <el-button
-          type="primary"
-          @click="previewDocument && downloadDocument(previewDocument)"
-        >
+        <el-button @click="previewDocument && downloadDocument(previewDocument)">
           下载原文件
         </el-button>
       </template>

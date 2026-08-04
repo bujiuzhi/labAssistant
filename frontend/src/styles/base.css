@@ -46,6 +46,22 @@ select:focus-visible {
   outline-color: var(--color-focus);
 }
 
+button:active:not(:disabled) {
+  transform: scale(0.97) !important;
+}
+
+button:disabled {
+  color: var(--color-muted);
+  background: var(--color-paper-2);
+  cursor: not-allowed;
+}
+
+button > svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+}
+
 .page-shell {
   display: flex;
   flex-direction: column;
@@ -92,10 +108,6 @@ select:focus-visible {
   justify-content: center;
   min-height: 320px;
   color: var(--color-text-secondary);
-}
-
-.el-button {
-  font-weight: 550;
 }
 
 .el-table {

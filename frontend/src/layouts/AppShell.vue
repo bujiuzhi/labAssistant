@@ -88,7 +88,11 @@ async function logout(): Promise<void> {
       </nav>
 
       <el-dropdown class="profile-dropdown" trigger="click">
-        <button class="profile-button" type="button" aria-label="打开账户菜单">
+        <button
+          class="ui-button ui-button--tertiary profile-button"
+          type="button"
+          aria-label="打开账户菜单"
+        >
           <span class="profile-avatar">{{ profileInitial }}</span>
           <span class="profile-copy">
             <strong>{{ profile.displayName }}</strong>

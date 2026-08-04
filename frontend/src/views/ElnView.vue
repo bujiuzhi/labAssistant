@@ -905,7 +905,7 @@ onBeforeUnmount(() => {
           <div ref="copyPlanControl" class="copy-plan-control">
             <button
               ref="copyPlanTrigger"
-              class="button copy-plan-button"
+              class="ui-button ui-button--secondary button copy-plan-button"
               type="button"
               aria-haspopup="listbox"
               :aria-expanded="copyPanelOpen"
@@ -959,14 +959,14 @@ onBeforeUnmount(() => {
               </div>
               <footer>
                 <button
-                  class="button"
+                  class="ui-button ui-button--secondary button"
                   type="button"
                   @click="closeCopyPanel(true)"
                 >
                   取消
                 </button>
                 <button
-                  class="button primary"
+                  class="ui-button ui-button--primary button primary"
                   type="button"
                   :disabled="!copySelectedId"
                   @click="confirmCopyPlan"
@@ -977,7 +977,11 @@ onBeforeUnmount(() => {
               </footer>
             </div>
           </div>
-          <button class="button primary" type="button" @click="startCreate()">
+          <button
+            class="ui-button ui-button--primary button primary"
+            type="button"
+            @click="startCreate()"
+          >
             <Icon icon="tabler:plus" />
             新增计划
           </button>
@@ -1177,7 +1181,7 @@ onBeforeUnmount(() => {
             <div>
               <h3>原料配方表</h3>
               <button
-                class="module-add-button"
+                class="ui-button ui-button--tertiary module-add-button"
                 type="button"
                 :disabled="!canEdit"
                 @click="addExtraTable"
@@ -1188,7 +1192,7 @@ onBeforeUnmount(() => {
             </div>
             <div>
               <button
-                class="text-action"
+                class="ui-button ui-button--tertiary text-action"
                 type="button"
                 :disabled="!canEdit"
                 @click="addFormulaRow"
@@ -1197,7 +1201,7 @@ onBeforeUnmount(() => {
                 添加行
               </button>
               <button
-                class="text-action"
+                class="ui-button ui-button--tertiary text-action"
                 type="button"
                 :disabled="!canEdit"
                 @click="addFormulaColumn"
@@ -1224,7 +1228,7 @@ onBeforeUnmount(() => {
                       />
                       <button
                         type="button"
-                        class="icon-action"
+                        class="ui-button ui-button--danger ui-button--icon icon-action"
                         :disabled="!canEdit || editor.formula_columns.length === 1"
                         :aria-label="`删除${column.label || '当前'}列`"
                         @click="removeFormulaColumn(columnIndex)"
@@ -1250,7 +1254,7 @@ onBeforeUnmount(() => {
                   <td class="row-action-column">
                     <button
                       type="button"
-                      class="icon-action"
+                      class="ui-button ui-button--danger ui-button--icon icon-action"
                       :disabled="!canEdit || editor.formula_rows.length === 1"
                       :aria-label="`删除第${rowIndex + 1}行`"
                       @click="removeFormulaRow(rowIndex)"
@@ -1277,7 +1281,7 @@ onBeforeUnmount(() => {
               />
               <div>
                 <button
-                  class="text-action"
+                  class="ui-button ui-button--tertiary text-action"
                   type="button"
                   :disabled="!canEdit"
                   @click="addExtraTableRow(table)"
@@ -1285,7 +1289,7 @@ onBeforeUnmount(() => {
                   <Icon icon="tabler:row-insert-bottom" />添加行
                 </button>
                 <button
-                  class="text-action"
+                  class="ui-button ui-button--tertiary text-action"
                   type="button"
                   :disabled="!canEdit"
                   @click="addExtraTableColumn(table)"
@@ -1293,7 +1297,7 @@ onBeforeUnmount(() => {
                   <Icon icon="tabler:column-insert-right" />添加列
                 </button>
                 <button
-                  class="icon-action danger"
+                  class="ui-button ui-button--danger ui-button--icon icon-action danger"
                   type="button"
                   :disabled="!canEdit"
                   aria-label="删除表格模块"
@@ -1319,7 +1323,7 @@ onBeforeUnmount(() => {
                           placeholder="列名称"
                         />
                         <button
-                          class="icon-action"
+                          class="ui-button ui-button--danger ui-button--icon icon-action"
                           type="button"
                           :disabled="!canEdit || table.columns.length === 1"
                           aria-label="删除列"
@@ -1339,7 +1343,7 @@ onBeforeUnmount(() => {
                     </td>
                     <td class="row-action-column">
                       <button
-                        class="icon-action"
+                        class="ui-button ui-button--danger ui-button--icon icon-action"
                         type="button"
                         :disabled="!canEdit || table.rows.length === 1"
                         aria-label="删除行"
@@ -1360,7 +1364,7 @@ onBeforeUnmount(() => {
             <div class="section-heading">
               <h3>实验过程</h3>
               <button
-                class="module-add-button"
+                class="ui-button ui-button--tertiary module-add-button"
                 type="button"
                 :disabled="!canEdit"
                 @click="addExtraProcess"
@@ -1388,7 +1392,7 @@ onBeforeUnmount(() => {
                   aria-label="过程模块名称"
                 />
                 <button
-                  class="icon-action danger"
+                  class="ui-button ui-button--danger ui-button--icon icon-action danger"
                   type="button"
                   :disabled="!canEdit"
                   aria-label="删除过程模块"
@@ -1432,7 +1436,7 @@ onBeforeUnmount(() => {
                   <span>{{ image.name }}</span>
                   <button
                     v-if="canEdit && image.id"
-                    class="remove-media"
+                    class="ui-button ui-button--danger ui-button--icon remove-media"
                     type="button"
                     :disabled="attachmentBusyId === image.id"
                     :aria-label="`删除${image.name}`"
@@ -1483,6 +1487,7 @@ onBeforeUnmount(() => {
                 <small>{{ file.size }}</small>
                 <button
                   v-if="canEdit && file.id"
+                  class="ui-button ui-button--danger ui-button--icon"
                   type="button"
                   :disabled="attachmentBusyId === file.id"
                   :aria-label="`删除${file.name}`"
@@ -1513,7 +1518,7 @@ onBeforeUnmount(() => {
       >
         <button
           v-if="selectedExperiment?.status !== 'completed'"
-          class="button"
+          class="ui-button ui-button--secondary button"
           type="button"
           :disabled="saving"
           @click="persistRecord(true)"
@@ -1521,7 +1526,7 @@ onBeforeUnmount(() => {
           暂存
         </button>
         <button
-          class="button primary"
+          class="ui-button ui-button--primary button primary"
           type="button"
           :disabled="saving"
           @click="persistRecord(false)"
@@ -1537,7 +1542,7 @@ onBeforeUnmount(() => {
         </button>
         <button
           v-if="selectedExperiment?.status === 'in_progress'"
-          class="button complete-button"
+          class="ui-button ui-button--primary button complete-button"
           type="button"
           :disabled="saving"
           @click="completeExperiment"
@@ -1557,7 +1562,7 @@ onBeforeUnmount(() => {
       @click.self="previewImage = null"
     >
       <button
-        class="preview-close"
+        class="ui-button ui-button--tertiary ui-button--icon preview-close"
         type="button"
         aria-label="关闭图片预览"
         @click="previewImage = null"

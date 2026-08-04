@@ -1,0 +1,199 @@
+/** 全局按钮设计系统，统一原生动作按钮与 Element Plus 按钮。 */
+
+:is(body, #app) :where(button.ui-button, button.el-button) {
+  display: inline-flex;
+  box-sizing: border-box;
+  height: 36px;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  color: var(--color-accent);
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  appearance: none;
+  background: var(--color-paper);
+  border: 1px solid var(--color-accent);
+  border-radius: 6px;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: none;
+  cursor: pointer;
+  gap: 6px;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease,
+    transform 120ms ease;
+  user-select: none;
+}
+
+:is(body, #app) :where(button.ui-button, button.el-button) :where(svg, .el-icon) {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
+  color: currentcolor;
+  font-size: 17px;
+}
+
+:is(body, #app) button.el-button > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+:is(body, #app) button.el-button [class*="el-icon"] + span {
+  margin-left: 0;
+}
+
+:is(body, #app) :where(button.ui-button, button.el-button):focus-visible {
+  outline-color: var(--color-focus);
+}
+
+:is(body, #app) :where(button.ui-button, button.el-button):active:not(:disabled, .is-disabled) {
+  transform: scale(0.97);
+}
+
+:is(body, #app) :where(
+  button.ui-button.ui-button--primary,
+  button.el-button.el-button--primary:not(.is-link, .is-text)
+) {
+  color: #ffffff;
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+:is(body, #app) :where(
+  button.ui-button.ui-button--secondary,
+  button.el-button:not(.el-button--primary, .el-button--danger, .is-link, .is-text)
+) {
+  color: var(--color-accent);
+  background: var(--color-paper);
+  border-color: var(--color-accent);
+}
+
+:is(body, #app) :where(
+  button.ui-button.ui-button--tertiary,
+  button.el-button.is-link:not(.el-button--danger),
+  button.el-button.is-text:not(.el-button--danger)
+) {
+  color: var(--color-accent);
+  background: transparent;
+  border-color: transparent;
+}
+
+:is(body, #app) :where(
+  button.ui-button.ui-button--danger,
+  button.el-button.el-button--danger
+) {
+  color: var(--color-ink-2);
+  background: transparent;
+  border-color: transparent;
+}
+
+:is(body, #app) :where(
+  button.ui-button.ui-button--danger,
+  button.el-button.el-button--danger
+):focus-visible {
+  outline-color: var(--color-danger);
+}
+
+:is(body, #app) button.ui-button.ui-button--icon {
+  width: 36px;
+  min-width: 36px;
+  padding: 0;
+}
+
+:is(body, #app) button.ui-button.ui-button--block {
+  width: 100%;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :is(body, #app) :where(
+    button.ui-button.ui-button--primary,
+    button.el-button.el-button--primary:not(.is-link, .is-text)
+  ):hover:not(:disabled, .is-disabled) {
+    color: #ffffff;
+    background: var(--color-focus);
+    border-color: var(--color-focus);
+  }
+
+  :is(body, #app) :where(
+    button.ui-button.ui-button--secondary,
+    button.el-button:not(.el-button--primary, .el-button--danger, .is-link, .is-text)
+  ):hover:not(:disabled, .is-disabled) {
+    color: #ffffff;
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+  }
+
+  :is(body, #app) :where(
+    button.ui-button.ui-button--tertiary,
+    button.el-button.is-link:not(.el-button--danger),
+    button.el-button.is-text:not(.el-button--danger)
+  ):hover:not(:disabled, .is-disabled) {
+    color: var(--color-accent);
+    background: var(--color-accent-soft);
+    border-color: transparent;
+  }
+
+  :is(body, #app) :where(
+    button.ui-button.ui-button--danger,
+    button.el-button.el-button--danger
+  ):hover:not(:disabled, .is-disabled) {
+    color: var(--color-danger);
+    background: var(--color-danger-soft);
+    border-color: transparent;
+  }
+}
+
+:is(body, #app) :where(
+  button.ui-button.ui-button--primary,
+  button.ui-button.ui-button--secondary,
+  button.el-button.el-button--primary:not(.is-link, .is-text),
+  button.el-button:not(.el-button--primary, .el-button--danger, .is-link, .is-text)
+):active:not(:disabled, .is-disabled) {
+  color: #ffffff;
+  background: var(--color-focus);
+  border-color: var(--color-focus);
+}
+
+:is(body, #app) :where(
+  button.ui-button.ui-button--tertiary,
+  button.el-button.is-link:not(.el-button--danger),
+  button.el-button.is-text:not(.el-button--danger)
+):active:not(:disabled, .is-disabled) {
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+  border-color: transparent;
+}
+
+:is(body, #app) :where(
+  button.ui-button.ui-button--danger,
+  button.el-button.el-button--danger
+):active:not(:disabled, .is-disabled) {
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  border-color: transparent;
+}
+
+:is(body, #app) :where(button.ui-button, button.el-button):is(:disabled, .is-disabled),
+:is(body, #app) :where(button.ui-button, button.el-button)[aria-disabled="true"] {
+  color: var(--color-muted);
+  background: var(--color-paper-2);
+  border-color: var(--color-paper-2);
+  outline-color: transparent;
+  box-shadow: none;
+  cursor: not-allowed;
+  opacity: 1;
+  transform: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(body, #app) :where(button.ui-button, button.el-button) {
+    transition-duration: 0.01ms;
+  }
+}

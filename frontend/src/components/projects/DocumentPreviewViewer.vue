@@ -305,7 +305,13 @@ onBeforeUnmount(() => {
     <div v-if="errorMessage" class="preview-status preview-error" role="alert">
       <strong>无法完成在线预览</strong>
       <p>{{ errorMessage }}</p>
-      <button type="button" @click="loadPreview">重新加载</button>
+      <button
+        class="ui-button ui-button--secondary"
+        type="button"
+        @click="loadPreview"
+      >
+        重新加载
+      </button>
     </div>
   </section>
 </template>

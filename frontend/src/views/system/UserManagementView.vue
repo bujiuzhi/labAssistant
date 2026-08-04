@@ -407,29 +407,25 @@ onMounted(async () => {
               {{ formatDateTime(row.last_login) }}
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="190" fixed="right">
+          <el-table-column label="操作" width="240" fixed="right">
             <template #default="{ row }">
               <span v-if="row.is_super_admin" class="protected-copy">
                 受保护账号
               </span>
-              <template v-else>
+              <div v-else class="user-row-actions">
                 <el-button
-                  link
-                  type="primary"
                   :icon="Edit"
                   @click="openEditDialog(row)"
                 >
                   编辑
                 </el-button>
                 <el-button
-                  link
-                  type="primary"
                   :icon="Key"
                   @click="openPasswordDialog(row)"
                 >
                   重置密码
                 </el-button>
-              </template>
+              </div>
             </template>
           </el-table-column>
           <template #empty>
@@ -627,6 +623,18 @@ onMounted(async () => {
 .protected-copy {
   color: var(--color-text-secondary);
   font-size: 12px;
+}
+
+.user-row-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.user-row-actions :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 
 .pagination-bar {
