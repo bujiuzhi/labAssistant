@@ -1,4 +1,4 @@
--- 材料实验助手 Java 后端初始物理结构；表名与 Django 版本保持兼容。
+-- 材料实验助手 Java 后端初始物理结构；表名与既有生产数据保持兼容。
 CREATE TABLE IF NOT EXISTS organization (
   id UUID PRIMARY KEY, organization_code VARCHAR(32) NOT NULL UNIQUE, name VARCHAR(200) NOT NULL,
   parent_id UUID REFERENCES organization(id), status VARCHAR(16) NOT NULL DEFAULT 'active',

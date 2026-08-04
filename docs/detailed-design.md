@@ -410,13 +410,13 @@ sequenceDiagram
 
 | 验收链路 | 已有测试位置 | 核心断言 |
 |---|---|---|
-| 认证与会话 | `backend/tests/test_auth_api.py` | 登录、会话、CSRF 与权限 |
-| 项目管理 | `backend/tests/test_project_api.py` | 创建、编辑、成员、乐观锁和状态限制 |
-| 项目文档 | `backend/tests/test_project_document_api.py`、`frontend/tests/document-preview.test.ts` | 上传、下载、可信 MIME、压缩包安全、组件分流、文本解析、PDF 原件和办公转换 |
-| 实验与 ELN | `backend/tests/test_experiment_api.py` | 必填与类型、默认配方、状态迁移、完成后修订、附件增删 |
-| 用户与组织范围 | `backend/tests/test_user_management_api.py`、项目/实验范围用例 | 超级管理员保护、三角色选项、下级组织和跨组织成员 |
-| 系统初始化 | `backend/tests/test_bootstrap_development.py` | 开发种子数据 |
-| 对象存储 | `backend/tests/test_object_storage.py`、`backend/tests/test_health.py` | 禁用配置保护、原件迁移、重复校验和就绪状态 |
+| 认证与会话 | `backend/src/test/java/**` | 登录、会话、CSRF 与权限 |
+| 项目管理 | `backend/src/test/java/**` | 创建、编辑、成员、乐观锁和状态限制 |
+| 项目文档 | `backend/src/test/java/**`、`frontend/tests/document-preview.test.ts` | 上传、下载、可信 MIME、压缩包安全、组件分流、文本解析、PDF 原件和办公转换 |
+| 实验与 ELN | `backend/src/test/java/**` | 必填与类型、默认配方、状态迁移、完成后修订、附件增删 |
+| 用户与组织范围 | `backend/src/test/java/**`、项目/实验范围用例 | 超级管理员保护、三角色选项、下级组织和跨组织成员 |
+| 系统初始化 | `backend/src/test/java/**` | 开发种子数据 |
+| 对象存储 | `backend/src/test/java/**` | 禁用配置保护、原件迁移、重复校验和就绪状态 |
 
 本基线下，后端完整测试命令为：
 
