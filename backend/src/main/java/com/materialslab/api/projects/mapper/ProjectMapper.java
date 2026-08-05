@@ -25,16 +25,17 @@ public interface ProjectMapper {
     long countVisible(@Param("organizationId") UUID organizationId, @Param("userId") UUID userId,
                       @Param("status") String status, @Param("search") String search);
 
-    /** 按项目编号查询项目。 */
+    /** 按项目主键或项目编号查询当前组织项目。 */
     @Select("""
             SELECT p.id, p.organization_id, p.project_no, p.name, p.project_type_code, p.description,
                    p.current_stage, p.progress_percent, p.status, p.owner_id, owner.display_name owner_name,
                    p.objectives::text, p.milestones::text, p.planned_start_date, p.planned_end_date,
                    p.version, p.created_at, p.updated_at
             FROM project p JOIN user_account owner ON owner.id = p.owner_id
-            WHERE p.project_no = #{projectNo} AND p.organization_id = #{organizationId}
+            WHERE (p.id::text = #{projectKey} OR p.project_no = #{projectKey})
+              AND p.organization_id = #{organizationId}
             """)
-    Project findByNo(@Param("organizationId") UUID organizationId, @Param("projectNo") String projectNo);
+    Project findByKey(@Param("organizationId") UUID organizationId, @Param("projectKey") String projectKey);
 
     /** 新增项目。 */
     @Insert("""

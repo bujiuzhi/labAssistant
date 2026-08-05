@@ -44,9 +44,9 @@ public class ProjectService {
         return projectMapper.countVisible(organizationId, userId, normalizeStatus(status), search);
     }
 
-    /** 获取当前组织的项目。 */
-    public Project get(UUID organizationId, String projectNo) {
-        Project project = projectMapper.findByNo(organizationId, projectNo);
+    /** 按项目主键或项目编号获取当前组织项目。 */
+    public Project get(UUID organizationId, String projectKey) {
+        Project project = projectMapper.findByKey(organizationId, projectKey);
         if (project == null) throw new BusinessException(HttpStatus.NOT_FOUND, "project_not_found", "项目不存在或无权访问");
         return project;
     }
