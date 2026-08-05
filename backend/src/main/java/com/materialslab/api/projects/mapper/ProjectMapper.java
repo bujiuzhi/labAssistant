@@ -35,7 +35,7 @@ public interface ProjectMapper {
     @Insert("""
             INSERT INTO project (id, organization_id, project_no, name, project_type_code, description, current_stage,
               progress_percent, document_count, experiment_count, data_resource_count, objectives, milestones, status,
-              owner_id, planned_start_date, planned_end_date, version, created_by, updated_by, created_at, updated_at)
+              owner_id, planned_start_date, planned_end_date, version, created_by_id, updated_by_id, created_at, updated_at)
             VALUES (#{id}, #{organizationId}, #{projectNo}, #{name}, #{projectTypeCode}, #{description}, #{currentStage},
               #{progressPercent}, 0, 0, 0, CAST(#{objectives} AS jsonb), CAST(#{milestones} AS jsonb), #{status},
               #{ownerId}, #{plannedStartDate}, #{plannedEndDate}, 1, #{actorId}, #{actorId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
@@ -47,7 +47,7 @@ public interface ProjectMapper {
             UPDATE project SET name = #{name}, project_type_code = #{projectTypeCode}, description = #{description},
               current_stage = #{currentStage}, progress_percent = #{progressPercent}, objectives = CAST(#{objectives} AS jsonb),
               milestones = CAST(#{milestones} AS jsonb), status = #{status}, owner_id = #{ownerId},
-              planned_start_date = #{plannedStartDate}, planned_end_date = #{plannedEndDate}, updated_by = #{actorId},
+              planned_start_date = #{plannedStartDate}, planned_end_date = #{plannedEndDate}, updated_by_id = #{actorId},
               version = version + 1, updated_at = CURRENT_TIMESTAMP
             WHERE id = #{id} AND version = #{expectedVersion} AND status <> 'archived'
             """)
@@ -55,7 +55,7 @@ public interface ProjectMapper {
 
     /** 以版本号归档项目。 */
     @Update("""
-            UPDATE project SET status = 'archived', archived_at = CURRENT_TIMESTAMP, updated_by = #{actorId},
+            UPDATE project SET status = 'archived', archived_at = CURRENT_TIMESTAMP, updated_by_id = #{actorId},
               version = version + 1, updated_at = CURRENT_TIMESTAMP
             WHERE id = #{projectId} AND version = #{expectedVersion} AND status <> 'archived'
             """)

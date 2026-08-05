@@ -73,13 +73,13 @@ conda run -n materials-lab-assistant pnpm --dir frontend dev
 Flyway 执行 `backend/src/main/resources/db/migration/` 中的数据库迁移；切换现有历史
 数据库前必须先完成备份和只读验证。
 
-开发账号如下，密码统一为 `00000000`：
+首次连接空的开发测试数据库时，应用会写入可追溯的 `DEV_TEST` 测试组织、项目和实验数据；页面仅通过接口读取这些数据库记录。开发账号如下，密码统一为 `00000000`：
 
 | 用户名 | 姓名 | 角色 |
 |---|---|---|
-| `admin` | 刘李园 | 超级管理员 |
-| `manager` | 张伟 | 项目管理员 |
-| `researcher` | 李娜 | 实验员 |
+| `admin` | 测试管理员 | 超级管理员 |
+| `manager` | 测试项目管理员 | 项目管理员 |
+| `researcher` | 测试实验员 | 实验员 |
 
 默认密码只适用于开发环境，生产部署必须通过环境变量覆盖并强制首次登录修改。
 

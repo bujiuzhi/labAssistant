@@ -44,6 +44,7 @@ public class IdentityService {
         user.put("is_super_admin", principal.isSuperAdmin());
         user.put("permissions", principal.isSuperAdmin() ? List.of("*") : identityMapper.listPermissionCodes(principal.userId()));
         user.put("role_codes", identityMapper.listRoleCodes(principal.userId()));
+        user.put("role_names", identityMapper.listRoleNames(principal.userId()));
         return user;
     }
 

@@ -21,23 +21,10 @@ const productNavigation = computed(() => [
     : []),
 ]);
 
-const prototypeUsers: Record<string, { displayName: string; roleName: string }> = {
-  admin: { displayName: "刘李园", roleName: "超级管理员" },
-  manager: { displayName: "张伟", roleName: "项目管理员" },
-  researcher: { displayName: "李娜", roleName: "实验员" },
-  inspector: { displayName: "王强", roleName: "实验员" },
-};
-
 const profile = computed(() => {
-  const username = sessionStore.user?.username ?? "";
-  const fallbackProfile = prototypeUsers[username];
   return {
-    displayName:
-      sessionStore.displayName || fallbackProfile?.displayName || "未登录用户",
-    roleName:
-      sessionStore.user?.role_names[0] ??
-      fallbackProfile?.roleName ??
-      "项目成员",
+    displayName: sessionStore.displayName || "未登录用户",
+    roleName: sessionStore.user?.role_names[0] ?? "项目成员",
   };
 });
 

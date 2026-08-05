@@ -48,6 +48,15 @@ public interface IdentityMapper {
             """)
     List<String> listRoleCodes(@Param("userId") UUID userId);
 
+    /** 查询用户已分配角色名称。 */
+    @Select("""
+            SELECT role.name FROM role
+            JOIN user_role ON user_role.role_id = role.id
+            WHERE user_role.user_id = #{userId} AND role.status = 'active'
+            ORDER BY role.role_code
+            """)
+    List<String> listRoleNames(@Param("userId") UUID userId);
+
     /** 查询用户业务权限代码。 */
     @Select("""
             SELECT DISTINCT permission.permission_code FROM permission

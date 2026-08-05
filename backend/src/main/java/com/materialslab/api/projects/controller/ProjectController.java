@@ -72,7 +72,10 @@ public class ProjectController {
 
     /** 工作台实时统计。 */
     @GetMapping("/dashboard")
-    public ApiResponse<?> dashboard() { return ApiResponse.of(projectService.dashboard(IdentityService.currentPrincipal().organizationId())); }
+    public ApiResponse<?> dashboard(@RequestParam(name = "project_id", required = false) java.util.UUID projectId) {
+        UserPrincipal principal = IdentityService.currentPrincipal();
+        return ApiResponse.of(projectService.dashboard(principal.organizationId(), principal.userId(), projectId));
+    }
 
     private int version(String header) { try { return Integer.parseInt(header.replace("\"", "")); } catch (Exception error) { throw new BusinessException(HttpStatus.PRECONDITION_REQUIRED, "if_match_required", "If-Match 必须携带资源版本号"); } }
 }
