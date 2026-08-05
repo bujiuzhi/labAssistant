@@ -1,6 +1,8 @@
 package com.materialslab.api.experiments.mapper;
 
 import com.materialslab.api.experiments.domain.Experiment;
+import com.materialslab.api.experiments.domain.ExperimentAttachment;
+import com.materialslab.api.experiments.domain.ExperimentParticipant;
 import java.util.List;
 import java.util.UUID;
 import org.apache.ibatis.annotations.Insert;
@@ -24,12 +26,36 @@ public interface ExperimentMapper {
                       @Param("status") String status, @Param("search") String search);
     /** 按业务编号查询实验。 */
     @Select("""
-        SELECT e.id, e.organization_id, e.project_id, e.experiment_no, e.name, e.experiment_type, e.phase, e.status,
-        e.purpose, e.owner_id, owner.display_name owner_name, e.version, e.estimated_start, e.estimated_end,
-        e.started_at, e.completed_at, e.created_at, e.updated_at FROM experiment e JOIN user_account owner ON owner.id=e.owner_id
+        SELECT e.id, e.organization_id, e.project_id, project.project_no, project.name project_name, e.experiment_no, e.name, e.experiment_type, e.phase, e.status,
+        e.purpose, e.owner_id, owner.display_name owner_display_name, e.version, e.estimated_start, e.estimated_end,
+        e.started_at, e.completed_at, e.created_at, e.updated_at FROM experiment e JOIN user_account owner ON owner.id=e.owner_id JOIN project ON project.id=e.project_id
         WHERE e.organization_id=#{organizationId} AND e.experiment_no=#{experimentNo}
         """)
     Experiment findByNo(@Param("organizationId") UUID organizationId, @Param("experimentNo") String experimentNo);
+
+    /** 查询实验电子记录内容。 */
+    @Select("""
+            SELECT formula_columns::text, formula_rows::text, extra_tables::text, process_text, extra_processes::text, result_text
+            FROM experiment_record WHERE experiment_id = #{experimentId}
+            """)
+    ExperimentRecordRow findRecord(@Param("experimentId") UUID experimentId);
+
+    /** 查询实验参与人。 */
+    @Select("""
+            SELECT participant.user_id, account.display_name
+            FROM experiment_participant participant JOIN user_account account ON account.id = participant.user_id
+            WHERE participant.experiment_id = #{experimentId}
+            ORDER BY participant.joined_at, account.display_name
+            """)
+    List<ExperimentParticipant> listParticipants(@Param("experimentId") UUID experimentId);
+
+    /** 查询实验附件元数据。 */
+    @Select("""
+            SELECT id, name, file AS url, CASE WHEN file_size < 1024 THEN file_size || ' B' ELSE ROUND(file_size / 1024.0, 1) || ' KB' END AS size
+            FROM experiment_attachment WHERE experiment_id = #{experimentId} AND kind = #{kind}
+            ORDER BY created_at
+            """)
+    List<ExperimentAttachment> listAttachments(@Param("experimentId") UUID experimentId, @Param("kind") String kind);
     /** 新建实验和默认 ELN。 */
     @Insert("""
         INSERT INTO experiment (id, organization_id, project_id, experiment_no, name, experiment_type, phase, status, purpose, owner_id, version, created_by_id, updated_by_id, created_at, updated_at)
@@ -52,4 +78,8 @@ public interface ExperimentMapper {
     /** 实验写入参数。 */
     record ExperimentCommand(UUID id, UUID organizationId, UUID projectId, String experimentNo, String name,
                              String experimentType, String phase, String status, String purpose, UUID ownerId, UUID actorId) { }
+
+    /** 实验记录数据库行。 */
+    record ExperimentRecordRow(String formulaColumns, String formulaRows, String extraTables, String processText,
+                              String extraProcesses, String resultText) { }
 }

@@ -1,8 +1,11 @@
 package com.materialslab.api.experiments.service;
 
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.materialslab.api.common.exception.BusinessException;
 import com.materialslab.api.experiments.domain.Experiment;
+import com.materialslab.api.experiments.domain.ExperimentRecordResponse;
+import com.materialslab.api.experiments.domain.ExperimentResponse;
 import com.materialslab.api.experiments.mapper.ExperimentMapper;
 import com.materialslab.api.experiments.mapper.ExperimentMapper.ExperimentCommand;
 import java.time.OffsetDateTime;
@@ -16,7 +19,11 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ExperimentService {
     private final ExperimentMapper experimentMapper;
-    public ExperimentService(ExperimentMapper experimentMapper) { this.experimentMapper = experimentMapper; }
+    private final ObjectMapper objectMapper;
+    public ExperimentService(ExperimentMapper experimentMapper, ObjectMapper objectMapper) {
+        this.experimentMapper = experimentMapper;
+        this.objectMapper = objectMapper;
+    }
     /** 查询实验计划。 */
     public List<Experiment> list(UUID organizationId, UUID projectId, String status, String search, int page, int pageSize) {
         int limit = Math.min(Math.max(pageSize, 1), 100); return experimentMapper.findVisible(organizationId, projectId, status, search, limit, Math.max(page - 1, 0) * limit);
@@ -29,6 +36,24 @@ public class ExperimentService {
     public Experiment get(UUID organizationId, String experimentNo) {
         Experiment experiment = experimentMapper.findByNo(organizationId, experimentNo);
         if (experiment == null) throw new BusinessException(HttpStatus.NOT_FOUND, "experiment_not_found", "实验不存在或无权访问"); return experiment;
+    }
+
+    /** 将数据库实验投影转换为前端电子记录响应。 */
+    public ExperimentResponse response(Experiment experiment) {
+        var record = experimentMapper.findRecord(experiment.id());
+        var participants = experimentMapper.listParticipants(experiment.id());
+        return new ExperimentResponse(
+                experiment.id(), experiment.experimentNo(), experiment.name(), experiment.projectId(), experiment.projectNo(),
+                experiment.projectName(), experiment.experimentType(), experiment.phase(), experiment.status(), experiment.purpose(),
+                experiment.estimatedStart(), experiment.estimatedEnd(), experiment.startedAt(), experiment.completedAt(), experiment.ownerId(),
+                experiment.ownerDisplayName(), participants.stream().map(item -> item.userId()).toList(),
+                participants.stream().map(item -> item.displayName()).toList(), record(record, experiment.id()), experiment.version(),
+                experiment.createdAt(), experiment.updatedAt());
+    }
+
+    /** 将实验列表转换为前端电子记录响应。 */
+    public List<ExperimentResponse> responses(List<Experiment> experiments) {
+        return experiments.stream().map(this::response).toList();
     }
     /** 创建实验与空 ELN。 */
     @Transactional
@@ -50,4 +75,20 @@ public class ExperimentService {
     private String required(JsonNode payload, String key) { String value=payload.path(key).asText(); if (value.isBlank()) throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", key+" 不能为空"); return value; }
     private UUID uuid(JsonNode payload, String key) { return uuidOr(payload, key, null); }
     private UUID uuidOr(JsonNode payload, String key, UUID fallback) { try { return payload.hasNonNull(key) ? UUID.fromString(payload.get(key).asText()) : fallback; } catch (IllegalArgumentException error) { throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", key+" 必须为 UUID"); } }
+
+    private ExperimentRecordResponse record(ExperimentMapper.ExperimentRecordRow row, UUID experimentId) {
+        return new ExperimentRecordResponse(
+                array(row == null ? null : row.formulaColumns()), array(row == null ? null : row.formulaRows()),
+                array(row == null ? null : row.extraTables()), row == null ? "" : row.processText(),
+                array(row == null ? null : row.extraProcesses()), experimentMapper.listAttachments(experimentId, "process_image"),
+                row == null ? "" : row.resultText(), experimentMapper.listAttachments(experimentId, "result_file"));
+    }
+
+    private JsonNode array(String source) {
+        try {
+            return objectMapper.readTree(source == null || source.isBlank() ? "[]" : source);
+        } catch (Exception error) {
+            return objectMapper.createArrayNode();
+        }
+    }
 }

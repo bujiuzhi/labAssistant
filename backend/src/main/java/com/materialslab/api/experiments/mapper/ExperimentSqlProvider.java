@@ -7,10 +7,10 @@ public class ExperimentSqlProvider {
     /** 根据数据范围、状态、项目和关键字拼装查询。 */
     public String findVisible(Map<String, Object> parameters) {
         StringBuilder sql = new StringBuilder("""
-                SELECT e.id, e.organization_id, e.project_id, e.experiment_no, e.name, e.experiment_type, e.phase, e.status,
-                       e.purpose, e.owner_id, owner.display_name owner_name, e.version, e.estimated_start, e.estimated_end,
+                SELECT e.id, e.organization_id, e.project_id, project.project_no, project.name project_name, e.experiment_no, e.name, e.experiment_type, e.phase, e.status,
+                       e.purpose, e.owner_id, owner.display_name owner_display_name, e.version, e.estimated_start, e.estimated_end,
                        e.started_at, e.completed_at, e.created_at, e.updated_at
-                FROM experiment e JOIN user_account owner ON owner.id = e.owner_id
+                FROM experiment e JOIN user_account owner ON owner.id = e.owner_id JOIN project ON project.id = e.project_id
                 WHERE e.organization_id = #{organizationId}
                 """);
         if (parameters.get("projectId") != null) sql.append(" AND e.project_id = #{projectId}");
