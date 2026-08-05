@@ -99,6 +99,11 @@ ssh -f -N \
 `http://127.0.0.1:18000/api/v1/health/live`。若服务器已放行端口，也可直接访问
 `http://192.168.0.156:5173`。
 
+PostgreSQL 默认绑定远程服务器自身的 `127.0.0.1:15432`。需要在同一局域网通过 DBX 直连时，在远程
+`.env` 设置 `POSTGRES_BIND_ADDRESS=0.0.0.0`，重启 PostgreSQL 容器后使用
+`192.168.0.156:15432` 连接；数据库名称、账号和密码分别取 `POSTGRES_DEV_DB`、
+`POSTGRES_DEV_USER`、`POSTGRES_DEV_PASSWORD`。
+
 ## 审计入口
 
 审计资产说明见 [audit/README.md](audit/README.md)，来源文件摘要见
