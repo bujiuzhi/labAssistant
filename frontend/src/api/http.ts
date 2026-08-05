@@ -13,6 +13,17 @@ export const http = axios.create({
   },
 });
 
+http.interceptors.response.use(
+  (response) => response,
+  (error: unknown) => {
+    if (error instanceof AxiosError && error.response?.status === 401 && window.location.pathname !== "/login") {
+      const redirect = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      window.location.assign(`/login?redirect=${encodeURIComponent(redirect)}`);
+    }
+    return Promise.reject(error);
+  },
+);
+
 export function getProblemDetail(error: unknown): ProblemDetail | null {
   if (!(error instanceof AxiosError)) {
     return null;
