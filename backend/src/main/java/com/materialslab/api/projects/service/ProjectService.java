@@ -5,6 +5,9 @@ import tools.jackson.databind.ObjectMapper;
 import com.materialslab.api.common.exception.BusinessException;
 import com.materialslab.api.projects.domain.DashboardRows.ActiveProject;
 import com.materialslab.api.projects.domain.Project;
+import com.materialslab.api.projects.domain.ProjectMilestone;
+import com.materialslab.api.projects.domain.ProjectOperationLog;
+import com.materialslab.api.projects.domain.ProjectResponse;
 import com.materialslab.api.projects.mapper.DashboardMapper;
 import com.materialslab.api.projects.mapper.ProjectMapper;
 import com.materialslab.api.projects.mapper.ProjectMapper.ProjectWriteCommand;
@@ -49,6 +52,31 @@ public class ProjectService {
         Project project = projectMapper.findByKey(organizationId, projectKey);
         if (project == null) throw new BusinessException(HttpStatus.NOT_FOUND, "project_not_found", "项目不存在或无权访问");
         return project;
+    }
+
+    /** 将数据库项目投影转换为前端所需的完整响应。 */
+    public ProjectResponse response(Project project) {
+        return new ProjectResponse(
+                project.id(), project.organizationId(), project.projectNo(), project.name(), project.projectTypeCode(),
+                project.description(), project.currentStage(), project.progressPercent(), project.documentCount(),
+                project.experimentCount(), project.dataResourceCount(), readTextArray(project.objectives()),
+                readMilestones(project.milestones()), project.status(), project.ownerId(), project.ownerName(),
+                projectMapper.listMembers(project.id()), project.plannedStartDate(), project.plannedEndDate(), project.actualEndAt(),
+                project.archivedAt(), project.version(), project.createdAt(), project.updatedAt());
+    }
+
+    /** 将项目列表转换为前端所需的完整响应。 */
+    public List<ProjectResponse> responses(List<Project> projects) {
+        return projects.stream().map(this::response).toList();
+    }
+
+    /** 查询项目真实操作日志。 */
+    public List<ProjectOperationLog> operationLogs(UUID organizationId, String projectKey) {
+        Project project = get(organizationId, projectKey);
+        return projectMapper.listOperationLogs(organizationId, project.id()).stream()
+                .map(row -> new ProjectOperationLog(row.id(), row.actionType(), row.description(), row.actorDisplayName(),
+                        readObject(row.changes()), row.createdAt()))
+                .toList();
     }
 
     /** 创建带 PRJ 编号的项目。 */
@@ -139,12 +167,12 @@ public class ProjectService {
     }
 
     private Map<String, Object> toDashboardProject(ActiveProject project) {
-        List<Map<String, String>> milestones = readMilestones(project.milestones());
-        Map<String, String> milestone = milestones.stream()
-                .filter(item -> "current".equals(item.get("state")))
+        List<ProjectMilestone> milestones = readMilestones(project.milestones());
+        ProjectMilestone milestone = milestones.stream()
+                .filter(item -> "current".equals(item.state()))
                 .findFirst()
                 .orElse(milestones.isEmpty() ? null : milestones.getFirst());
-        LocalDate dueDate = parseDate(milestone == null ? null : milestone.get("date"));
+        LocalDate dueDate = parseDate(milestone == null ? null : milestone.date());
         long riskDays = dueDate == null ? 0 : ChronoUnit.DAYS.between(LocalDate.now(ZoneId.of("Asia/Shanghai")), dueDate);
         String riskLevel = dueDate == null || riskDays >= 7 ? "normal" : riskDays >= 0 ? "countdown" : "overdue";
         Map<String, Object> response = new LinkedHashMap<>();
@@ -156,7 +184,7 @@ public class ProjectService {
         response.put("objectives", readTextArray(project.objectives()));
         response.put("planned_start_date", project.plannedStartDate());
         response.put("planned_end_date", project.plannedEndDate());
-        response.put("milestone", milestone);
+        response.put("milestone", milestone == null ? null : Map.of("name", milestone.name(), "date", milestone.date(), "state", milestone.state()));
         response.put("progress_percent", project.progressPercent());
         response.put("is_followed", project.followed());
         response.put("risk_level", riskLevel);
@@ -176,15 +204,22 @@ public class ProjectService {
         return values;
     }
 
-    private List<Map<String, String>> readMilestones(String source) {
-        List<Map<String, String>> values = new ArrayList<>();
+    private Map<String, Object> readObject(String source) {
+        try {
+            JsonNode node = objectMapper.readTree(source);
+            Map<String, Object> values = new LinkedHashMap<>();
+            if (node.isObject()) node.properties().forEach(entry -> values.put(entry.getKey(), entry.getValue()));
+            return values;
+        } catch (Exception ignored) {
+            return Map.of();
+        }
+    }
+
+    private List<ProjectMilestone> readMilestones(String source) {
+        List<ProjectMilestone> values = new ArrayList<>();
         try {
             for (JsonNode node : objectMapper.readTree(source)) {
-                Map<String, String> item = new LinkedHashMap<>();
-                item.put("name", node.path("name").asText());
-                item.put("date", node.path("date").asText());
-                item.put("state", node.path("state").asText());
-                values.add(item);
+                values.add(new ProjectMilestone(node.path("date").asText(), node.path("name").asText(), node.path("state").asText()));
             }
         } catch (Exception ignored) {
             // 旧数据格式异常时返回空列表，避免影响总览接口。

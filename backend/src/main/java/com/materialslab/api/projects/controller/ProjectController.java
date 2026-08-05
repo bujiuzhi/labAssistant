@@ -7,6 +7,8 @@ import com.materialslab.api.common.model.PageResponse;
 import com.materialslab.api.identity.security.UserPrincipal;
 import com.materialslab.api.identity.service.IdentityService;
 import com.materialslab.api.projects.domain.Project;
+import com.materialslab.api.projects.domain.ProjectOperationLog;
+import com.materialslab.api.projects.domain.ProjectResponse;
 import com.materialslab.api.projects.service.ProjectService;
 import java.util.List;
 import java.util.Map;
@@ -32,45 +34,52 @@ public class ProjectController {
 
     /** 分页查询当前用户可见项目。 */
     @GetMapping("/projects")
-    public PageResponse<Project> list(@RequestParam(defaultValue = "1") int page, @RequestParam(name = "page_size", defaultValue = "20") int pageSize,
+    public PageResponse<ProjectResponse> list(@RequestParam(defaultValue = "1") int page, @RequestParam(name = "page_size", defaultValue = "20") int pageSize,
                                     @RequestParam(required = false) String status, @RequestParam(required = false) String search) {
         UserPrincipal principal = IdentityService.currentPrincipal();
         List<Project> results = projectService.list(principal.organizationId(), principal.userId(), status, search, page, pageSize);
-        return PageResponse.of(results, page, pageSize, projectService.count(principal.organizationId(), principal.userId(), status, search));
+        return PageResponse.of(projectService.responses(results), page, pageSize, projectService.count(principal.organizationId(), principal.userId(), status, search));
     }
 
     /** 创建项目。 */
     @PostMapping("/projects")
-    public ResponseEntity<ApiResponse<Project>> create(@RequestBody JsonNode payload) {
+    public ResponseEntity<ApiResponse<ProjectResponse>> create(@RequestBody JsonNode payload) {
         UserPrincipal principal = IdentityService.currentPrincipal();
         Project project = projectService.create(principal.organizationId(), principal.userId(), payload);
-        return ResponseEntity.status(HttpStatus.CREATED).eTag(String.valueOf(project.version())).body(ApiResponse.of(project));
+        return ResponseEntity.status(HttpStatus.CREATED).eTag(String.valueOf(project.version())).body(ApiResponse.of(projectService.response(project)));
     }
 
     /** 获取项目详情。 */
     @GetMapping("/projects/{projectKey}")
-    public ResponseEntity<ApiResponse<Project>> get(@PathVariable String projectKey) {
+    public ResponseEntity<ApiResponse<ProjectResponse>> get(@PathVariable String projectKey) {
         UserPrincipal principal = IdentityService.currentPrincipal(); Project project = projectService.get(principal.organizationId(), projectKey);
-        return ResponseEntity.ok().eTag(String.valueOf(project.version())).body(ApiResponse.of(project));
+        return ResponseEntity.ok().eTag(String.valueOf(project.version())).body(ApiResponse.of(projectService.response(project)));
     }
 
     /** 更新项目。 */
     @PatchMapping("/projects/{projectKey}")
-    public ResponseEntity<ApiResponse<Project>> update(@PathVariable String projectKey, @RequestHeader(HttpHeaders.IF_MATCH) String ifMatch, @RequestBody JsonNode payload) {
+    public ResponseEntity<ApiResponse<ProjectResponse>> update(@PathVariable String projectKey, @RequestHeader(HttpHeaders.IF_MATCH) String ifMatch, @RequestBody JsonNode payload) {
         UserPrincipal principal = IdentityService.currentPrincipal(); Project project = projectService.update(principal.organizationId(), principal.userId(), projectKey, version(ifMatch), payload);
-        return ResponseEntity.ok().eTag(String.valueOf(project.version())).body(ApiResponse.of(project));
+        return ResponseEntity.ok().eTag(String.valueOf(project.version())).body(ApiResponse.of(projectService.response(project)));
     }
 
     /** 归档项目。 */
     @PostMapping("/projects/{projectKey}/archive")
-    public ResponseEntity<ApiResponse<Project>> archive(@PathVariable String projectKey, @RequestHeader(HttpHeaders.IF_MATCH) String ifMatch) {
+    public ResponseEntity<ApiResponse<ProjectResponse>> archive(@PathVariable String projectKey, @RequestHeader(HttpHeaders.IF_MATCH) String ifMatch) {
         UserPrincipal principal = IdentityService.currentPrincipal(); Project project = projectService.archive(principal.organizationId(), principal.userId(), projectKey, version(ifMatch));
-        return ResponseEntity.ok().eTag(String.valueOf(project.version())).body(ApiResponse.of(project));
+        return ResponseEntity.ok().eTag(String.valueOf(project.version())).body(ApiResponse.of(projectService.response(project)));
     }
 
     /** 设置关注状态。 */
     @PostMapping("/projects/{projectKey}/follow")
     public ApiResponse<?> follow(@PathVariable String projectKey) { UserPrincipal p = IdentityService.currentPrincipal(); return ApiResponse.of(Map.of("is_followed", projectService.setFollow(p.organizationId(), p.userId(), projectKey, true))); }
+
+    /** 查询项目真实操作日志。 */
+    @GetMapping("/projects/{projectKey}/operation-logs")
+    public ApiResponse<List<ProjectOperationLog>> operationLogs(@PathVariable String projectKey) {
+        UserPrincipal principal = IdentityService.currentPrincipal();
+        return ApiResponse.of(projectService.operationLogs(principal.organizationId(), projectKey));
+    }
 
     /** 工作台实时统计。 */
     @GetMapping("/dashboard")

@@ -1,6 +1,7 @@
 package com.materialslab.api.projects.mapper;
 
 import com.materialslab.api.projects.domain.Project;
+import com.materialslab.api.projects.domain.ProjectMember;
 import java.util.List;
 import java.util.UUID;
 import org.apache.ibatis.annotations.Insert;
@@ -29,13 +30,33 @@ public interface ProjectMapper {
     @Select("""
             SELECT p.id, p.organization_id, p.project_no, p.name, p.project_type_code, p.description,
                    p.current_stage, p.progress_percent, p.status, p.owner_id, owner.display_name owner_name,
-                   p.objectives::text, p.milestones::text, p.planned_start_date, p.planned_end_date,
+                   p.objectives::text, p.milestones::text, p.document_count, p.experiment_count, p.data_resource_count,
+                   p.planned_start_date, p.planned_end_date, p.actual_end_at, p.archived_at,
                    p.version, p.created_at, p.updated_at
             FROM project p JOIN user_account owner ON owner.id = p.owner_id
             WHERE (p.id::text = #{projectKey} OR p.project_no = #{projectKey})
               AND p.organization_id = #{organizationId}
             """)
     Project findByKey(@Param("organizationId") UUID organizationId, @Param("projectKey") String projectKey);
+
+    /** 查询项目实际成员。 */
+    @Select("""
+            SELECT member.user_id, account.display_name, member.member_role
+            FROM project_member member JOIN user_account account ON account.id = member.user_id
+            WHERE member.project_id = #{projectId}
+            ORDER BY member.joined_at, account.display_name
+            """)
+    List<ProjectMember> listMembers(@Param("projectId") UUID projectId);
+
+    /** 查询项目的可见操作日志。 */
+    @Select("""
+            SELECT log.id, log.action_type, log.description, COALESCE(actor.display_name, '系统') AS actor_display_name,
+                   log.changes::text, log.created_at
+            FROM business_operation_log log LEFT JOIN user_account actor ON actor.id = log.actor_id
+            WHERE log.organization_id = #{organizationId} AND log.domain = 'project' AND log.object_id = #{projectId}
+            ORDER BY log.created_at DESC
+            """)
+    List<ProjectOperationLogRow> listOperationLogs(@Param("organizationId") UUID organizationId, @Param("projectId") UUID projectId);
 
     /** 新增项目。 */
     @Insert("""
@@ -87,4 +108,8 @@ public interface ProjectMapper {
                                String description, String currentStage, int progressPercent, String objectives, String milestones,
                                String status, UUID ownerId, Object plannedStartDate, Object plannedEndDate,
                                UUID actorId, int expectedVersion) { }
+
+    /** 项目操作日志原始行，变更 JSON 由服务层转换。 */
+    record ProjectOperationLogRow(UUID id, String actionType, String description, String actorDisplayName,
+                                  String changes, java.time.OffsetDateTime createdAt) { }
 }
