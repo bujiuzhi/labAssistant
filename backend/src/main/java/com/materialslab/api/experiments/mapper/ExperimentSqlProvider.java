@@ -19,4 +19,16 @@ public class ExperimentSqlProvider {
         sql.append(" ORDER BY e.updated_at DESC LIMIT #{limit} OFFSET #{offset}");
         return sql.toString();
     }
+
+    /** 根据与列表一致的筛选条件生成实验总数查询。 */
+    public String countVisible(Map<String, Object> parameters) {
+        StringBuilder sql = new StringBuilder("""
+                SELECT COUNT(*) FROM experiment e
+                WHERE e.organization_id = #{organizationId}
+                """);
+        if (parameters.get("projectId") != null) sql.append(" AND e.project_id = #{projectId}");
+        if (parameters.get("status") != null && !parameters.get("status").toString().isBlank()) sql.append(" AND e.status = #{status}");
+        if (parameters.get("search") != null && !parameters.get("search").toString().isBlank()) sql.append(" AND (e.experiment_no ILIKE '%' || #{search} || '%' OR e.name ILIKE '%' || #{search} || '%')");
+        return sql.toString();
+    }
 }

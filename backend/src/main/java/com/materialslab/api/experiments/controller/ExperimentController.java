@@ -3,12 +3,12 @@ package com.materialslab.api.experiments.controller;
 import tools.jackson.databind.JsonNode;
 import com.materialslab.api.common.exception.BusinessException;
 import com.materialslab.api.common.model.ApiResponse;
+import com.materialslab.api.common.model.PageResponse;
 import com.materialslab.api.experiments.domain.Experiment;
 import com.materialslab.api.experiments.service.ExperimentService;
 import com.materialslab.api.identity.security.UserPrincipal;
 import com.materialslab.api.identity.service.IdentityService;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -29,8 +29,10 @@ public class ExperimentController {
     private final ExperimentService experimentService;
     public ExperimentController(ExperimentService experimentService) { this.experimentService = experimentService; }
     /** 分页查询可见实验。 */
-    @GetMapping public Map<String,Object> list(@RequestParam(defaultValue="1") int page, @RequestParam(name="page_size", defaultValue="20") int pageSize, @RequestParam(name="project_id", required=false) UUID projectId, @RequestParam(required=false) String status, @RequestParam(required=false) String search) {
-        UserPrincipal p=IdentityService.currentPrincipal(); List<Experiment> results=experimentService.list(p.organizationId(),projectId,status,search,page,pageSize); return Map.of("count",results.size(),"next",null,"previous",null,"results",results);
+    @GetMapping public PageResponse<Experiment> list(@RequestParam(defaultValue="1") int page, @RequestParam(name="page_size", defaultValue="20") int pageSize, @RequestParam(name="project_id", required=false) UUID projectId, @RequestParam(required=false) String status, @RequestParam(required=false) String search) {
+        UserPrincipal p=IdentityService.currentPrincipal();
+        List<Experiment> results=experimentService.list(p.organizationId(),projectId,status,search,page,pageSize);
+        return PageResponse.of(results, page, pageSize, experimentService.count(p.organizationId(), projectId, status, search));
     }
     /** 创建实验及默认 ELN。 */
     @PostMapping public ResponseEntity<ApiResponse<Experiment>> create(@RequestBody JsonNode payload) { UserPrincipal p=IdentityService.currentPrincipal(); Experiment result=experimentService.create(p.organizationId(),p.userId(),payload); return ResponseEntity.status(HttpStatus.CREATED).eTag(String.valueOf(result.version())).body(ApiResponse.of(result)); }

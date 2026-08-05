@@ -27,4 +27,22 @@ public class ProjectSqlProvider {
         sql.append(" ORDER BY p.updated_at DESC LIMIT #{limit} OFFSET #{offset}");
         return sql.toString();
     }
+
+    /** 根据与列表一致的数据范围和筛选条件生成项目总数查询。 */
+    public String countVisible(Map<String, Object> parameters) {
+        String status = (String) parameters.get("status");
+        String search = (String) parameters.get("search");
+        StringBuilder sql = new StringBuilder("""
+                WITH RECURSIVE visible_org AS (
+                  SELECT id FROM organization WHERE id = #{organizationId}
+                  UNION ALL SELECT child.id FROM organization child JOIN visible_org parent ON child.parent_id = parent.id
+                )
+                SELECT COUNT(*) FROM project p
+                WHERE (p.organization_id IN (SELECT id FROM visible_org)
+                  OR EXISTS (SELECT 1 FROM project_member member WHERE member.project_id = p.id AND member.user_id = #{userId}))
+                """);
+        if (status != null && !status.isBlank()) sql.append(" AND p.status = #{status}");
+        if (search != null && !search.isBlank()) sql.append(" AND (p.project_no ILIKE '%' || #{search} || '%' OR p.name ILIKE '%' || #{search} || '%')");
+        return sql.toString();
+    }
 }

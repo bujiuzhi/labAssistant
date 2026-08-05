@@ -3,6 +3,7 @@ package com.materialslab.api.projects.controller;
 import tools.jackson.databind.JsonNode;
 import com.materialslab.api.common.exception.BusinessException;
 import com.materialslab.api.common.model.ApiResponse;
+import com.materialslab.api.common.model.PageResponse;
 import com.materialslab.api.identity.security.UserPrincipal;
 import com.materialslab.api.identity.service.IdentityService;
 import com.materialslab.api.projects.domain.Project;
@@ -31,10 +32,11 @@ public class ProjectController {
 
     /** 分页查询当前用户可见项目。 */
     @GetMapping("/projects")
-    public Map<String, Object> list(@RequestParam(defaultValue = "1") int page, @RequestParam(name = "page_size", defaultValue = "20") int pageSize,
+    public PageResponse<Project> list(@RequestParam(defaultValue = "1") int page, @RequestParam(name = "page_size", defaultValue = "20") int pageSize,
                                     @RequestParam(required = false) String status, @RequestParam(required = false) String search) {
-        UserPrincipal principal = IdentityService.currentPrincipal(); List<Project> results = projectService.list(principal.organizationId(), principal.userId(), status, search, page, pageSize);
-        return Map.of("count", results.size(), "next", null, "previous", null, "results", results);
+        UserPrincipal principal = IdentityService.currentPrincipal();
+        List<Project> results = projectService.list(principal.organizationId(), principal.userId(), status, search, page, pageSize);
+        return PageResponse.of(results, page, pageSize, projectService.count(principal.organizationId(), principal.userId(), status, search));
     }
 
     /** 创建项目。 */

@@ -20,6 +20,11 @@ public interface ProjectMapper {
                               @Param("status") String status, @Param("search") String search,
                               @Param("limit") int limit, @Param("offset") int offset);
 
+    /** 统计当前用户可见项目总数。 */
+    @SelectProvider(type = ProjectSqlProvider.class, method = "countVisible")
+    long countVisible(@Param("organizationId") UUID organizationId, @Param("userId") UUID userId,
+                      @Param("status") String status, @Param("search") String search);
+
     /** 按项目编号查询项目。 */
     @Select("""
             SELECT p.id, p.organization_id, p.project_no, p.name, p.project_type_code, p.description,

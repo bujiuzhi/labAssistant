@@ -18,6 +18,10 @@ public interface ExperimentMapper {
     List<Experiment> findVisible(@Param("organizationId") UUID organizationId, @Param("projectId") UUID projectId,
                                  @Param("status") String status, @Param("search") String search,
                                  @Param("limit") int limit, @Param("offset") int offset);
+    /** 统计当前组织内符合条件的实验总数。 */
+    @SelectProvider(type = ExperimentSqlProvider.class, method = "countVisible")
+    long countVisible(@Param("organizationId") UUID organizationId, @Param("projectId") UUID projectId,
+                      @Param("status") String status, @Param("search") String search);
     /** 按业务编号查询实验。 */
     @Select("""
         SELECT e.id, e.organization_id, e.project_id, e.experiment_no, e.name, e.experiment_type, e.phase, e.status,

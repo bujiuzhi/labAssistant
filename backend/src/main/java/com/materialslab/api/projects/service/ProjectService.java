@@ -39,6 +39,11 @@ public class ProjectService {
         return projectMapper.findVisible(organizationId, userId, normalizeStatus(status), search, Math.min(Math.max(pageSize, 1), 100), Math.max(page - 1, 0) * Math.min(Math.max(pageSize, 1), 100));
     }
 
+    /** 统计当前用户可见项目总数。 */
+    public long count(UUID organizationId, UUID userId, String status, String search) {
+        return projectMapper.countVisible(organizationId, userId, normalizeStatus(status), search);
+    }
+
     /** 获取当前组织的项目。 */
     public Project get(UUID organizationId, String projectNo) {
         Project project = projectMapper.findByNo(organizationId, projectNo);

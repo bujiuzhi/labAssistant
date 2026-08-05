@@ -21,6 +21,10 @@ public class ExperimentService {
     public List<Experiment> list(UUID organizationId, UUID projectId, String status, String search, int page, int pageSize) {
         int limit = Math.min(Math.max(pageSize, 1), 100); return experimentMapper.findVisible(organizationId, projectId, status, search, limit, Math.max(page - 1, 0) * limit);
     }
+    /** 统计当前组织内符合筛选条件的实验总数。 */
+    public long count(UUID organizationId, UUID projectId, String status, String search) {
+        return experimentMapper.countVisible(organizationId, projectId, status, search);
+    }
     /** 查询一个实验。 */
     public Experiment get(UUID organizationId, String experimentNo) {
         Experiment experiment = experimentMapper.findByNo(organizationId, experimentNo);

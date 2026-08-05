@@ -13,4 +13,11 @@ class ExperimentSqlProviderTest {
                 "organizationId", "org", "projectId", "project", "status", "in_progress", "search", "配方", "limit", 20, "offset", 0));
         assertThat(sql).contains("e.organization_id = #{organizationId}", "e.project_id = #{projectId}", "e.status = #{status}", "e.name ILIKE");
     }
+
+    @Test
+    void 总数查询应复用列表筛选条件() {
+        String sql = new ExperimentSqlProvider().countVisible(Map.of(
+                "organizationId", "org", "projectId", "project", "status", "in_progress", "search", "配方"));
+        assertThat(sql).contains("SELECT COUNT(*)", "e.organization_id = #{organizationId}", "e.project_id = #{projectId}", "e.status = #{status}", "e.name ILIKE");
+    }
 }
