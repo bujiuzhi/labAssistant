@@ -25,7 +25,9 @@ export const authApi = {
     return response.data.data;
   },
 
-  async logout(): Promise<void> {
-    await http.post("/auth/logout");
+  async logout(csrfToken: string): Promise<void> {
+    await http.post("/auth/logout", undefined, {
+      headers: { "X-CSRFToken": csrfToken },
+    });
   },
 };

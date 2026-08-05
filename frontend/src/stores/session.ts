@@ -14,7 +14,7 @@ export const useSessionStore = defineStore("session", () => {
   const isSuperAdmin = computed(() => user.value?.is_super_admin ?? false);
 
   function hasPermission(permissionCode: string): boolean {
-    return user.value?.permissions.includes(permissionCode) ?? false;
+    return isSuperAdmin.value || (user.value?.permissions.includes(permissionCode) ?? false);
   }
 
   async function initialize(): Promise<void> {
@@ -38,10 +38,15 @@ export const useSessionStore = defineStore("session", () => {
 
   async function logout(): Promise<void> {
     try {
-      await authApi.logout();
+      csrfToken.value ||= await authApi.getCsrfToken();
+      await authApi.logout(csrfToken.value);
     } finally {
       user.value = null;
-      csrfToken.value = await authApi.getCsrfToken();
+      try {
+        csrfToken.value = await authApi.getCsrfToken();
+      } catch {
+        csrfToken.value = "";
+      }
     }
   }
 

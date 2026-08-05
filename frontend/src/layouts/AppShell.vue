@@ -50,8 +50,11 @@ function isProductRoute(path: string): boolean {
  * 退出当前会话并返回登录页
  */
 async function logout(): Promise<void> {
-  await sessionStore.logout();
-  await router.replace("/login");
+  try {
+    await sessionStore.logout();
+  } finally {
+    await router.replace("/login");
+  }
 }
 </script>
 
