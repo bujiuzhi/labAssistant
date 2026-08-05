@@ -10,6 +10,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Profile;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
@@ -18,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 /** 为开发测试数据库初始化可追溯的账户、项目和实验种子数据。 */
 @Component
 @Profile("dev")
+@Order(Ordered.LOWEST_PRECEDENCE)
 public class DevelopmentDataInitializer implements ApplicationRunner {
     private static final Logger LOGGER = LoggerFactory.getLogger(DevelopmentDataInitializer.class);
     private static final UUID ORGANIZATION_ID = UUID.fromString("10000000-0000-0000-0000-000000000001");
