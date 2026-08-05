@@ -59,7 +59,8 @@ public class DevelopmentDataInitializer implements ApplicationRunner {
         createExistingExperiments();
         createLegacyPrototypeExperiments();
         refreshExperimentCounts();
-        LOGGER.info("开发测试数据库种子校验完成：保留已有数据并补齐 20 个历史原型项目及其真实实验记录");
+        createProjectDocuments();
+        LOGGER.info("开发测试数据库种子校验完成：保留已有数据并补齐历史原型项目、实验记录和可读取的项目文档");
     }
 
     private void createOrganizationAndUsers() {
@@ -124,14 +125,16 @@ public class DevelopmentDataInitializer implements ApplicationRunner {
         createPermission("project.create", "创建项目", "project");
         createPermission("project.update", "编辑项目", "project");
         createPermission("project.archive", "归档项目", "project");
+        createPermission("document.view", "查看项目文档", "document");
+        createPermission("document.upload", "上传项目文档", "document");
         createPermission("experiment.read", "查看实验", "experiment");
         createPermission("experiment.create", "创建实验", "experiment");
         createPermission("experiment.update", "编辑实验记录", "experiment");
         createPermission("experiment.transition", "迁移实验状态", "experiment");
 
         grant(MANAGER_ROLE_ID, "organization.read", "project.read", "project.create", "project.update", "project.archive",
-                "experiment.read", "experiment.create", "experiment.update", "experiment.transition");
-        grant(RESEARCHER_ROLE_ID, "organization.read", "project.read", "experiment.read", "experiment.update", "experiment.transition");
+                "document.view", "document.upload", "experiment.read", "experiment.create", "experiment.update", "experiment.transition");
+        grant(RESEARCHER_ROLE_ID, "organization.read", "project.read", "document.view", "experiment.read", "experiment.update", "experiment.transition");
     }
 
     private void createPermission(String code, String name, String moduleCode) {
@@ -283,6 +286,57 @@ public class DevelopmentDataInitializer implements ApplicationRunner {
                 """, ORGANIZATION_ID, ORGANIZATION_ID);
     }
 
+    /** 为每个测试项目写入真实文档元数据和正文，供文档列表、预览、下载接口直接读取。 */
+    private void createProjectDocuments() {
+        List<DocumentProjectSeed> projects = jdbcTemplate.query("""
+                SELECT id, project_no, name, owner_id, document_count, created_at
+                FROM project WHERE organization_id = ?
+                ORDER BY project_no
+                """, (resultSet, rowNum) -> new DocumentProjectSeed(
+                resultSet.getObject("id", UUID.class), resultSet.getString("project_no"), resultSet.getString("name"),
+                resultSet.getObject("owner_id", UUID.class), resultSet.getInt("document_count"),
+                resultSet.getObject("created_at", OffsetDateTime.class)), ORGANIZATION_ID);
+        String[] categories = {"project_plan", "literature", "experiment_plan", "stage_report", "meeting_minutes", "other"};
+        String[] labels = {"项目实施方案", "文献调研摘要", "实验方案", "阶段进展报告", "项目例会纪要", "技术补充说明"};
+        for (DocumentProjectSeed project : projects) {
+            int targetCount = Math.max(project.documentCount(), 4);
+            for (int index = 1; index <= targetCount; index++) {
+                String category = categories[(index - 1) % categories.length];
+                String name = labels[(index - 1) % labels.length] + "-" + String.format("%02d", index) + ".txt";
+                UUID documentId = stableId("project-document-" + project.projectNo() + "-" + index);
+                OffsetDateTime createdAt = project.createdAt().plusDays(index);
+                byte[] content = documentText(project, category, index).getBytes(StandardCharsets.UTF_8);
+                jdbcTemplate.update("""
+                        INSERT INTO project_document(
+                          id, organization_id, project_id, category, name, version_label, file, mime_type, file_size,
+                          uploaded_by_id, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT (id) DO NOTHING
+                        """, documentId, ORGANIZATION_ID, project.id(), category, name, "V" + ((index - 1) / 3 + 1) + ".0",
+                        "database://project-documents/" + documentId, "text/plain; charset=utf-8", content.length,
+                        project.ownerId(), createdAt, createdAt);
+                jdbcTemplate.update("""
+                        INSERT INTO project_document_content(document_id, content) VALUES (?, ?)
+                        ON CONFLICT (document_id) DO NOTHING
+                        """, documentId, content);
+            }
+            jdbcTemplate.update("""
+                    UPDATE project SET document_count = (SELECT COUNT(*) FROM project_document WHERE project_id = ?)
+                    WHERE id = ?
+                    """, project.id(), project.id());
+        }
+    }
+
+    private String documentText(DocumentProjectSeed project, String category, int index) {
+        return "材料实验助手开发测试文档\n"
+                + "项目编号：" + project.projectNo() + "\n"
+                + "项目名称：" + project.name() + "\n"
+                + "文档分类：" + category + "\n"
+                + "文档序号：" + String.format("%02d", index) + "\n"
+                + "数据来源：开发测试数据库\n\n"
+                + "本文件为可通过项目文档接口读取、预览和下载的测试正文，用于验证真实数据库链路。\n";
+    }
+
     private List<ProjectSeed> legacyProjectSeeds() {
         return List.of(
                 seed("PRJ-2026-PLA-001", "高性能PLA基可降解复合材料开发", "功能材料", "张伟", "开发兼具力学性能与可降解性的PLA基复合材料，完成配方筛选与性能验证。", "实验执行", 48, "active", "2026-03-01", "2026-12-31", "完成第三轮配方筛选", "2026-07-25", "current", 12, 11, 6),
@@ -367,4 +421,8 @@ public class DevelopmentDataInitializer implements ApplicationRunner {
                                int progress, String status, UUID ownerId, OffsetDateTime startDate, OffsetDateTime endDate,
                                List<String> objectives, String milestoneName, String milestoneDate, String milestoneState,
                                int documentCount, int experimentCount, int resourceCount) { }
+
+    /** 写入项目文档测试数据所需的项目基础信息。 */
+    private record DocumentProjectSeed(UUID id, String projectNo, String name, UUID ownerId, int documentCount,
+                                       OffsetDateTime createdAt) { }
 }

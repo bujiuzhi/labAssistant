@@ -190,7 +190,8 @@ public class ProjectService {
                 "in_progress", inProgress, "completed", completed);
     }
 
-    private void requireManageAccess(UserPrincipal principal, Project project) {
+    /** 校验当前用户拥有项目管理权限，供项目子资源写入时复用。 */
+    public void requireManageAccess(UserPrincipal principal, Project project) {
         if (!principal.isSuperAdmin()
                 && !projectMapper.hasManageAccess(principal.organizationId(), project.id(), principal.userId())) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "permission_denied", "当前用户无权管理该项目");
