@@ -8,16 +8,16 @@ import org.junit.jupiter.api.Test;
 /** 验证项目数据范围与组合筛选 SQL。 */
 class ProjectSqlProviderTest {
     @Test
-    void 应按组织层级和成员关系限制可见项目并附加筛选条件() {
+    void 应按当前组织和成员关系限制可见项目并附加筛选条件() {
         String sql = new ProjectSqlProvider().findVisible(Map.of(
-                "organizationId", "org", "userId", "user", "status", "active", "search", "材料", "limit", 20, "offset", 0));
-        assertThat(sql).contains("WITH RECURSIVE visible_org", "project_member", "p.status = #{status}", "p.name ILIKE", "LIMIT #{limit}");
+                "organizationId", "org", "userId", "user", "readAll", false, "status", "active", "search", "材料", "limit", 20, "offset", 0));
+        assertThat(sql).contains("p.organization_id = #{organizationId}", "#{readAll} = TRUE", "project_member", "p.status = #{status}", "p.name ILIKE", "LIMIT #{limit}");
     }
 
     @Test
     void 总数查询应复用列表的数据范围和筛选条件() {
         String sql = new ProjectSqlProvider().countVisible(Map.of(
-                "organizationId", "org", "userId", "user", "status", "active", "search", "材料"));
-        assertThat(sql).contains("SELECT COUNT(*)", "WITH RECURSIVE visible_org", "project_member", "p.status = #{status}", "p.name ILIKE");
+                "organizationId", "org", "userId", "user", "readAll", false, "status", "active", "search", "材料"));
+        assertThat(sql).contains("SELECT COUNT(*)", "p.organization_id = #{organizationId}", "#{readAll} = TRUE", "project_member", "p.status = #{status}", "p.name ILIKE");
     }
 }

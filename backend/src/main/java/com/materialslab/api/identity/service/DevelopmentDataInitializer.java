@@ -80,6 +80,14 @@ public class DevelopmentDataInitializer implements ApplicationRunner {
         createRole(ADMIN_ROLE_ID, "super_admin", "超级管理员", ADMIN_ID);
         createRole(MANAGER_ROLE_ID, "project_manager", "项目管理员", MANAGER_ID);
         createRole(RESEARCHER_ROLE_ID, "researcher", "实验员", RESEARCHER_ID);
+        assignRole(userId("zhangwei"), RESEARCHER_ROLE_ID);
+        assignRole(userId("lina"), RESEARCHER_ROLE_ID);
+        assignRole(userId("wangqiang"), RESEARCHER_ROLE_ID);
+        assignRole(userId("chensi"), RESEARCHER_ROLE_ID);
+        assignRole(userId("zhouhao"), RESEARCHER_ROLE_ID);
+        assignRole(userId("liuyang"), RESEARCHER_ROLE_ID);
+        assignRole(userId("zhaomin"), RESEARCHER_ROLE_ID);
+        createRolePermissions();
     }
 
     private void createUser(UUID userId, String username, String displayName, boolean superAdmin) {
@@ -98,11 +106,51 @@ public class DevelopmentDataInitializer implements ApplicationRunner {
                 VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT (organization_id, role_code) DO NOTHING
                 """, roleId, ORGANIZATION_ID, roleCode, roleName, "开发测试角色", true);
+        assignRole(userId, roleId);
+    }
+
+    private void assignRole(UUID userId, UUID roleId) {
         jdbcTemplate.update("""
                 INSERT INTO user_role(id, organization_id, user_id, role_id, created_by_id)
                 VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT (user_id, role_id) DO NOTHING
                 """, stableId("user-role-" + userId + "-" + roleId), ORGANIZATION_ID, userId, roleId, ADMIN_ID);
+    }
+
+    /** 创建开发环境 RBAC 权限字典并绑定系统角色。 */
+    private void createRolePermissions() {
+        createPermission("organization.read", "查看组织信息", "organization");
+        createPermission("project.read", "查看项目", "project");
+        createPermission("project.create", "创建项目", "project");
+        createPermission("project.update", "编辑项目", "project");
+        createPermission("project.archive", "归档项目", "project");
+        createPermission("experiment.read", "查看实验", "experiment");
+        createPermission("experiment.create", "创建实验", "experiment");
+        createPermission("experiment.update", "编辑实验记录", "experiment");
+        createPermission("experiment.transition", "迁移实验状态", "experiment");
+
+        grant(MANAGER_ROLE_ID, "organization.read", "project.read", "project.create", "project.update", "project.archive",
+                "experiment.read", "experiment.create", "experiment.update", "experiment.transition");
+        grant(RESEARCHER_ROLE_ID, "organization.read", "project.read", "experiment.read", "experiment.update", "experiment.transition");
+    }
+
+    private void createPermission(String code, String name, String moduleCode) {
+        jdbcTemplate.update("""
+                INSERT INTO permission(id, permission_code, name, module_code, description)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT (permission_code) DO NOTHING
+                """, stableId("permission-" + code), code, name, moduleCode, "开发测试 RBAC 权限");
+    }
+
+    private void grant(UUID roleId, String... permissionCodes) {
+        for (String permissionCode : permissionCodes) {
+            jdbcTemplate.update("""
+                    INSERT INTO role_permission(id, role_id, permission_id)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT (role_id, permission_id) DO NOTHING
+                    """, stableId("role-permission-" + roleId + "-" + permissionCode), roleId,
+                    stableId("permission-" + permissionCode));
+        }
     }
 
     private void createExistingProjects() {

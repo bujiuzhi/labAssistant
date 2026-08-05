@@ -10,18 +10,15 @@ public class ProjectSqlProvider {
         String status = (String) parameters.get("status");
         String search = (String) parameters.get("search");
         StringBuilder sql = new StringBuilder("""
-                WITH RECURSIVE visible_org AS (
-                  SELECT id FROM organization WHERE id = #{organizationId}
-                  UNION ALL SELECT child.id FROM organization child JOIN visible_org parent ON child.parent_id = parent.id
-                )
                 SELECT p.id, p.organization_id, p.project_no, p.name, p.project_type_code, p.description,
                        p.current_stage, p.progress_percent, p.status, p.owner_id, owner.display_name owner_name,
                        p.objectives::text, p.milestones::text, p.document_count, p.experiment_count, p.data_resource_count,
                        p.planned_start_date, p.planned_end_date, p.actual_end_at, p.archived_at,
                        p.version, p.created_at, p.updated_at
                 FROM project p JOIN user_account owner ON owner.id = p.owner_id
-                WHERE (p.organization_id IN (SELECT id FROM visible_org)
-                  OR EXISTS (SELECT 1 FROM project_member member WHERE member.project_id = p.id AND member.user_id = #{userId}))
+                WHERE p.organization_id = #{organizationId}
+                  AND (#{readAll} = TRUE OR p.owner_id = #{userId}
+                    OR EXISTS (SELECT 1 FROM project_member member WHERE member.project_id = p.id AND member.user_id = #{userId}))
                 """);
         if (status != null && !status.isBlank()) sql.append(" AND p.status = #{status}");
         if (search != null && !search.isBlank()) sql.append(" AND (p.project_no ILIKE '%' || #{search} || '%' OR p.name ILIKE '%' || #{search} || '%')");
@@ -34,13 +31,10 @@ public class ProjectSqlProvider {
         String status = (String) parameters.get("status");
         String search = (String) parameters.get("search");
         StringBuilder sql = new StringBuilder("""
-                WITH RECURSIVE visible_org AS (
-                  SELECT id FROM organization WHERE id = #{organizationId}
-                  UNION ALL SELECT child.id FROM organization child JOIN visible_org parent ON child.parent_id = parent.id
-                )
                 SELECT COUNT(*) FROM project p
-                WHERE (p.organization_id IN (SELECT id FROM visible_org)
-                  OR EXISTS (SELECT 1 FROM project_member member WHERE member.project_id = p.id AND member.user_id = #{userId}))
+                WHERE p.organization_id = #{organizationId}
+                  AND (#{readAll} = TRUE OR p.owner_id = #{userId}
+                    OR EXISTS (SELECT 1 FROM project_member member WHERE member.project_id = p.id AND member.user_id = #{userId}))
                 """);
         if (status != null && !status.isBlank()) sql.append(" AND p.status = #{status}");
         if (search != null && !search.isBlank()) sql.append(" AND (p.project_no ILIKE '%' || #{search} || '%' OR p.name ILIKE '%' || #{search} || '%')");

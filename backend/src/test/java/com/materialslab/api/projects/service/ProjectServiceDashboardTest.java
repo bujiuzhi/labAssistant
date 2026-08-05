@@ -3,6 +3,9 @@ package com.materialslab.api.projects.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
+import com.materialslab.api.identity.domain.UserAccount;
+import com.materialslab.api.identity.security.AccessControlService;
+import com.materialslab.api.identity.security.UserPrincipal;
 import com.materialslab.api.projects.domain.DashboardRows.ActiveProject;
 import com.materialslab.api.projects.domain.DashboardRows.Metrics;
 import com.materialslab.api.projects.domain.DashboardRows.ProjectOption;
@@ -31,8 +34,10 @@ class ProjectServiceDashboardTest {
         DashboardMapper dashboardMapper = dashboardMapper(projectId, organizationId, userId);
         ProjectMapper projectMapper = (ProjectMapper) Proxy.newProxyInstance(
                 getClass().getClassLoader(), new Class<?>[] {ProjectMapper.class}, (proxy, method, args) -> null);
-        ProjectService service = new ProjectService(projectMapper, dashboardMapper, new ObjectMapper());
-        Map<String, Object> result = service.dashboard(organizationId, userId, projectId);
+        ProjectService service = new ProjectService(projectMapper, dashboardMapper, new ObjectMapper(), new AccessControlService());
+        UserPrincipal principal = new UserPrincipal(
+                new UserAccount(userId, organizationId, "admin", "", "测试管理员", "active", true), List.of());
+        Map<String, Object> result = service.dashboard(principal, projectId);
 
         assertEquals(3L, ((Map<?, ?>) result.get("project_metrics")).get("total"));
         assertEquals(2L, ((Map<?, ?>) result.get("experiment_metrics")).get("in_progress"));

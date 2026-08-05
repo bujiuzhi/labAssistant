@@ -6,6 +6,7 @@ import com.materialslab.api.identity.domain.ManagedUser;
 import com.materialslab.api.identity.domain.UserAccount;
 import com.materialslab.api.identity.mapper.IdentityMapper;
 import com.materialslab.api.identity.security.DatabaseUserDetailsService;
+import com.materialslab.api.identity.security.AccessControlService;
 import com.materialslab.api.identity.security.UserPrincipal;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -28,11 +29,14 @@ public class IdentityService {
     private final DatabaseUserDetailsService userDetailsService;
     private final IdentityMapper identityMapper;
     private final PasswordEncoder passwordEncoder;
+    private final AccessControlService accessControlService;
 
-    public IdentityService(DatabaseUserDetailsService userDetailsService, IdentityMapper identityMapper, PasswordEncoder passwordEncoder) {
+    public IdentityService(DatabaseUserDetailsService userDetailsService, IdentityMapper identityMapper, PasswordEncoder passwordEncoder,
+                           AccessControlService accessControlService) {
         this.userDetailsService = userDetailsService;
         this.identityMapper = identityMapper;
         this.passwordEncoder = passwordEncoder;
+        this.accessControlService = accessControlService;
     }
 
     /** 按用户名和密码建立认证主体。 */
@@ -57,6 +61,7 @@ public class IdentityService {
 
     /** 返回当前登录用户可选择的负责人和成员。 */
     public List<Map<String, Object>> visibleUserOptions(UserPrincipal principal) {
+        accessControlService.requirePermission(principal, "project.create");
         return identityMapper.listVisibleActiveUsers(principal.organizationId()).stream().map(account -> Map.<String, Object>of(
                 "id", account.id(), "username", account.username(), "display_name", account.displayName())).toList();
     }

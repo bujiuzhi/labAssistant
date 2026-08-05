@@ -3,6 +3,8 @@ package com.materialslab.api.projects.service;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.materialslab.api.common.exception.BusinessException;
+import com.materialslab.api.identity.security.AccessControlService;
+import com.materialslab.api.identity.security.UserPrincipal;
 import com.materialslab.api.projects.domain.DashboardRows.ActiveProject;
 import com.materialslab.api.projects.domain.Project;
 import com.materialslab.api.projects.domain.ProjectMilestone;
@@ -31,25 +33,35 @@ public class ProjectService {
     private final ProjectMapper projectMapper;
     private final DashboardMapper dashboardMapper;
     private final ObjectMapper objectMapper;
-    public ProjectService(ProjectMapper projectMapper, DashboardMapper dashboardMapper, ObjectMapper objectMapper) {
+    private final AccessControlService accessControlService;
+    public ProjectService(ProjectMapper projectMapper, DashboardMapper dashboardMapper, ObjectMapper objectMapper,
+                          AccessControlService accessControlService) {
         this.projectMapper = projectMapper;
         this.dashboardMapper = dashboardMapper;
         this.objectMapper = objectMapper;
+        this.accessControlService = accessControlService;
     }
 
     /** 查询当前用户可见项目。 */
-    public List<Project> list(UUID organizationId, UUID userId, String status, String search, int page, int pageSize) {
-        return projectMapper.findVisible(organizationId, userId, normalizeStatus(status), search, Math.min(Math.max(pageSize, 1), 100), Math.max(page - 1, 0) * Math.min(Math.max(pageSize, 1), 100));
+    public List<Project> list(UserPrincipal principal, String status, String search, int page, int pageSize) {
+        accessControlService.requirePermission(principal, "project.read");
+        int limit = Math.min(Math.max(pageSize, 1), 100);
+        return projectMapper.findVisible(principal.organizationId(), principal.userId(),
+                accessControlService.canReadAllOrganizationData(principal), normalizeStatus(status), search, limit, Math.max(page - 1, 0) * limit);
     }
 
     /** 统计当前用户可见项目总数。 */
-    public long count(UUID organizationId, UUID userId, String status, String search) {
-        return projectMapper.countVisible(organizationId, userId, normalizeStatus(status), search);
+    public long count(UserPrincipal principal, String status, String search) {
+        accessControlService.requirePermission(principal, "project.read");
+        return projectMapper.countVisible(principal.organizationId(), principal.userId(),
+                accessControlService.canReadAllOrganizationData(principal), normalizeStatus(status), search);
     }
 
     /** 按项目主键或项目编号获取当前组织项目。 */
-    public Project get(UUID organizationId, String projectKey) {
-        Project project = projectMapper.findByKey(organizationId, projectKey);
+    public Project get(UserPrincipal principal, String projectKey) {
+        accessControlService.requirePermission(principal, "project.read");
+        Project project = projectMapper.findByKey(principal.organizationId(), principal.userId(),
+                accessControlService.canReadAllOrganizationData(principal), projectKey);
         if (project == null) throw new BusinessException(HttpStatus.NOT_FOUND, "project_not_found", "项目不存在或无权访问");
         return project;
     }
@@ -71,9 +83,9 @@ public class ProjectService {
     }
 
     /** 查询项目真实操作日志。 */
-    public List<ProjectOperationLog> operationLogs(UUID organizationId, String projectKey) {
-        Project project = get(organizationId, projectKey);
-        return projectMapper.listOperationLogs(organizationId, project.id()).stream()
+    public List<ProjectOperationLog> operationLogs(UserPrincipal principal, String projectKey) {
+        Project project = get(principal, projectKey);
+        return projectMapper.listOperationLogs(principal.organizationId(), project.id()).stream()
                 .map(row -> new ProjectOperationLog(row.id(), row.actionType(), row.description(), row.actorDisplayName(),
                         readObject(row.changes()), row.createdAt()))
                 .toList();
@@ -81,44 +93,56 @@ public class ProjectService {
 
     /** 创建带 PRJ 编号的项目。 */
     @Transactional
-    public Project create(UUID organizationId, UUID actorId, JsonNode payload) {
-        ProjectWriteCommand command = command(null, organizationId, actorId, payload, 0, nextProjectNo());
+    public Project create(UserPrincipal principal, JsonNode payload) {
+        accessControlService.requirePermission(principal, "project.create");
+        ProjectWriteCommand command = command(null, principal.organizationId(), principal.userId(), payload, 0, nextProjectNo());
+        requireOrganizationUser(principal.organizationId(), command.ownerId());
         projectMapper.insert(command);
-        return get(organizationId, command.projectNo());
+        projectMapper.addCreatorAsManager(UUID.randomUUID(), principal.organizationId(), command.id(), principal.userId());
+        return get(principal, command.projectNo());
     }
 
     /** 使用乐观锁更新项目。 */
     @Transactional
-    public Project update(UUID organizationId, UUID actorId, String projectNo, int version, JsonNode payload) {
-        Project existing = get(organizationId, projectNo);
-        ProjectWriteCommand command = command(existing.id(), organizationId, actorId, payload, version, existing.projectNo());
+    public Project update(UserPrincipal principal, String projectNo, int version, JsonNode payload) {
+        accessControlService.requirePermission(principal, "project.update");
+        Project existing = get(principal, projectNo);
+        requireManageAccess(principal, existing);
+        ProjectWriteCommand command = command(existing.id(), principal.organizationId(), principal.userId(), payload, version, existing.projectNo());
+        requireOrganizationUser(principal.organizationId(), command.ownerId());
         if (projectMapper.update(command) == 0) throw new BusinessException(HttpStatus.PRECONDITION_FAILED, "version_conflict", "项目已被其他用户更新，请刷新后重试");
-        return get(organizationId, projectNo);
+        return get(principal, projectNo);
     }
 
     /** 归档项目。 */
     @Transactional
-    public Project archive(UUID organizationId, UUID actorId, String projectNo, int version) {
-        Project project = get(organizationId, projectNo);
-        if (projectMapper.archive(project.id(), version, actorId) == 0) throw new BusinessException(HttpStatus.PRECONDITION_FAILED, "version_conflict", "项目已被更新或已归档");
-        return get(organizationId, projectNo);
+    public Project archive(UserPrincipal principal, String projectNo, int version) {
+        accessControlService.requirePermission(principal, "project.archive");
+        Project project = get(principal, projectNo);
+        requireManageAccess(principal, project);
+        if (projectMapper.archive(project.id(), version, principal.userId()) == 0) throw new BusinessException(HttpStatus.PRECONDITION_FAILED, "version_conflict", "项目已被更新或已归档");
+        return get(principal, projectNo);
     }
 
     /** 设置项目关注状态。 */
     @Transactional
-    public boolean setFollow(UUID organizationId, UUID userId, String projectNo, boolean followed) {
-        Project project = get(organizationId, projectNo);
-        if (followed) projectMapper.follow(UUID.randomUUID(), project.id(), userId); else projectMapper.unfollow(project.id(), userId);
+    public boolean setFollow(UserPrincipal principal, String projectNo, boolean followed) {
+        Project project = get(principal, projectNo);
+        if (followed) projectMapper.follow(UUID.randomUUID(), project.id(), principal.userId()); else projectMapper.unfollow(project.id(), principal.userId());
         return followed;
     }
 
     /** 汇总当前组织测试数据库中的项目与实验实时指标。 */
-    public Map<String, Object> dashboard(UUID organizationId, UUID userId, UUID selectedProjectId) {
-        var projectMetrics = dashboardMapper.projectMetrics(organizationId);
-        var experimentMetrics = dashboardMapper.experimentMetrics(organizationId);
-        var typeDistribution = dashboardMapper.typeDistribution(organizationId);
+    public Map<String, Object> dashboard(UserPrincipal principal, UUID selectedProjectId) {
+        accessControlService.requirePermission(principal, "project.read");
+        UUID organizationId = principal.organizationId();
+        UUID userId = principal.userId();
+        boolean readAll = accessControlService.canReadAllOrganizationData(principal);
+        var projectMetrics = dashboardMapper.projectMetrics(organizationId, userId, readAll);
+        var experimentMetrics = dashboardMapper.experimentMetrics(organizationId, userId, readAll);
+        var typeDistribution = dashboardMapper.typeDistribution(organizationId, userId, readAll);
         LocalDate startDate = LocalDate.now(ZoneId.of("Asia/Shanghai")).minusDays(29);
-        var trendEntries = dashboardMapper.trendEntries(organizationId, startDate);
+        var trendEntries = dashboardMapper.trendEntries(organizationId, userId, readAll, startDate);
 
         List<String> dates = new ArrayList<>();
         for (int offset = 0; offset < 30; offset++) {
@@ -140,10 +164,10 @@ public class ProjectService {
             series.add(Map.of("name", typeName, "values", values));
         }
 
-        List<Map<String, Object>> activeProjects = dashboardMapper.activeProjects(organizationId, userId).stream()
+        List<Map<String, Object>> activeProjects = dashboardMapper.activeProjects(organizationId, userId, readAll).stream()
                 .map(this::toDashboardProject)
                 .toList();
-        List<Map<String, Object>> projectOptions = dashboardMapper.projectOptions(organizationId).stream()
+        List<Map<String, Object>> projectOptions = dashboardMapper.projectOptions(organizationId, userId, readAll).stream()
                 .map(item -> Map.<String, Object>of("id", item.id(), "project_no", item.projectNo(), "name", item.name()))
                 .toList();
 
@@ -164,6 +188,19 @@ public class ProjectService {
     private Map<String, Object> metrics(long total, long active, long archived, long atRisk, long inProgress, long completed) {
         return Map.of("total", total, "active", active, "archived", archived, "at_risk", atRisk,
                 "in_progress", inProgress, "completed", completed);
+    }
+
+    private void requireManageAccess(UserPrincipal principal, Project project) {
+        if (!principal.isSuperAdmin()
+                && !projectMapper.hasManageAccess(principal.organizationId(), project.id(), principal.userId())) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "permission_denied", "当前用户无权管理该项目");
+        }
+    }
+
+    private void requireOrganizationUser(UUID organizationId, UUID userId) {
+        if (!projectMapper.isActiveOrganizationUser(organizationId, userId)) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "项目负责人必须是当前组织的有效用户");
+        }
     }
 
     private Map<String, Object> toDashboardProject(ActiveProject project) {

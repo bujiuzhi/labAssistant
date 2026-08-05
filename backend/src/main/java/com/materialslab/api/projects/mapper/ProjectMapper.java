@@ -18,15 +18,17 @@ public interface ProjectMapper {
     /** 查询用户可见项目。 */
     @SelectProvider(type = ProjectSqlProvider.class, method = "findVisible")
     List<Project> findVisible(@Param("organizationId") UUID organizationId, @Param("userId") UUID userId,
+                              @Param("readAll") boolean readAll,
                               @Param("status") String status, @Param("search") String search,
                               @Param("limit") int limit, @Param("offset") int offset);
 
     /** 统计当前用户可见项目总数。 */
     @SelectProvider(type = ProjectSqlProvider.class, method = "countVisible")
     long countVisible(@Param("organizationId") UUID organizationId, @Param("userId") UUID userId,
+                      @Param("readAll") boolean readAll,
                       @Param("status") String status, @Param("search") String search);
 
-    /** 按项目主键或项目编号查询当前组织项目。 */
+    /** 按项目主键或项目编号查询当前用户可见项目。 */
     @Select("""
             SELECT p.id, p.organization_id, p.project_no, p.name, p.project_type_code, p.description,
                    p.current_stage, p.progress_percent, p.status, p.owner_id, owner.display_name owner_name,
@@ -36,8 +38,32 @@ public interface ProjectMapper {
             FROM project p JOIN user_account owner ON owner.id = p.owner_id
             WHERE (p.id::text = #{projectKey} OR p.project_no = #{projectKey})
               AND p.organization_id = #{organizationId}
+              AND (#{readAll} = TRUE OR p.owner_id = #{userId}
+                OR EXISTS (SELECT 1 FROM project_member member WHERE member.project_id = p.id AND member.user_id = #{userId}))
             """)
-    Project findByKey(@Param("organizationId") UUID organizationId, @Param("projectKey") String projectKey);
+    Project findByKey(@Param("organizationId") UUID organizationId, @Param("userId") UUID userId,
+                      @Param("readAll") boolean readAll, @Param("projectKey") String projectKey);
+
+    /** 判断项目成员是否拥有管理权限。 */
+    @Select("""
+            SELECT EXISTS(
+              SELECT 1 FROM project p
+              WHERE p.id = #{projectId} AND p.organization_id = #{organizationId}
+                AND (p.owner_id = #{userId} OR EXISTS (
+                  SELECT 1 FROM project_member member
+                  WHERE member.project_id = p.id AND member.user_id = #{userId}
+                    AND member.member_role IN ('owner', 'manager')))
+            )
+            """)
+    boolean hasManageAccess(@Param("organizationId") UUID organizationId, @Param("projectId") UUID projectId,
+                            @Param("userId") UUID userId);
+
+    /** 校验负责人属于当前组织且处于启用状态。 */
+    @Select("""
+            SELECT EXISTS(SELECT 1 FROM user_account
+              WHERE id = #{userId} AND organization_id = #{organizationId} AND status = 'active')
+            """)
+    boolean isActiveOrganizationUser(@Param("organizationId") UUID organizationId, @Param("userId") UUID userId);
 
     /** 查询项目实际成员。 */
     @Select("""
@@ -68,6 +94,15 @@ public interface ProjectMapper {
               #{ownerId}, #{plannedStartDate}, #{plannedEndDate}, 1, #{actorId}, #{actorId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """)
     int insert(ProjectWriteCommand command);
+
+    /** 将创建人加入项目，保证创建后可见并可继续管理。 */
+    @Insert("""
+            INSERT INTO project_member(id, organization_id, project_id, user_id, member_role, created_by_id)
+            VALUES (#{id}, #{organizationId}, #{projectId}, #{userId}, 'manager', #{userId})
+            ON CONFLICT (project_id, user_id) DO NOTHING
+            """)
+    int addCreatorAsManager(@Param("id") UUID id, @Param("organizationId") UUID organizationId,
+                            @Param("projectId") UUID projectId, @Param("userId") UUID userId);
 
     /** 以版本号更新项目；返回零代表并发冲突。 */
     @Update("""

@@ -17,12 +17,14 @@ import org.apache.ibatis.annotations.Update;
 public interface ExperimentMapper {
     /** 查询实验列表。 */
     @SelectProvider(type = ExperimentSqlProvider.class, method = "findVisible")
-    List<Experiment> findVisible(@Param("organizationId") UUID organizationId, @Param("projectId") UUID projectId,
+    List<Experiment> findVisible(@Param("organizationId") UUID organizationId, @Param("userId") UUID userId,
+                                 @Param("readAll") boolean readAll, @Param("projectId") UUID projectId,
                                  @Param("status") String status, @Param("search") String search,
                                  @Param("limit") int limit, @Param("offset") int offset);
     /** 统计当前组织内符合条件的实验总数。 */
     @SelectProvider(type = ExperimentSqlProvider.class, method = "countVisible")
-    long countVisible(@Param("organizationId") UUID organizationId, @Param("projectId") UUID projectId,
+    long countVisible(@Param("organizationId") UUID organizationId, @Param("userId") UUID userId,
+                      @Param("readAll") boolean readAll, @Param("projectId") UUID projectId,
                       @Param("status") String status, @Param("search") String search);
     /** 按业务编号查询实验。 */
     @Select("""
@@ -30,8 +32,48 @@ public interface ExperimentMapper {
         e.purpose, e.owner_id, owner.display_name owner_display_name, e.version, e.estimated_start, e.estimated_end,
         e.started_at, e.completed_at, e.created_at, e.updated_at FROM experiment e JOIN user_account owner ON owner.id=e.owner_id JOIN project ON project.id=e.project_id
         WHERE e.organization_id=#{organizationId} AND e.experiment_no=#{experimentNo}
+          AND (#{readAll} = TRUE OR project.owner_id = #{userId}
+            OR EXISTS (SELECT 1 FROM project_member member WHERE member.project_id = project.id AND member.user_id = #{userId}))
         """)
-    Experiment findByNo(@Param("organizationId") UUID organizationId, @Param("experimentNo") String experimentNo);
+    Experiment findByNo(@Param("organizationId") UUID organizationId, @Param("userId") UUID userId,
+                        @Param("readAll") boolean readAll, @Param("experimentNo") String experimentNo);
+
+    /** 判断用户是否是实验负责人、参与人或项目管理成员。 */
+    @Select("""
+            SELECT EXISTS(
+              SELECT 1 FROM experiment e JOIN project p ON p.id = e.project_id
+              WHERE e.id = #{experimentId} AND e.organization_id = #{organizationId}
+                AND (e.owner_id = #{userId}
+                  OR EXISTS (SELECT 1 FROM experiment_participant participant
+                             WHERE participant.experiment_id = e.id AND participant.user_id = #{userId})
+                  OR EXISTS (SELECT 1 FROM project_member member
+                             WHERE member.project_id = p.id AND member.user_id = #{userId}
+                               AND member.member_role IN ('owner', 'manager')))
+            )
+            """)
+    boolean hasWriteAccess(@Param("organizationId") UUID organizationId, @Param("experimentId") UUID experimentId,
+                           @Param("userId") UUID userId);
+
+    /** 判断用户是否拥有项目管理成员资格。 */
+    @Select("""
+            SELECT EXISTS(
+              SELECT 1 FROM project p
+              WHERE p.id = #{projectId} AND p.organization_id = #{organizationId}
+                AND (p.owner_id = #{userId} OR EXISTS (
+                  SELECT 1 FROM project_member member
+                  WHERE member.project_id = p.id AND member.user_id = #{userId}
+                    AND member.member_role IN ('owner', 'manager')))
+            )
+            """)
+    boolean hasProjectManageAccess(@Param("organizationId") UUID organizationId, @Param("projectId") UUID projectId,
+                                   @Param("userId") UUID userId);
+
+    /** 校验实验负责人属于当前组织且处于启用状态。 */
+    @Select("""
+            SELECT EXISTS(SELECT 1 FROM user_account
+              WHERE id = #{userId} AND organization_id = #{organizationId} AND status = 'active')
+            """)
+    boolean isActiveOrganizationUser(@Param("organizationId") UUID organizationId, @Param("userId") UUID userId);
 
     /** 查询实验电子记录内容。 */
     @Select("""
