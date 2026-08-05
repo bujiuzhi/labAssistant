@@ -5,11 +5,14 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Arg;
+import org.apache.ibatis.annotations.ConstructorArgs;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectProvider;
 import org.apache.ibatis.annotations.Update;
+import org.apache.ibatis.type.ByteArrayTypeHandler;
 
 /** 项目文档元数据和正文的数据库访问层。 */
 @Mapper
@@ -46,7 +49,8 @@ public interface ProjectDocumentMapper {
 
     /** 读取文档真实二进制正文。 */
     @Select("SELECT content FROM project_document_content WHERE document_id = #{documentId}")
-    byte[] findContent(@Param("documentId") UUID documentId);
+    @ConstructorArgs(@Arg(column = "content", javaType = byte[].class, typeHandler = ByteArrayTypeHandler.class))
+    DocumentContentRow findContent(@Param("documentId") UUID documentId);
 
     /** 写入文档元数据。 */
     @Insert("""
@@ -84,6 +88,9 @@ public interface ProjectDocumentMapper {
 
     /** 分类数量的查询行。 */
     record CategoryCount(String category, long total) { }
+
+    /** 文档正文查询行，避免 MyBatis 将 BYTEA 误映射为单个 byte。 */
+    record DocumentContentRow(byte[] content) { }
 
     /** 文档新增写入参数。 */
     record DocumentWriteCommand(UUID id, UUID organizationId, UUID projectId, String category, String name,

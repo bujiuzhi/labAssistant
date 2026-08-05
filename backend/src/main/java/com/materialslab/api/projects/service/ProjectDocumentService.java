@@ -98,9 +98,11 @@ public class ProjectDocumentService {
         Project project = projectService.get(principal, projectKey);
         ProjectDocument document = documentMapper.findById(project.id(), documentId);
         if (document == null) throw new BusinessException(HttpStatus.NOT_FOUND, "document_not_found", "项目文档不存在或无权访问");
-        byte[] content = documentMapper.findContent(documentId);
-        if (content == null) throw new BusinessException(HttpStatus.NOT_FOUND, "document_content_not_found", "项目文档正文不存在");
-        return new DocumentContent(document, content);
+        var contentRow = documentMapper.findContent(documentId);
+        if (contentRow == null || contentRow.content() == null) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "document_content_not_found", "项目文档正文不存在");
+        }
+        return new DocumentContent(document, contentRow.content());
     }
 
     private ProjectDocumentResponse response(ProjectDocument document) {
