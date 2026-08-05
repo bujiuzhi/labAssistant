@@ -9,6 +9,9 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectProvider;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Update;
+import org.apache.ibatis.annotations.Delete;
 
 /** 身份域数据库访问定义。 */
 @Mapper
@@ -90,8 +93,43 @@ public interface IdentityMapper {
             """)
     List<ManagedRoleOption> listManagedRoleOptions(@Param("organizationId") UUID organizationId);
 
+    /** 创建组织用户。 */
+    @Insert("""
+            INSERT INTO user_account (id, organization_id, password, username, display_name, email, status, is_active, is_super_admin, created_at, updated_at)
+            VALUES (#{id}, #{organizationId}, #{password}, #{username}, #{displayName}, #{email}, #{status}, #{active}, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """)
+    int insertManagedUser(UserWriteCommand command);
+
+    /** 更新组织用户基础信息。 */
+    @Update("""
+            UPDATE user_account SET username = #{username}, display_name = #{displayName}, email = #{email}, status = #{status},
+            is_active = #{active}, updated_at = CURRENT_TIMESTAMP
+            WHERE id = #{id} AND organization_id = #{organizationId}
+            """)
+    int updateManagedUser(UserWriteCommand command);
+
+    /** 重置组织用户密码。 */
+    @Update("UPDATE user_account SET password = #{password}, updated_at = CURRENT_TIMESTAMP WHERE id = #{userId} AND organization_id = #{organizationId}")
+    int resetPassword(@Param("organizationId") UUID organizationId, @Param("userId") UUID userId, @Param("password") String password);
+
+    /** 删除用户原有角色。 */
+    @Delete("DELETE FROM user_role WHERE user_id = #{userId} AND organization_id = #{organizationId}")
+    int deleteUserRoles(@Param("organizationId") UUID organizationId, @Param("userId") UUID userId);
+
+    /** 按角色代码查询组织角色主键。 */
+    @Select("SELECT id FROM role WHERE organization_id = #{organizationId} AND role_code = #{roleCode} AND status = 'active'")
+    UUID findRoleId(@Param("organizationId") UUID organizationId, @Param("roleCode") String roleCode);
+
+    /** 新增用户角色关联。 */
+    @Insert("INSERT INTO user_role (id, organization_id, user_id, role_id, created_at, created_by_id) VALUES (#{id}, #{organizationId}, #{userId}, #{roleId}, CURRENT_TIMESTAMP, #{actorId})")
+    int insertUserRole(@Param("id") UUID id, @Param("organizationId") UUID organizationId, @Param("userId") UUID userId, @Param("roleId") UUID roleId, @Param("actorId") UUID actorId);
+
     /** 管理员用户查询的原始行，角色字符串由服务层转换为列表。 */
     record ManagedUserRow(UUID id, String username, String displayName, String email, String status, boolean active,
                           boolean superAdmin, String roleCodes, String roleNames, OffsetDateTime lastLogin,
                           OffsetDateTime createdAt, OffsetDateTime updatedAt) { }
+
+    /** 用户管理写入参数。 */
+    record UserWriteCommand(UUID id, UUID organizationId, String password, String username, String displayName, String email,
+                            String status, boolean active) { }
 }

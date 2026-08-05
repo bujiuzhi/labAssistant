@@ -3,6 +3,7 @@ package com.materialslab.api.identity.service;
 import com.materialslab.api.common.exception.BusinessException;
 import com.materialslab.api.identity.domain.ManagedRoleOption;
 import com.materialslab.api.identity.domain.ManagedUser;
+import com.materialslab.api.identity.domain.UserAccount;
 import com.materialslab.api.identity.mapper.IdentityMapper;
 import com.materialslab.api.identity.security.DatabaseUserDetailsService;
 import com.materialslab.api.identity.security.UserPrincipal;
@@ -10,6 +11,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -17,6 +19,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
 
 /** 处理登录、会话及账户选项的应用服务。 */
 @Service
@@ -80,6 +84,39 @@ public class IdentityService {
         return identityMapper.listManagedRoleOptions(principal.organizationId());
     }
 
+    /** 创建组织用户并绑定角色。 */
+    @Transactional
+    public void createManagedUser(UserPrincipal principal, JsonNode payload) {
+        requireSuperAdmin(principal);
+        String password = required(payload, "password");
+        if (password.length() < 8) throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "初始密码至少 8 位");
+        UUID userId = UUID.randomUUID();
+        identityMapper.insertManagedUser(command(userId, principal.organizationId(), passwordEncoder.encode(password), payload));
+        replaceRoles(principal, userId, payload);
+    }
+
+    /** 更新组织用户并重置角色关联。 */
+    @Transactional
+    public void updateManagedUser(UserPrincipal principal, UUID userId, JsonNode payload) {
+        requireSuperAdmin(principal);
+        UserAccount existing = identityMapper.findById(userId);
+        if (existing == null || !principal.organizationId().equals(existing.organizationId())) throw new BusinessException(HttpStatus.NOT_FOUND, "user_not_found", "用户不存在或不属于当前组织");
+        if (existing.superAdmin()) throw new BusinessException(HttpStatus.FORBIDDEN, "super_admin_protected", "超级管理员账号受保护");
+        if (identityMapper.updateManagedUser(command(userId, principal.organizationId(), existing.password(), payload)) == 0) throw new BusinessException(HttpStatus.NOT_FOUND, "user_not_found", "用户不存在或不属于当前组织");
+        replaceRoles(principal, userId, payload);
+    }
+
+    /** 重置普通用户密码。 */
+    @Transactional
+    public void resetManagedUserPassword(UserPrincipal principal, UUID userId, String password) {
+        requireSuperAdmin(principal);
+        if (password == null || password.length() < 8) throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "新密码至少 8 位");
+        UserAccount existing = identityMapper.findById(userId);
+        if (existing == null || !principal.organizationId().equals(existing.organizationId())) throw new BusinessException(HttpStatus.NOT_FOUND, "user_not_found", "用户不存在或不属于当前组织");
+        if (existing.superAdmin()) throw new BusinessException(HttpStatus.FORBIDDEN, "super_admin_protected", "超级管理员账号受保护");
+        identityMapper.resetPassword(principal.organizationId(), userId, passwordEncoder.encode(password));
+    }
+
     /** 取得经过类型校验的当前主体。 */
     public static UserPrincipal currentPrincipal() {
         Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
@@ -93,5 +130,29 @@ public class IdentityService {
 
     private List<String> split(String values) {
         return values == null || values.isBlank() ? List.of() : Arrays.stream(values.split(",")).filter(value -> !value.isBlank()).toList();
+    }
+
+    private IdentityMapper.UserWriteCommand command(UUID userId, UUID organizationId, String password, JsonNode payload) {
+        String status = required(payload, "status");
+        if (!List.of("active", "locked", "disabled").contains(status)) throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "用户状态不合法");
+        return new IdentityMapper.UserWriteCommand(userId, organizationId, password, required(payload, "username"), required(payload, "display_name"),
+                payload.path("email").asText(""), status, "active".equals(status));
+    }
+
+    private void replaceRoles(UserPrincipal principal, UUID userId, JsonNode payload) {
+        JsonNode roleCodes = payload.path("role_codes");
+        if (!roleCodes.isArray() || roleCodes.isEmpty()) throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "至少选择一个系统角色");
+        identityMapper.deleteUserRoles(principal.organizationId(), userId);
+        for (JsonNode roleCode : roleCodes) {
+            UUID roleId = identityMapper.findRoleId(principal.organizationId(), roleCode.asText());
+            if (roleId == null) throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "角色不存在或不可用");
+            identityMapper.insertUserRole(UUID.randomUUID(), principal.organizationId(), userId, roleId, principal.userId());
+        }
+    }
+
+    private String required(JsonNode payload, String key) {
+        String value = payload.path(key).asText();
+        if (value.isBlank()) throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", key + " 不能为空");
+        return value;
     }
 }

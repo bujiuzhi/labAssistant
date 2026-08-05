@@ -21,6 +21,8 @@ import org.springframework.security.web.context.HttpSessionSecurityContextReposi
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -83,6 +85,29 @@ public class AuthController {
         return ApiResponse.of(identityService.managedRoleOptions(IdentityService.currentPrincipal()));
     }
 
+    /** 创建组织用户，仅超级管理员可访问。 */
+    @PostMapping("/users")
+    public ApiResponse<Void> createUser(@RequestBody tools.jackson.databind.JsonNode payload) {
+        identityService.createManagedUser(IdentityService.currentPrincipal(), payload);
+        return ApiResponse.of(null);
+    }
+
+    /** 更新组织用户，仅超级管理员可访问。 */
+    @PatchMapping("/users/{userId}")
+    public ApiResponse<Void> updateUser(@PathVariable java.util.UUID userId, @RequestBody tools.jackson.databind.JsonNode payload) {
+        identityService.updateManagedUser(IdentityService.currentPrincipal(), userId, payload);
+        return ApiResponse.of(null);
+    }
+
+    /** 重置普通用户密码，仅超级管理员可访问。 */
+    @PostMapping("/users/{userId}/reset-password")
+    public ResponseEntity<Void> resetPassword(@PathVariable java.util.UUID userId, @RequestBody ResetPasswordRequest request) {
+        identityService.resetManagedUserPassword(IdentityService.currentPrincipal(), userId, request.password());
+        return ResponseEntity.noContent().build();
+    }
+
     /** 登录请求。 */
     public record LoginRequest(@NotBlank String username, @NotBlank String password) { }
+    /** 密码重置请求。 */
+    public record ResetPasswordRequest(@NotBlank String password) { }
 }
