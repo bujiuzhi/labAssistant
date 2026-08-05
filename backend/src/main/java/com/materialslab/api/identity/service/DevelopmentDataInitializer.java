@@ -297,44 +297,36 @@ public class DevelopmentDataInitializer implements ApplicationRunner {
                 resultSet.getObject("owner_id", UUID.class), resultSet.getInt("document_count"),
                 resultSet.getObject("created_at", OffsetDateTime.class)), ORGANIZATION_ID);
         String[] categories = {"project_plan", "literature", "experiment_plan", "stage_report", "meeting_minutes", "other"};
-        String[] labels = {"项目实施方案", "文献调研摘要", "实验方案", "阶段进展报告", "项目例会纪要", "技术补充说明"};
         for (DocumentProjectSeed project : projects) {
-            int targetCount = Math.max(project.documentCount(), 4);
+            int targetCount = Math.max(project.documentCount(), 6);
             for (int index = 1; index <= targetCount; index++) {
                 String category = categories[(index - 1) % categories.length];
-                String name = labels[(index - 1) % labels.length] + "-" + String.format("%02d", index) + ".txt";
                 UUID documentId = stableId("project-document-" + project.projectNo() + "-" + index);
                 OffsetDateTime createdAt = project.createdAt().plusDays(index);
-                byte[] content = documentText(project, category, index).getBytes(StandardCharsets.UTF_8);
+                DevelopmentDocumentFixtureFactory.Fixture fixture = DevelopmentDocumentFixtureFactory.create(
+                        category, project.projectNo(), project.name(), index, createdAt);
                 jdbcTemplate.update("""
                         INSERT INTO project_document(
                           id, organization_id, project_id, category, name, version_label, file, mime_type, file_size,
                           uploaded_by_id, created_at, updated_at)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT (id) DO NOTHING
-                        """, documentId, ORGANIZATION_ID, project.id(), category, name, "V" + ((index - 1) / 3 + 1) + ".0",
-                        "database://project-documents/" + documentId, "text/plain; charset=utf-8", content.length,
+                        ON CONFLICT (id) DO UPDATE SET
+                          category = EXCLUDED.category, name = EXCLUDED.name, version_label = EXCLUDED.version_label,
+                          file = EXCLUDED.file, mime_type = EXCLUDED.mime_type, file_size = EXCLUDED.file_size,
+                          updated_at = EXCLUDED.updated_at
+                        """, documentId, ORGANIZATION_ID, project.id(), category, fixture.name(), "V" + ((index - 1) / 3 + 1) + ".0",
+                        "database://project-documents/" + documentId, fixture.mimeType(), fixture.content().length,
                         project.ownerId(), createdAt, createdAt);
                 jdbcTemplate.update("""
                         INSERT INTO project_document_content(document_id, content) VALUES (?, ?)
-                        ON CONFLICT (document_id) DO NOTHING
-                        """, documentId, content);
+                        ON CONFLICT (document_id) DO UPDATE SET content = EXCLUDED.content
+                        """, documentId, fixture.content());
             }
             jdbcTemplate.update("""
                     UPDATE project SET document_count = (SELECT COUNT(*) FROM project_document WHERE project_id = ?)
                     WHERE id = ?
                     """, project.id(), project.id());
         }
-    }
-
-    private String documentText(DocumentProjectSeed project, String category, int index) {
-        return "材料实验助手开发测试文档\n"
-                + "项目编号：" + project.projectNo() + "\n"
-                + "项目名称：" + project.name() + "\n"
-                + "文档分类：" + category + "\n"
-                + "文档序号：" + String.format("%02d", index) + "\n"
-                + "数据来源：开发测试数据库\n\n"
-                + "本文件为可通过项目文档接口读取、预览和下载的测试正文，用于验证真实数据库链路。\n";
     }
 
     private List<ProjectSeed> legacyProjectSeeds() {
