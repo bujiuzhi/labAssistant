@@ -10,7 +10,7 @@ services:
       POSTGRES_USER: ${POSTGRES_DEV_USER}
       POSTGRES_PASSWORD: ${POSTGRES_DEV_PASSWORD}
     ports:
-      - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-15432}:5432"
+      - "${POSTGRES_BIND_ADDRESS:-0.0.0.0}:${POSTGRES_PORT:-15432}:5432"
     volumes:
       - "${MATERIALS_LAB_DATA_ROOT}/postgres:/var/lib/postgresql"
     healthcheck:
@@ -23,13 +23,13 @@ services:
     image: redis:8.4-alpine
     container_name: materials-lab-assistant-redis
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-dev123456}"]
     ports:
-      - "127.0.0.1:16379:6379"
+      - "${REDIS_BIND_ADDRESS:-0.0.0.0}:${REDIS_PORT:-16379}:6379"
     volumes:
       - "${MATERIALS_LAB_DATA_ROOT}/redis:/data"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD:-dev123456}", "ping"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -66,8 +66,8 @@ services:
       RUSTFS_OBS_LOG_DIRECTORY: /logs
       RUST_LOG: error
     ports:
-      - "127.0.0.1:${OBJECT_STORAGE_API_PORT:-19000}:9000"
-      - "127.0.0.1:${OBJECT_STORAGE_CONSOLE_PORT:-19001}:9001"
+      - "${OBJECT_STORAGE_BIND_ADDRESS:-0.0.0.0}:${OBJECT_STORAGE_API_PORT:-19000}:9000"
+      - "${OBJECT_STORAGE_BIND_ADDRESS:-0.0.0.0}:${OBJECT_STORAGE_CONSOLE_PORT:-19001}:9001"
     volumes:
       - "${MATERIALS_LAB_DATA_ROOT}/rustfs/data:/data"
       - "${MATERIALS_LAB_DATA_ROOT}/rustfs/logs:/logs"

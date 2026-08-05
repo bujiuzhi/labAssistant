@@ -69,9 +69,10 @@ conda run -n materials-lab-assistant pnpm --dir frontend install
 conda run -n materials-lab-assistant pnpm --dir frontend dev
 ```
 
-`.env` 中必须为 RustFS 配置独立随机访问密钥，不能沿用模板值。Spring Boot 启动时由
-Flyway 执行 `backend/src/main/resources/db/migration/` 中的数据库迁移；切换现有历史
-数据库前必须先完成备份和只读验证。
+开发 `.env` 使用统一测试凭据：PostgreSQL 用户名/密码为 `dev` / `dev123456`，Redis 密码为
+`dev123456`，RustFS 访问密钥/密钥为 `dev` / `dev123456`。这些凭据仅用于开发测试环境；生产
+配置必须替换为独立的随机强凭据。Spring Boot 启动时由 Flyway 执行
+`backend/src/main/resources/db/migration/` 中的数据库迁移；切换现有历史数据库前必须先完成备份和只读验证。
 
 首次连接空的开发测试数据库时，应用会写入可追溯的 `DEV_TEST` 测试组织、项目和实验数据；页面仅通过接口读取这些数据库记录。开发账号如下，密码统一为 `00000000`：
 
@@ -99,10 +100,10 @@ ssh -f -N \
 `http://127.0.0.1:18000/api/v1/health/live`。若服务器已放行端口，也可直接访问
 `http://192.168.0.156:5173`。
 
-PostgreSQL 默认绑定远程服务器自身的 `127.0.0.1:15432`。需要在同一局域网通过 DBX 直连时，在远程
-`.env` 设置 `POSTGRES_BIND_ADDRESS=0.0.0.0`，重启 PostgreSQL 容器后使用
-`192.168.0.156:15432` 连接；数据库名称、账号和密码分别取 `POSTGRES_DEV_DB`、
-`POSTGRES_DEV_USER`、`POSTGRES_DEV_PASSWORD`。
+开发 Compose 默认将 PostgreSQL、Redis 和 RustFS 绑定到局域网地址，绑定地址分别由
+`POSTGRES_BIND_ADDRESS`、`REDIS_BIND_ADDRESS`、`OBJECT_STORAGE_BIND_ADDRESS` 控制。DBX 连接开发测试库时使用
+`192.168.0.156:15432`、数据库 `materials_lab_dev`、账号 `dev`、密码 `dev123456`。生产环境应将全部
+绑定地址设置为 `127.0.0.1`，并使用独立的随机强凭据。
 
 ## 审计入口
 
