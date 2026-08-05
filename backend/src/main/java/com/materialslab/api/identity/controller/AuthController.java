@@ -1,12 +1,16 @@
 package com.materialslab.api.identity.controller;
 
 import com.materialslab.api.common.model.ApiResponse;
+import com.materialslab.api.common.model.PageResponse;
+import com.materialslab.api.identity.domain.ManagedRoleOption;
+import com.materialslab.api.identity.domain.ManagedUser;
 import com.materialslab.api.identity.security.UserPrincipal;
 import com.materialslab.api.identity.service.IdentityService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -19,6 +23,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /** 会话接口，URL 为 /api/v1/auth。 */
@@ -58,6 +63,25 @@ public class AuthController {
     /** 查询当前组织的有效用户选项。 */
     @GetMapping("/users/options")
     public ApiResponse<?> userOptions() { return ApiResponse.of(identityService.visibleUserOptions(IdentityService.currentPrincipal())); }
+
+    /** 分页查询当前组织用户，仅超级管理员可访问。 */
+    @GetMapping("/users")
+    public PageResponse<ManagedUser> users(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(name = "page_size", defaultValue = "20") int pageSize,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String status,
+            @RequestParam(name = "role_code", required = false) String roleCode) {
+        UserPrincipal principal = IdentityService.currentPrincipal();
+        List<ManagedUser> users = identityService.listManagedUsers(principal, status, search, roleCode, page, pageSize);
+        return PageResponse.of(users, page, pageSize, identityService.countManagedUsers(principal, status, search, roleCode));
+    }
+
+    /** 查询当前组织可分配角色，仅超级管理员可访问。 */
+    @GetMapping("/roles/options")
+    public ApiResponse<List<ManagedRoleOption>> roleOptions() {
+        return ApiResponse.of(identityService.managedRoleOptions(IdentityService.currentPrincipal()));
+    }
 
     /** 登录请求。 */
     public record LoginRequest(@NotBlank String username, @NotBlank String password) { }

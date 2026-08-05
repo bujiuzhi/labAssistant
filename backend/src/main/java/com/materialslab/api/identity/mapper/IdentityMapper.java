@@ -1,11 +1,14 @@
 package com.materialslab.api.identity.mapper;
 
+import com.materialslab.api.identity.domain.ManagedRoleOption;
 import com.materialslab.api.identity.domain.UserAccount;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.SelectProvider;
 
 /** 身份域数据库访问定义。 */
 @Mapper
@@ -67,4 +70,28 @@ public interface IdentityMapper {
             ORDER BY permission.permission_code
             """)
     List<String> listPermissionCodes(@Param("userId") UUID userId);
+
+    /** 查询当前组织的管理员用户列表。 */
+    @SelectProvider(type = IdentitySqlProvider.class, method = "listManagedUsers")
+    List<ManagedUserRow> listManagedUsers(@Param("organizationId") UUID organizationId, @Param("status") String status,
+                                          @Param("search") String search, @Param("roleCode") String roleCode,
+                                          @Param("limit") int limit, @Param("offset") int offset);
+
+    /** 统计当前组织的管理员用户总数。 */
+    @SelectProvider(type = IdentitySqlProvider.class, method = "countManagedUsers")
+    long countManagedUsers(@Param("organizationId") UUID organizationId, @Param("status") String status,
+                           @Param("search") String search, @Param("roleCode") String roleCode);
+
+    /** 查询当前组织可分配的有效系统角色。 */
+    @Select("""
+            SELECT role_code, name, description FROM role
+            WHERE organization_id = #{organizationId} AND status = 'active'
+            ORDER BY is_system DESC, role_code
+            """)
+    List<ManagedRoleOption> listManagedRoleOptions(@Param("organizationId") UUID organizationId);
+
+    /** 管理员用户查询的原始行，角色字符串由服务层转换为列表。 */
+    record ManagedUserRow(UUID id, String username, String displayName, String email, String status, boolean active,
+                          boolean superAdmin, String roleCodes, String roleNames, OffsetDateTime lastLogin,
+                          OffsetDateTime createdAt, OffsetDateTime updatedAt) { }
 }
