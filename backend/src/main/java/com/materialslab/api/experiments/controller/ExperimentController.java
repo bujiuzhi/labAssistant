@@ -16,6 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -39,6 +40,8 @@ public class ExperimentController {
     @PostMapping public ResponseEntity<ApiResponse<ExperimentResponse>> create(@RequestBody JsonNode payload) { UserPrincipal p=IdentityService.currentPrincipal(); Experiment result=experimentService.create(p.organizationId(),p.userId(),payload); return ResponseEntity.status(HttpStatus.CREATED).eTag(String.valueOf(result.version())).body(ApiResponse.of(experimentService.response(result))); }
     /** 获取实验详情。 */
     @GetMapping("/{experimentKey}") public ResponseEntity<ApiResponse<ExperimentResponse>> get(@PathVariable String experimentKey) { UserPrincipal p=IdentityService.currentPrincipal(); Experiment result=experimentService.get(p.organizationId(),experimentKey); return ResponseEntity.ok().eTag(String.valueOf(result.version())).body(ApiResponse.of(experimentService.response(result))); }
+    /** 更新实验及电子记录。 */
+    @PatchMapping("/{experimentKey}") public ResponseEntity<ApiResponse<ExperimentResponse>> update(@PathVariable String experimentKey, @RequestHeader(HttpHeaders.IF_MATCH) String ifMatch, @RequestBody JsonNode payload) { UserPrincipal p=IdentityService.currentPrincipal(); Experiment result=experimentService.update(p.organizationId(), p.userId(), experimentKey, version(ifMatch), payload); return ResponseEntity.ok().eTag(String.valueOf(result.version())).body(ApiResponse.of(experimentService.response(result))); }
     /** 迁移实验状态。 */
     @PostMapping("/{experimentKey}/transition") public ResponseEntity<ApiResponse<ExperimentResponse>> transition(@PathVariable String experimentKey,@RequestHeader(HttpHeaders.IF_MATCH) String ifMatch,@RequestBody JsonNode payload) { UserPrincipal p=IdentityService.currentPrincipal(); Experiment result=experimentService.transition(p.organizationId(),p.userId(),experimentKey,version(ifMatch),payload.path("target_status").asText()); return ResponseEntity.ok().eTag(String.valueOf(result.version())).body(ApiResponse.of(experimentService.response(result))); }
     private int version(String header) { try{return Integer.parseInt(header.replace("\"", ""));}catch(Exception e){throw new BusinessException(HttpStatus.PRECONDITION_REQUIRED,"if_match_required","If-Match 必须携带资源版本号");} }

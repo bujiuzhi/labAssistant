@@ -62,12 +62,31 @@ public interface ExperimentMapper {
         VALUES (#{id}, #{organizationId}, #{projectId}, #{experimentNo}, #{name}, #{experimentType}, #{phase}, #{status}, #{purpose}, #{ownerId}, 1, #{actorId}, #{actorId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         """)
     int insert(ExperimentCommand command);
+
+    /** 更新实验基础信息并进行乐观锁校验。 */
+    @Update("""
+        UPDATE experiment SET project_id = #{projectId}, name = #{name}, experiment_type = #{experimentType}, phase = #{phase},
+        purpose = #{purpose}, estimated_start = CAST(#{estimatedStart} AS timestamptz), estimated_end = CAST(#{estimatedEnd} AS timestamptz),
+        owner_id = #{ownerId}, updated_by_id = #{actorId}, version = version + 1, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND version = #{expectedVersion}
+        """)
+    int update(ExperimentUpdateCommand command);
     /** 创建默认 ELN 行。 */
     @Insert("""
         INSERT INTO experiment_record (id, experiment_id, formula_columns, formula_rows, extra_tables, process_text, extra_processes, result_text, created_at, updated_at)
         VALUES (#{id}, #{experimentId}, '[]', '[]', '[]', '', '[]', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         """)
     int insertDefaultRecord(@Param("id") UUID id, @Param("experimentId") UUID experimentId);
+
+    /** 新增或覆盖实验电子记录内容。 */
+    @Insert("""
+        INSERT INTO experiment_record (id, experiment_id, formula_columns, formula_rows, extra_tables, process_text, extra_processes, result_text, created_at, updated_at)
+        VALUES (#{id}, #{experimentId}, CAST(#{formulaColumns} AS jsonb), CAST(#{formulaRows} AS jsonb), CAST(#{extraTables} AS jsonb), #{processText}, CAST(#{extraProcesses} AS jsonb), #{resultText}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT (experiment_id) DO UPDATE SET formula_columns = EXCLUDED.formula_columns, formula_rows = EXCLUDED.formula_rows,
+        extra_tables = EXCLUDED.extra_tables, process_text = EXCLUDED.process_text, extra_processes = EXCLUDED.extra_processes,
+        result_text = EXCLUDED.result_text, updated_at = CURRENT_TIMESTAMP
+        """)
+    int saveRecord(ExperimentRecordCommand command);
     /** 状态顺序迁移。 */
     @Update("""
         UPDATE experiment SET status=#{status}, started_at=CASE WHEN #{status}='in_progress' THEN CURRENT_TIMESTAMP ELSE started_at END,
@@ -78,6 +97,14 @@ public interface ExperimentMapper {
     /** 实验写入参数。 */
     record ExperimentCommand(UUID id, UUID organizationId, UUID projectId, String experimentNo, String name,
                              String experimentType, String phase, String status, String purpose, UUID ownerId, UUID actorId) { }
+
+    /** 实验基础信息更新参数。 */
+    record ExperimentUpdateCommand(UUID id, UUID projectId, String name, String experimentType, String phase, String purpose,
+                                   String estimatedStart, String estimatedEnd, UUID ownerId, UUID actorId, int expectedVersion) { }
+
+    /** 实验电子记录写入参数。 */
+    record ExperimentRecordCommand(UUID id, UUID experimentId, String formulaColumns, String formulaRows, String extraTables,
+                                   String processText, String extraProcesses, String resultText) { }
 
     /** 实验记录数据库行。 */
     record ExperimentRecordRow(String formulaColumns, String formulaRows, String extraTables, String processText,

@@ -61,7 +61,26 @@ public class ExperimentService {
         UUID projectId = uuid(payload, "project_id"); String name = required(payload, "name");
         String number = "EXP-" + OffsetDateTime.now().toLocalDate().toString().replace("-", "") + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
         ExperimentCommand command = new ExperimentCommand(UUID.randomUUID(), organizationId, projectId, number, name, payload.path("experiment_type").asText("research"), payload.path("phase").asText("方案设计"), "not_started", payload.path("purpose").asText(""), uuidOr(payload, "owner_id", actorId), actorId);
-        experimentMapper.insert(command); experimentMapper.insertDefaultRecord(UUID.randomUUID(), command.id()); return get(organizationId, number);
+        experimentMapper.insert(command);
+        saveRecord(command.id(), payload);
+        return get(organizationId, number);
+    }
+
+    /** 更新实验计划和电子记录内容。 */
+    @Transactional
+    public Experiment update(UUID organizationId, UUID actorId, String experimentNo, int version, JsonNode payload) {
+        Experiment existing = get(organizationId, experimentNo);
+        UUID projectId = uuidOr(payload, "project_id", existing.projectId());
+        String name = textOr(payload, "name", existing.name());
+        String experimentType = textOr(payload, "experiment_type", existing.experimentType());
+        String phase = textOr(payload, "phase", existing.phase());
+        String purpose = textOr(payload, "purpose", existing.purpose());
+        UUID ownerId = uuidOr(payload, "owner_id", existing.ownerId());
+        var command = new ExperimentMapper.ExperimentUpdateCommand(existing.id(), projectId, name, experimentType, phase, purpose,
+                nullableText(payload, "estimated_start"), nullableText(payload, "estimated_end"), ownerId, actorId, version);
+        if (experimentMapper.update(command) == 0) throw new BusinessException(HttpStatus.PRECONDITION_FAILED, "version_conflict", "实验已被其他用户更新，请刷新后重试");
+        saveRecord(existing.id(), payload);
+        return get(organizationId, experimentNo);
     }
     /** 执行不可跳级的实验状态迁移。 */
     @Transactional
@@ -90,5 +109,28 @@ public class ExperimentService {
         } catch (Exception error) {
             return objectMapper.createArrayNode();
         }
+    }
+
+    private void saveRecord(UUID experimentId, JsonNode payload) {
+        experimentMapper.saveRecord(new ExperimentMapper.ExperimentRecordCommand(UUID.randomUUID(), experimentId,
+                json(payload, "formula_columns", "[]"), json(payload, "formula_rows", "[]"), json(payload, "extra_tables", "[]"),
+                textOr(payload, "process_text", ""), json(payload, "extra_processes", "[]"), textOr(payload, "result_text", "")));
+    }
+
+    private String json(JsonNode payload, String key, String fallback) {
+        try {
+            JsonNode value = payload.get(key);
+            return value == null || value.isNull() ? fallback : objectMapper.writeValueAsString(value);
+        } catch (Exception error) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", key + " 必须是有效 JSON");
+        }
+    }
+
+    private String textOr(JsonNode payload, String key, String fallback) {
+        return payload.hasNonNull(key) ? payload.path(key).asText() : fallback;
+    }
+
+    private String nullableText(JsonNode payload, String key) {
+        return payload.hasNonNull(key) && !payload.path(key).asText().isBlank() ? payload.path(key).asText() : null;
     }
 }
