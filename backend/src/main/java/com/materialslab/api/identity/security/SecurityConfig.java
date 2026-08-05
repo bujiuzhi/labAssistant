@@ -15,6 +15,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 
 /** 配置同源 Session、CSRF 与 JSON 异常响应。 */
 @Configuration
@@ -28,6 +29,7 @@ public class SecurityConfig {
         csrf.setCookieName("csrftoken");
         csrf.setHeaderName("X-CSRFToken");
         http.csrf(configurer -> configurer.csrfTokenRepository(csrf)
+                        .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
                         .ignoringRequestMatchers("/api/v1/health/**", "/api/v1/auth/csrf"))
                 .sessionManagement(configurer -> configurer.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
                 .authorizeHttpRequests(registry -> registry
