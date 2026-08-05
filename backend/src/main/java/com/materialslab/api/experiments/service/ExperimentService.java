@@ -50,7 +50,7 @@ public class ExperimentService {
     }
 
     /** 将数据库实验投影转换为前端电子记录响应。 */
-    public ExperimentResponse response(Experiment experiment) {
+    public ExperimentResponse response(UserPrincipal principal, Experiment experiment) {
         var record = experimentMapper.findRecord(experiment.id());
         var participants = experimentMapper.listParticipants(experiment.id());
         return new ExperimentResponse(
@@ -58,13 +58,13 @@ public class ExperimentService {
                 experiment.projectName(), experiment.experimentType(), experiment.phase(), experiment.status(), experiment.purpose(),
                 experiment.estimatedStart(), experiment.estimatedEnd(), experiment.startedAt(), experiment.completedAt(), experiment.ownerId(),
                 experiment.ownerDisplayName(), participants.stream().map(item -> item.userId()).toList(),
-                participants.stream().map(item -> item.displayName()).toList(), record(record, experiment.id()), experiment.version(),
+                participants.stream().map(item -> item.displayName()).toList(), record(record, experiment.id()), canEdit(principal, experiment), experiment.version(),
                 experiment.createdAt(), experiment.updatedAt());
     }
 
     /** 将实验列表转换为前端电子记录响应。 */
-    public List<ExperimentResponse> responses(List<Experiment> experiments) {
-        return experiments.stream().map(this::response).toList();
+    public List<ExperimentResponse> responses(UserPrincipal principal, List<Experiment> experiments) {
+        return experiments.stream().map(experiment -> response(principal, experiment)).toList();
     }
     /** 创建实验与空 ELN。 */
     @Transactional
@@ -127,10 +127,17 @@ public class ExperimentService {
     }
 
     private void requireExperimentWriteAccess(UserPrincipal principal, Experiment experiment) {
-        if (!principal.isSuperAdmin()
-                && !experimentMapper.hasWriteAccess(principal.organizationId(), experiment.id(), principal.userId())) {
+        if (!canEdit(principal, experiment)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "permission_denied", "当前用户无权编辑该实验");
         }
+    }
+
+    private boolean canEdit(UserPrincipal principal, Experiment experiment) {
+        if (!accessControlService.hasPermission(principal, "experiment.update")) return false;
+        return principal.isSuperAdmin()
+                || (accessControlService.hasPermission(principal, "experiment.create")
+                    ? experimentMapper.hasWriteAccess(principal.organizationId(), experiment.id(), principal.userId())
+                    : experimentMapper.hasDirectWriteAccess(principal.organizationId(), experiment.id(), principal.userId()));
     }
 
     private void requireOrganizationUser(UUID organizationId, UUID userId) {

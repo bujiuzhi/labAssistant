@@ -25,6 +25,7 @@ public record ExperimentResponse(
         List<UUID> participantIds,
         List<String> participantNames,
         ExperimentRecordResponse record,
+        boolean canEdit,
         int version,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt) { }

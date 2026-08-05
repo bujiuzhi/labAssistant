@@ -54,6 +54,19 @@ public interface ExperimentMapper {
     boolean hasWriteAccess(@Param("organizationId") UUID organizationId, @Param("experimentId") UUID experimentId,
                            @Param("userId") UUID userId);
 
+    /** 判断用户是否为实验负责人或参与人，不包含项目负责人权限。 */
+    @Select("""
+            SELECT EXISTS(
+              SELECT 1 FROM experiment e
+              WHERE e.id = #{experimentId} AND e.organization_id = #{organizationId}
+                AND (e.owner_id = #{userId}
+                  OR EXISTS (SELECT 1 FROM experiment_participant participant
+                             WHERE participant.experiment_id = e.id AND participant.user_id = #{userId}))
+            )
+            """)
+    boolean hasDirectWriteAccess(@Param("organizationId") UUID organizationId, @Param("experimentId") UUID experimentId,
+                                 @Param("userId") UUID userId);
+
     /** 判断用户是否拥有项目管理成员资格。 */
     @Select("""
             SELECT EXISTS(

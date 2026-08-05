@@ -125,7 +125,8 @@ const selectedExperiment = computed(
 const canEdit = computed(
   () =>
     isCreating.value ||
-    sessionStore.hasPermission("experiment.update"),
+    (sessionStore.hasPermission("experiment.update") &&
+      selectedExperiment.value?.can_edit === true),
 );
 
 const filteredExperiments = computed(() => {

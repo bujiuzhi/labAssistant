@@ -343,6 +343,7 @@ export interface Experiment {
   participant_ids: string[];
   participant_names: string[];
   record: ExperimentRecord;
+  can_edit: boolean;
   version: number;
   created_at: string;
   updated_at: string;
