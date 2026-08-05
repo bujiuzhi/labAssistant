@@ -1,6 +1,36 @@
 name: materials-lab-assistant
 
 services:
+  api:
+    image: maven:3.9.12-eclipse-temurin-25
+    container_name: materials-lab-assistant-api
+    restart: unless-stopped
+    working_dir: /workspace
+    command: ["mvn", "spring-boot:run", "-Dspring-boot.run.profiles=dev"]
+    environment:
+      SERVER_ADDRESS: 0.0.0.0
+      SERVER_PORT: ${SERVER_PORT:-8000}
+      JDBC_DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DEV_DB}
+      POSTGRES_DEV_USER: ${POSTGRES_DEV_USER}
+      POSTGRES_DEV_PASSWORD: ${POSTGRES_DEV_PASSWORD}
+      MATERIALS_LAB_DEVELOPMENT_PASSWORD: ${MATERIALS_LAB_DEVELOPMENT_PASSWORD:-00000000}
+      OBJECT_STORAGE_ENABLED: ${OBJECT_STORAGE_ENABLED:-true}
+      OBJECT_STORAGE_ENDPOINT_URL: http://rustfs:9000
+      OBJECT_STORAGE_ACCESS_KEY: ${OBJECT_STORAGE_ACCESS_KEY}
+      OBJECT_STORAGE_SECRET_KEY: ${OBJECT_STORAGE_SECRET_KEY}
+      OBJECT_STORAGE_BUCKET_NAME: ${OBJECT_STORAGE_BUCKET_NAME:-materials-lab-assistant}
+      OBJECT_STORAGE_REGION: ${OBJECT_STORAGE_REGION:-us-east-1}
+    ports:
+      - "${API_BIND_ADDRESS:-0.0.0.0}:${SERVER_PORT:-8000}:8000"
+    volumes:
+      - "../backend:/workspace"
+      - "${MATERIALS_LAB_DATA_ROOT}/maven:/root/.m2"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rustfs:
+        condition: service_started
+
   postgres:
     image: postgres:18.4-alpine
     container_name: materials-lab-assistant-postgres

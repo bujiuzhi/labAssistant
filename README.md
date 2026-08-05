@@ -100,8 +100,9 @@ ssh -f -N \
 `http://127.0.0.1:18000/api/v1/health/live`。若服务器已放行端口，也可直接访问
 `http://192.168.0.156:5173`。
 
-开发 Compose 默认将 PostgreSQL、Redis 和 RustFS 绑定到局域网地址，绑定地址分别由
-`POSTGRES_BIND_ADDRESS`、`REDIS_BIND_ADDRESS`、`OBJECT_STORAGE_BIND_ADDRESS` 控制。DBX 连接开发测试库时使用
+开发 Compose 默认将 Java API、PostgreSQL、Redis 和 RustFS 绑定到局域网地址，绑定地址分别由
+`API_BIND_ADDRESS`、`POSTGRES_BIND_ADDRESS`、`REDIS_BIND_ADDRESS`、`OBJECT_STORAGE_BIND_ADDRESS` 控制。Java API 在
+Compose 中使用 Java 25 Maven 镜像运行，Maven 缓存挂载在项目数据目录。DBX 连接开发测试库时使用
 `192.168.0.156:15432`、数据库 `materials_lab_dev`、账号 `dev`、密码 `dev123456`。生产环境应将全部
 绑定地址设置为 `127.0.0.1`，并使用独立的随机强凭据。
 
