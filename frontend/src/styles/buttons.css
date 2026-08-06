@@ -3,11 +3,11 @@
 :is(body, #app) :where(button.ui-button, button.el-button) {
   display: inline-flex;
   box-sizing: border-box;
-  height: 36px;
-  min-height: 36px;
+  height: var(--button-height);
+  min-height: var(--button-height);
   align-items: center;
   justify-content: center;
-  padding: 0 16px;
+  padding: 0 var(--button-padding-x);
   color: var(--color-accent);
   font-family: var(--font-body);
   font-size: 14px;
@@ -17,7 +17,7 @@
   appearance: none;
   background: var(--color-paper);
   border: 1px solid var(--color-accent);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   outline: 2px solid transparent;
   outline-offset: 2px;
   box-shadow: none;
@@ -76,7 +76,7 @@
 }
 
 :is(body, #app) :where(
-  button.ui-button.ui-button--tertiary,
+  button.ui-button.ui-button--light,
   button.el-button.is-link:not(.el-button--danger),
   button.el-button.is-text:not(.el-button--danger)
 ) {
@@ -131,7 +131,7 @@
   }
 
   :is(body, #app) :where(
-    button.ui-button.ui-button--tertiary,
+    button.ui-button.ui-button--light,
     button.el-button.is-link:not(.el-button--danger),
     button.el-button.is-text:not(.el-button--danger)
   ):hover:not(:disabled, .is-disabled) {
@@ -162,7 +162,7 @@
 }
 
 :is(body, #app) :where(
-  button.ui-button.ui-button--tertiary,
+  button.ui-button.ui-button--light,
   button.el-button.is-link:not(.el-button--danger),
   button.el-button.is-text:not(.el-button--danger)
 ):active:not(:disabled, .is-disabled) {

@@ -752,7 +752,7 @@ watch(() => route.params.projectId, loadProject);
               </div>
             </div>
             <button
-              class="ui-button ui-button--tertiary milestone-add"
+              class="ui-button ui-button--light milestone-add"
               type="button"
               @click="addMilestone"
             >
@@ -899,7 +899,7 @@ watch(() => route.params.projectId, loadProject);
 .project-overview-page {
   height: 100%;
   min-width: 0;
-  padding: 12px 0 24px;
+  padding: var(--space-card) 0 24px;
   overflow-x: hidden;
   overflow-y: auto;
 }
@@ -1065,8 +1065,8 @@ watch(() => route.params.projectId, loadProject);
 
 .overview-content {
   display: grid;
-  padding-top: 14px;
-  gap: 12px;
+  padding-top: var(--space-card);
+  gap: var(--space-card);
 }
 
 .detail-card {

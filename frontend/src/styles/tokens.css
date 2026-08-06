@@ -39,6 +39,12 @@
   --color-info: #2563a8;
   --radius-control: 6px;
   --radius-card: 8px;
+  --button-height: 36px;
+  --button-padding-x: 16px;
+  --page-padding-x: 20px;
+  --space-card: 16px;
+  --space-card-title: 12px;
+  --space-control: 8px;
   --shadow-popover: 0 12px 28px rgb(16 24 40 / 12%);
   --sidebar-width: 220px;
   --sidebar-collapsed-width: 64px;

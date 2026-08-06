@@ -1218,7 +1218,7 @@ onBeforeUnmount(() => {
             <div>
               <h3>原料配方表</h3>
               <button
-                class="ui-button ui-button--tertiary module-add-button"
+                class="ui-button ui-button--light module-add-button"
                 type="button"
                 :disabled="!canEdit"
                 @click="addExtraTable"
@@ -1229,7 +1229,7 @@ onBeforeUnmount(() => {
             </div>
             <div>
               <button
-                class="ui-button ui-button--tertiary text-action"
+                class="ui-button ui-button--light text-action"
                 type="button"
                 :disabled="!canEdit"
                 @click="addFormulaRow"
@@ -1238,7 +1238,7 @@ onBeforeUnmount(() => {
                 添加行
               </button>
               <button
-                class="ui-button ui-button--tertiary text-action"
+                class="ui-button ui-button--light text-action"
                 type="button"
                 :disabled="!canEdit"
                 @click="addFormulaColumn"
@@ -1318,7 +1318,7 @@ onBeforeUnmount(() => {
               />
               <div>
                 <button
-                  class="ui-button ui-button--tertiary text-action"
+                  class="ui-button ui-button--light text-action"
                   type="button"
                   :disabled="!canEdit"
                   @click="addExtraTableRow(table)"
@@ -1326,7 +1326,7 @@ onBeforeUnmount(() => {
                   <Icon icon="tabler:row-insert-bottom" />添加行
                 </button>
                 <button
-                  class="ui-button ui-button--tertiary text-action"
+                  class="ui-button ui-button--light text-action"
                   type="button"
                   :disabled="!canEdit"
                   @click="addExtraTableColumn(table)"
@@ -1401,7 +1401,7 @@ onBeforeUnmount(() => {
             <div class="section-heading">
               <h3>实验过程</h3>
               <button
-                class="ui-button ui-button--tertiary module-add-button"
+                class="ui-button ui-button--light module-add-button"
                 type="button"
                 :disabled="!canEdit"
                 @click="addExtraProcess"
@@ -1599,7 +1599,7 @@ onBeforeUnmount(() => {
       @click.self="previewImage = null"
     >
       <button
-        class="ui-button ui-button--tertiary ui-button--icon preview-close"
+        class="ui-button ui-button--light ui-button--icon preview-close"
         type="button"
         aria-label="关闭图片预览"
         @click="previewImage = null"
@@ -1646,7 +1646,7 @@ onBeforeUnmount(() => {
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  margin: 12px 0;
+  margin: var(--space-card) 0;
   overflow: visible;
   background: var(--color-paper);
   border: 1px solid var(--color-rule);

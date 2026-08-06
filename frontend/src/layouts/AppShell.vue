@@ -79,7 +79,7 @@ async function logout(): Promise<void> {
 
       <el-dropdown class="profile-dropdown" trigger="click">
         <button
-          class="ui-button ui-button--tertiary profile-button"
+          class="ui-button ui-button--light profile-button"
           type="button"
           aria-label="打开账户菜单"
         >
@@ -125,7 +125,7 @@ async function logout(): Promise<void> {
   height: 64px;
   flex: 0 0 64px;
   align-items: center;
-  padding: 0 24px;
+  padding: 0 var(--page-padding-x);
   background: var(--color-paper-2);
   border-bottom: 1px solid var(--color-rule);
   box-shadow: 0 1px 4px rgb(15 23 42 / 4%);
@@ -287,7 +287,7 @@ async function logout(): Promise<void> {
 
 @media (max-width: 1180px) {
   .assistant-header {
-    padding: 0 18px;
+    padding: 0 16px;
   }
 
   .product-nav {

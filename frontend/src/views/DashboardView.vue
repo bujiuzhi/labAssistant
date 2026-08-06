@@ -125,7 +125,7 @@ onMounted(loadDashboard);
       <header class="project-section-heading">
         <h2>进行中项目</h2>
         <button
-          class="ui-button ui-button--tertiary ui-button--icon"
+          class="ui-button ui-button--light ui-button--icon"
           type="button"
           aria-label="查看全部项目"
           title="查看全部项目"
@@ -152,7 +152,7 @@ onMounted(loadDashboard);
             <Icon icon="ri:folder-3-line" />
             <h3>{{ project.name }}</h3>
             <button
-              class="ui-button ui-button--tertiary ui-button--icon"
+              class="ui-button ui-button--light ui-button--icon"
               type="button"
               :aria-label="project.is_followed ? '取消关注项目' : '关注项目'"
               :title="project.is_followed ? '取消关注' : '关注项目'"
@@ -221,8 +221,8 @@ onMounted(loadDashboard);
 .metric-groups {
   display: grid;
   grid-template-columns: minmax(0, 1.06fr) minmax(0, 0.94fr);
-  margin-bottom: 10px;
-  gap: 12px;
+  margin-bottom: var(--space-card);
+  gap: var(--space-card);
 }
 
 .metric-group {
@@ -311,7 +311,7 @@ onMounted(loadDashboard);
 }
 
 .project-section {
-  margin-top: 12px;
+  margin-top: var(--space-card);
 }
 
 .project-section-heading {
@@ -348,7 +348,7 @@ onMounted(loadDashboard);
 .project-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
+  gap: var(--space-card);
 }
 
 .project-card {
@@ -356,7 +356,7 @@ onMounted(loadDashboard);
   display: grid;
   min-width: 0;
   min-height: 330px;
-  padding: 15px;
+  padding: var(--space-card);
   overflow: hidden;
   background: var(--color-paper);
   border: 1px solid var(--color-rule);

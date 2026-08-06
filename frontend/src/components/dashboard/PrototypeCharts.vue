@@ -319,7 +319,7 @@ onBeforeUnmount(() => {
 .dashboard-grid {
   display: grid;
   grid-template-columns: minmax(440px, 0.96fr) minmax(560px, 1.17fr);
-  gap: 10px;
+  gap: var(--space-card);
 }
 
 .dashboard-panel {

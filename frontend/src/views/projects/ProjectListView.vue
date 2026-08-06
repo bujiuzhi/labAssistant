@@ -581,7 +581,7 @@ onBeforeUnmount(() => {
       <header>
         <h2 id="create-project-title">新建项目</h2>
         <button
-          class="ui-button ui-button--tertiary ui-button--icon"
+          class="ui-button ui-button--light ui-button--icon"
           type="button"
           aria-label="关闭新建项目"
           @click="closeCreateDrawer()"
@@ -697,7 +697,7 @@ onBeforeUnmount(() => {
             <div class="section-heading">
               <h3><Icon icon="tabler:flag-3" />重点里程碑</h3>
               <button
-                class="ui-button ui-button--tertiary ui-button--icon"
+                class="ui-button ui-button--light ui-button--icon"
                 type="button"
                 aria-label="增加里程碑"
                 @click="addMilestone"
@@ -781,7 +781,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  padding: 14px 0 18px;
+  padding: var(--space-card) 0;
   overflow: hidden;
 }
 
@@ -790,12 +790,12 @@ onBeforeUnmount(() => {
   min-height: 58px;
   align-items: center;
   flex: 0 0 auto;
-  padding: 9px 12px;
+  padding: 10px var(--space-card);
   overflow-x: auto;
   background: var(--color-paper);
   border: 1px solid var(--color-rule);
   border-radius: 8px;
-  gap: 10px;
+  gap: var(--space-control);
 }
 
 .status-tabs {

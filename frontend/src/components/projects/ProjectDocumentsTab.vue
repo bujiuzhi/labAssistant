@@ -275,7 +275,7 @@ onMounted(loadDocuments);
           <option value="month">本月</option>
         </select>
         <button
-          class="ui-button ui-button--tertiary upload-button"
+          class="ui-button ui-button--light upload-button"
           type="button"
           :disabled="!canUpload"
           @click="openUpload"
@@ -314,7 +314,7 @@ onMounted(loadDocuments);
               <td>
                 <span class="document-actions">
                   <button
-                    class="ui-button ui-button--tertiary ui-button--icon"
+                    class="ui-button ui-button--light ui-button--icon"
                     type="button"
                     aria-label="预览文件"
                     title="预览"
@@ -323,7 +323,7 @@ onMounted(loadDocuments);
                     <Icon icon="tabler:eye" />
                   </button>
                   <button
-                    class="ui-button ui-button--tertiary ui-button--icon"
+                    class="ui-button ui-button--light ui-button--icon"
                     type="button"
                     aria-label="下载文件"
                     title="下载"
@@ -420,7 +420,7 @@ onMounted(loadDocuments);
   display: grid;
   min-height: 440px;
   grid-template-columns: 192px minmax(0, 1fr);
-  margin-top: 14px;
+  margin-top: var(--space-card);
   overflow: hidden;
   background: var(--color-paper);
   border: 1px solid var(--color-rule);
