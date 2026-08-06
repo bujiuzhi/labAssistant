@@ -1,6 +1,22 @@
 name: materials-lab-assistant
 
 services:
+  frontend:
+    image: node:24-alpine
+    container_name: materials-lab-assistant-frontend
+    restart: unless-stopped
+    working_dir: /workspace
+    command: ["./node_modules/.bin/vite", "--host", "0.0.0.0", "--port", "5173"]
+    environment:
+      VITE_API_PROXY_TARGET: http://api:8000
+    ports:
+      - "${FRONTEND_BIND_ADDRESS:-0.0.0.0}:${FRONTEND_PORT:-5173}:5173"
+    volumes:
+      - "../frontend:/workspace"
+    depends_on:
+      api:
+        condition: service_started
+
   api:
     image: maven:3.9.12-eclipse-temurin-25
     container_name: materials-lab-assistant-api
