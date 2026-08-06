@@ -10,7 +10,7 @@
 
 ## 变更资产
 
-- `infra/docker-compose.yml`：新增 `materials-lab-assistant-frontend` 服务，以项目独立的 Node 容器运行 Vite，并使用 `unless-stopped` 自动恢复。
+- `infra/docker-compose.yml`：新增 `materials-lab-assistant-frontend` 服务，以项目独立的 Node Debian 容器运行 Vite，并使用 `unless-stopped` 自动恢复。选择 glibc 镜像以匹配远程 Linux 依赖中的原生模块。
 - `frontend/vite.config.ts`：将 API 代理地址改为可配置环境变量；宿主机开发仍默认 `127.0.0.1:8000`，Compose 服务使用 `http://api:8000`。
 - `.env.example`：补充前端端口和绑定地址说明；开发环境默认开放局域网访问，生产环境应改为 `127.0.0.1`。
 

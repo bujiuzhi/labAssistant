@@ -2,7 +2,7 @@ name: materials-lab-assistant
 
 services:
   frontend:
-    image: node:24-alpine
+    image: node:24-bookworm-slim
     container_name: materials-lab-assistant-frontend
     restart: unless-stopped
     working_dir: /workspace
