@@ -327,7 +327,7 @@ async function loadUserOptions(): Promise<void> {
 }
 
 /**
- * 打开项目基础信息编辑弹窗
+ * 在概览页内打开项目基础信息编辑模式
  */
 function openBasicEditor(): void {
   if (!canEdit.value || !apiProject.value) {
@@ -350,6 +350,11 @@ function openBasicEditor(): void {
     .filter(Boolean)
     .join("\n");
   editVisible.value = true;
+}
+
+/** 取消基础信息编辑并放弃未保存内容。 */
+function cancelBasicEdit(): void {
+  editVisible.value = false;
 }
 
 /**
@@ -605,15 +610,36 @@ watch(() => route.params.projectId, loadProject);
       <div v-if="activeProjectTab === '概览'" class="overview-content">
         <section class="detail-card basic-card">
           <header>
-            <h2>基础信息</h2>
+            <div>
+              <h2>{{ editVisible ? "编辑基础信息" : "基础信息" }}</h2>
+              <p v-if="editVisible" class="editor-description">
+                修改后将同步更新项目列表与详情页
+              </p>
+            </div>
             <button
-              v-if="canEdit"
+              v-if="canEdit && !editVisible"
               class="ui-button ui-button--secondary edit-button"
               type="button"
               @click="openBasicEditor"
             >
               <Icon icon="tabler:edit" />编辑
             </button>
+            <div v-else-if="editVisible" class="basic-editor-actions">
+              <button
+                class="ui-button ui-button--secondary"
+                type="button"
+                :disabled="submitting"
+                @click="cancelBasicEdit"
+              >取消</button>
+              <button
+                class="ui-button ui-button--primary"
+                type="button"
+                :disabled="submitting"
+                @click="submitBasicEdit"
+              >
+                <Icon icon="tabler:check" />{{ submitting ? "保存中" : "保存" }}
+              </button>
+            </div>
             <span
               v-else-if="apiProject && sessionStore.hasPermission('project.update')"
               class="readonly-hint"
@@ -621,7 +647,36 @@ watch(() => route.params.projectId, loadProject);
               当前状态只读
             </span>
           </header>
-          <div class="basic-grid">
+          <el-form v-if="editVisible" class="basic-inline-editor" label-position="top">
+            <el-form-item label="项目名称" required class="full-row">
+              <el-input v-model="basicForm.name" maxlength="200" />
+            </el-form-item>
+            <el-form-item label="项目类型" required>
+              <el-select v-model="basicForm.projectTypeCode" style="width: 100%">
+                <el-option v-for="item in projectTypeOptions" :key="item" :label="item" :value="item" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="项目经理" required>
+              <el-select v-model="basicForm.ownerId" filterable style="width: 100%" placeholder="选择项目经理">
+                <el-option v-for="user in userOptions" :key="user.id" :label="user.display_name" :value="user.id" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="开始时间" required>
+              <el-date-picker v-model="basicForm.startDate" type="datetime" value-format="YYYY-MM-DDTHH:mm" style="width: 100%" />
+            </el-form-item>
+            <el-form-item label="结束时间" required>
+              <el-date-picker v-model="basicForm.endDate" type="datetime" value-format="YYYY-MM-DDTHH:mm" style="width: 100%" />
+            </el-form-item>
+            <el-form-item v-if="canManageMembers" label="人员组成" class="full-row">
+              <el-select v-model="basicForm.memberIds" multiple filterable style="width: 100%" placeholder="选择项目成员">
+                <el-option v-for="user in memberOptions" :key="user.id" :label="user.display_name" :value="user.id" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="指标性研发目标" required class="full-row">
+              <el-input v-model="basicForm.objectives" type="textarea" :rows="4" maxlength="5000" placeholder="每行填写一项目标" />
+            </el-form-item>
+          </el-form>
+          <div v-else class="basic-grid">
             <dl>
               <div><dt>项目类型</dt><dd>{{ project.type }}</dd></div>
               <div>
@@ -812,80 +867,6 @@ watch(() => route.params.projectId, loadProject);
       <ProjectDataAssetsTab v-else-if="activeProjectTab === '数据资产'" />
 
       <ProjectTasksTab v-else-if="activeProjectTab === '任务管理'" />
-
-      <el-dialog v-model="editVisible" title="编辑项目基础信息" width="680px" align-center>
-        <el-form label-position="top">
-          <el-form-item label="项目名称" required>
-            <el-input v-model="basicForm.name" maxlength="200" show-word-limit />
-          </el-form-item>
-          <div class="dialog-grid">
-            <el-form-item label="项目类型" required>
-              <el-select v-model="basicForm.projectTypeCode" style="width: 100%">
-                <el-option
-                  v-for="item in projectTypeOptions"
-                  :key="item"
-                  :label="item"
-                  :value="item"
-                />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="项目经理" required>
-              <el-select
-                v-model="basicForm.ownerId"
-                filterable
-                style="width: 100%"
-                placeholder="选择项目经理"
-              >
-                <el-option
-                  v-for="user in userOptions"
-                  :key="user.id"
-                  :label="user.display_name"
-                  :value="user.id"
-                />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="开始时间" required>
-              <el-date-picker
-                v-model="basicForm.startDate"
-                type="datetime"
-                value-format="YYYY-MM-DDTHH:mm"
-                style="width: 100%"
-              />
-            </el-form-item>
-            <el-form-item label="结束时间" required>
-              <el-date-picker
-                v-model="basicForm.endDate"
-                type="datetime"
-                value-format="YYYY-MM-DDTHH:mm"
-                style="width: 100%"
-              />
-            </el-form-item>
-          </div>
-          <el-form-item v-if="canManageMembers" label="人员组成">
-            <el-checkbox-group v-model="basicForm.memberIds" class="member-checkboxes">
-              <el-checkbox v-for="user in memberOptions" :key="user.id" :value="user.id">
-                {{ user.display_name }}
-              </el-checkbox>
-            </el-checkbox-group>
-          </el-form-item>
-          <el-form-item label="指标性研发目标" required>
-            <el-input
-              v-model="basicForm.objectives"
-              type="textarea"
-              :rows="5"
-              maxlength="5000"
-              show-word-limit
-              placeholder="每行填写一项目标"
-            />
-          </el-form-item>
-        </el-form>
-        <template #footer>
-          <el-button @click="editVisible = false">取消</el-button>
-          <el-button type="primary" :loading="submitting" @click="submitBasicEdit">
-            保存修改
-          </el-button>
-        </template>
-      </el-dialog>
 
     </template>
 
@@ -1113,6 +1094,58 @@ watch(() => route.params.projectId, loadProject);
 
 .basic-card {
   padding-bottom: 16px;
+}
+
+.editor-description {
+  margin: 3px 0 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.basic-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.basic-editor-actions button {
+  display: inline-flex;
+  height: 34px;
+  align-items: center;
+  padding: 0 14px;
+  border-radius: 5px;
+  cursor: pointer;
+  gap: 5px;
+}
+
+.basic-inline-editor {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 4px 16px 0;
+  gap: 0 12px;
+}
+
+.basic-inline-editor .full-row {
+  grid-column: 1 / -1;
+}
+
+.basic-inline-editor :deep(.el-form-item) {
+  margin-bottom: 12px;
+}
+
+.basic-inline-editor :deep(.el-form-item__label) {
+  padding-bottom: 5px;
+  color: var(--color-ink-2);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.basic-inline-editor :deep(.el-input__wrapper),
+.basic-inline-editor :deep(.el-select__wrapper),
+.basic-inline-editor :deep(.el-textarea__inner) {
+  background: #f8fbff;
+  box-shadow: 0 0 0 1px #b8d5f5 inset;
 }
 
 .basic-grid {
@@ -1477,18 +1510,6 @@ watch(() => route.params.projectId, loadProject);
   color: var(--color-muted);
   font-size: 12px;
   white-space: nowrap;
-}
-
-.dialog-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.member-checkboxes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 18px;
 }
 
 .milestone-editor {

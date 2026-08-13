@@ -9,23 +9,68 @@ import laboratoryIcon from "@/assets/prototype/laboratory.svg";
 import PrototypeCharts from "@/components/dashboard/PrototypeCharts.vue";
 import { getProblemDetail } from "@/api/http";
 import { projectApi } from "@/api/projects";
-import type { DashboardSummary } from "@/types/api";
+import type { DashboardSummary, Project } from "@/types/api";
 
 const router = useRouter();
 const loading = ref(true);
 const summary = ref<DashboardSummary | null>(null);
+const projectRecords = ref<Project[]>([]);
 const selectedTrendProjectId = ref("");
 
-const projects = computed(() => summary.value?.active_projects ?? []);
+const projects = computed<DashboardSummary["active_projects"]>(() => {
+  const dashboardProjects = summary.value?.active_projects ?? [];
+  const includedIds = new Set(dashboardProjects.map((item) => item.id));
+  const additionalProjects = projectRecords.value
+    .filter((item) => (item.status === "active" || item.status === "at_risk") && !includedIds.has(item.id))
+    .map((item) => {
+      const milestone = item.milestones.find((entry) => entry.state === "current")
+        ?? item.milestones.find((entry) => entry.state === "todo")
+        ?? item.milestones[0]
+        ?? null;
+      const riskDays = milestone
+        ? Math.ceil((new Date(milestone.date).getTime() - Date.now()) / 86_400_000)
+        : null;
+      return {
+        id: item.id,
+        project_no: item.project_no,
+        name: item.name,
+        project_type: item.project_type_code,
+        owner_name: item.owner_display_name,
+        objectives: item.objectives,
+        planned_start_date: item.planned_start_date,
+        planned_end_date: item.planned_end_date,
+        milestone,
+        progress_percent: item.progress_percent,
+        is_followed: false,
+        risk_level: item.status === "at_risk" || (riskDays !== null && riskDays < 0)
+          ? "overdue" as const
+          : "normal" as const,
+        risk_days: riskDays,
+      };
+    });
+  return [...dashboardProjects, ...additionalProjects].slice(0, 10);
+});
 const projectMetrics = computed(() => summary.value?.project_metrics);
 const experimentMetrics = computed(() => summary.value?.experiment_metrics);
+const projectStatistics = computed(() =>
+  projectRecords.value
+    .filter((item) => item.status === "active" || item.status === "at_risk")
+    .sort((first, second) => second.experiment_count - first.experiment_count)
+    .slice(0, 6)
+    .map((item) => ({ id: item.id, name: item.name, value: item.experiment_count })),
+);
 
 /** 加载当前用户可见范围内的实时汇总数据。 */
 async function loadDashboard(projectId = selectedTrendProjectId.value): Promise<void> {
   loading.value = true;
   try {
-    summary.value = await projectApi.dashboard(projectId);
-    selectedTrendProjectId.value = summary.value.trend.selected_project_id;
+    const [dashboardSummary, projectPage] = await Promise.all([
+      projectApi.dashboard(projectId),
+      projectApi.list({ page: 1, page_size: 100 }),
+    ]);
+    summary.value = dashboardSummary;
+    projectRecords.value = projectPage.data;
+    selectedTrendProjectId.value = dashboardSummary.trend.selected_project_id;
   } catch (error) {
     const problem = getProblemDetail(error);
     ElMessage.error(problem?.detail ?? "总览数据加载失败");
@@ -41,7 +86,7 @@ function formatDate(value: string | null): string {
 
 /** 使用服务端统一计算的里程碑风险，避免客户端时区产生误判。 */
 function milestoneHint(project: DashboardSummary["active_projects"][number]): string {
-  if (project.risk_level === "overdue") return `已逾期 ${project.risk_days ?? 0} 天`;
+  if (project.risk_level === "overdue") return `延期 ${Math.abs(project.risk_days ?? 0)} 天`;
   if (project.risk_level === "countdown") {
     return project.risk_days === 0 ? "今日到期" : `剩余 ${project.risk_days} 天`;
   }
@@ -118,6 +163,7 @@ onMounted(loadDashboard);
           project_options: [],
         }
       "
+      :project-statistics="projectStatistics"
       @project-change="loadDashboard"
     />
 
@@ -212,7 +258,7 @@ onMounted(loadDashboard);
 .overview-page {
   height: 100%;
   min-width: 0;
-  padding: 16px 0 24px;
+  padding: 14px 0 24px;
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-gutter: stable;
@@ -222,7 +268,7 @@ onMounted(loadDashboard);
   display: grid;
   grid-template-columns: minmax(0, 1.06fr) minmax(0, 0.94fr);
   margin-bottom: var(--space-card);
-  gap: var(--space-card);
+  gap: 12px;
 }
 
 .metric-group {
@@ -230,20 +276,12 @@ onMounted(loadDashboard);
   overflow: hidden;
   background: var(--color-paper);
   border: 1px solid var(--color-rule);
-  border-radius: 8px;
-}
-
-.metric-group-projects {
-  border-color: #3a9aff;
-}
-
-.metric-group-experiments {
-  border-color: #d88100;
+  border-radius: 7px;
 }
 
 .metric-grid {
   display: grid;
-  min-height: 72px;
+  min-height: 64px;
   padding: 4px 0;
 }
 
@@ -272,7 +310,7 @@ onMounted(loadDashboard);
 
 .metric-grid article strong {
   color: var(--color-ink);
-  font-size: 24px;
+  font-size: 20px;
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
@@ -286,12 +324,7 @@ onMounted(loadDashboard);
 
 .metric-grid .metric-primary strong {
   color: var(--color-accent);
-  font-size: 32px;
-}
-
-.metric-group-experiments .metric-primary strong,
-.metric-group-experiments .metric-primary > span:not(.metric-value) {
-  color: #a95200;
+  font-size: 27px;
 }
 
 .metric-grid .metric-risk strong {
@@ -311,7 +344,7 @@ onMounted(loadDashboard);
 }
 
 .project-section {
-  margin-top: var(--space-card);
+  margin-top: 10px;
 }
 
 .project-section-heading {
@@ -347,23 +380,23 @@ onMounted(loadDashboard);
 
 .project-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-card);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .project-card {
   position: relative;
   display: grid;
   min-width: 0;
-  min-height: 330px;
-  padding: var(--space-card);
+  min-height: 286px;
+  padding: 12px;
   overflow: hidden;
   background: var(--color-paper);
   border: 1px solid var(--color-rule);
-  border-radius: 8px;
+  border-radius: 7px;
   box-shadow: var(--shadow-whisper);
   cursor: pointer;
-  gap: 5px;
+  gap: 3px;
   isolation: isolate;
   transition:
     transform 180ms ease,
@@ -384,18 +417,15 @@ onMounted(loadDashboard);
 }
 
 .project-card-overdue {
-  background: linear-gradient(180deg, #fff8f7 0%, #ffffff 42%);
-  border-color: #f06a64;
+  background: var(--color-paper);
 }
 
 .project-card-overdue::after {
   background: #e13932;
-  opacity: 1;
 }
 
 .project-card-warning {
-  background: linear-gradient(180deg, #fffaf2 0%, #ffffff 42%);
-  border-color: #df9100;
+  background: var(--color-paper);
 }
 
 .project-card-warning::after {
@@ -421,7 +451,7 @@ onMounted(loadDashboard);
   min-height: 38px;
   margin: 0;
   color: var(--color-ink);
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1.35;
 }
 
@@ -501,7 +531,7 @@ onMounted(loadDashboard);
   overflow: hidden;
   color: var(--color-ink-2);
   font-size: 13px;
-  line-height: 1.55;
+  line-height: 1.45;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
@@ -518,7 +548,7 @@ onMounted(loadDashboard);
   display: grid;
   align-items: center;
   grid-template-columns: minmax(0, 1fr) auto;
-  padding: 8px 10px;
+  padding: 7px 8px;
   margin-top: 3px;
   background: var(--color-paper);
   border: 1px solid var(--color-rule-2);
@@ -551,8 +581,8 @@ onMounted(loadDashboard);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 76px;
-  height: 30px;
+  min-width: 68px;
+  height: 27px;
   padding: 0 10px;
   color: #078545;
   font-size: 12px;
@@ -585,7 +615,7 @@ onMounted(loadDashboard);
   .project-card:hover {
     border-color: var(--color-accent);
     box-shadow: 0 14px 34px rgb(8 124 240 / 14%);
-    transform: translateY(-4px);
+    transform: translateY(-2px);
   }
 
   .project-card:hover::after {
@@ -595,6 +625,11 @@ onMounted(loadDashboard);
   .project-card-overdue:hover {
     border-color: #e13932;
     box-shadow: 0 14px 34px rgb(225 57 50 / 12%);
+  }
+
+  .project-card-warning:hover {
+    border-color: #df9100;
+    box-shadow: 0 14px 34px rgb(223 145 0 / 12%);
   }
 
   .project-section-heading button:hover,
@@ -610,6 +645,12 @@ onMounted(loadDashboard);
 
   .project-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1181px) and (max-width: 1500px) {
+  .project-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 

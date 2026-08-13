@@ -54,7 +54,7 @@ const saving = ref(false);
 const isCreating = ref(false);
 const previewImage = ref<ProcessImage | null>(null);
 const attachmentBusyId = ref("");
-const listWidth = ref(495);
+const listWidth = ref(390);
 const resizing = ref(false);
 const recordScroll = ref<HTMLElement | null>(null);
 const copyPlanControl = ref<HTMLElement | null>(null);
@@ -1454,7 +1454,16 @@ onBeforeUnmount(() => {
             <div>
               <div class="subheading">
                 <h3>过程图片 <span>{{ editor.process_images.length }}</span></h3>
-                <small>JPG、PNG，单张不超过 10 MB</small>
+                <label v-if="canEdit" class="inline-upload-action">
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png"
+                    multiple
+                    @change="addProcessImages"
+                  />
+                  <Icon icon="tabler:photo-plus" />
+                  上传图片
+                </label>
               </div>
               <div class="image-grid">
                 <figure
@@ -1484,16 +1493,6 @@ onBeforeUnmount(() => {
                 </figure>
               </div>
             </div>
-            <label v-if="canEdit" class="upload-tile">
-              <input
-                type="file"
-                accept="image/jpeg,image/png"
-                multiple
-                @change="addProcessImages"
-              />
-              <Icon icon="tabler:photo-plus" />
-              <span>上传图片</span>
-            </label>
           </div>
         </section>
 
@@ -1510,7 +1509,11 @@ onBeforeUnmount(() => {
           <div class="result-attachments">
             <div class="attachment-heading">
               <h4>结果附件 <span>{{ editor.result_files.length }}</span></h4>
-              <small>支持文档、表格及图片</small>
+              <label v-if="canEdit" class="inline-upload-action">
+                <input type="file" multiple @change="addResultFiles" />
+                <Icon icon="tabler:paperclip" />
+                上传附件
+              </label>
             </div>
             <div class="file-list">
               <div
@@ -1534,11 +1537,6 @@ onBeforeUnmount(() => {
                 </button>
               </div>
             </div>
-            <label v-if="canEdit" class="upload-file">
-              <input type="file" multiple @change="addResultFiles" />
-              <Icon icon="tabler:paperclip" />
-              上传附件
-            </label>
           </div>
         </section>
       </div>
@@ -1616,7 +1614,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .eln-page {
-  --list-width: 495px;
+  --list-width: 390px;
   display: grid;
   grid-template-columns: var(--list-width) minmax(0, 1fr);
   width: 100%;
@@ -1646,7 +1644,7 @@ onBeforeUnmount(() => {
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  margin: var(--space-card) 0;
+  margin: 8px 0;
   overflow: visible;
   background: var(--color-paper);
   border: 1px solid var(--color-rule);
@@ -1655,11 +1653,11 @@ onBeforeUnmount(() => {
 
 .plan-actions {
   display: grid;
-  height: 62px;
-  flex: 0 0 62px;
+  height: 58px;
+  flex: 0 0 58px;
   grid-template-columns: 1fr 1fr;
   align-items: center;
-  padding: 10px 14px 8px;
+  padding: 8px 12px 6px;
   gap: 10px;
 }
 
@@ -1761,6 +1759,17 @@ onBeforeUnmount(() => {
   flex: 1;
   padding: 4px 12px;
   overflow: auto;
+  scrollbar-width: none;
+}
+
+.copy-plan-list::-webkit-scrollbar,
+.project-options::-webkit-scrollbar,
+.record-scroll::-webkit-scrollbar,
+.formula-wrap::-webkit-scrollbar,
+.eln-page::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .copy-plan-item {
@@ -1829,7 +1838,7 @@ onBeforeUnmount(() => {
   z-index: 50;
   height: 44px;
   flex: 0 0 44px;
-  margin: 0 14px;
+  margin: 0 12px;
   padding: 0 10px;
 }
 
@@ -1856,6 +1865,7 @@ onBeforeUnmount(() => {
   max-height: 330px;
   padding: 5px;
   overflow: auto;
+  scrollbar-width: none;
   background: var(--color-paper);
   border: 1px solid var(--color-rule-2);
   border-radius: 0 0 7px 7px;
@@ -1904,10 +1914,10 @@ onBeforeUnmount(() => {
 
 .record-tabs {
   display: grid;
-  height: 52px;
-  flex: 0 0 52px;
+  height: 44px;
+  flex: 0 0 44px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin: 0 14px;
+  margin: 0 12px;
   border-bottom: 1px solid var(--color-rule);
 }
 
@@ -1959,8 +1969,8 @@ onBeforeUnmount(() => {
 .experiment-row {
   position: relative;
   width: 100%;
-  min-height: 126px;
-  padding: 15px 17px;
+  min-height: 100px;
+  padding: 11px 12px;
   color: var(--color-ink);
   text-align: left;
   background: var(--color-paper);
@@ -1995,12 +2005,12 @@ onBeforeUnmount(() => {
 }
 
 .experiment-row strong {
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.45;
 }
 
 .experiment-row small {
-  margin-top: 5px;
+  margin-top: 3px;
   color: var(--color-ink-4);
   font-size: 12px;
 }
@@ -2009,7 +2019,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 10px;
+  margin-top: 7px;
 }
 
 .experiment-row time {
@@ -2103,7 +2113,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  padding: 10px 6px 12px;
+  padding: 8px 6px 8px;
   overflow: hidden;
   background: #f5f7fb;
 }
@@ -2111,14 +2121,15 @@ onBeforeUnmount(() => {
 .record-scroll {
   min-height: 0;
   flex: 1;
-  padding: 0 0 82px 12px;
+  padding: 0 0 72px 8px;
   overflow: auto;
   overscroll-behavior: contain;
+  scrollbar-width: none;
 }
 
 .record-section {
-  margin-bottom: 10px;
-  padding: 18px;
+  margin-bottom: 8px;
+  padding: 12px;
   background: var(--color-paper);
   border: 1px solid var(--color-rule);
   border-radius: 8px;
@@ -2131,12 +2142,12 @@ onBeforeUnmount(() => {
 }
 
 .record-section h3 {
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .record-summary {
-  margin-top: 15px;
-  padding-bottom: 14px;
+  margin-top: 9px;
+  padding-bottom: 9px;
   border-bottom: 1px solid var(--color-rule);
 }
 
@@ -2150,7 +2161,7 @@ onBeforeUnmount(() => {
 .record-title h2 {
   overflow: hidden;
   margin: 0;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.01em;
   text-overflow: ellipsis;
@@ -2167,8 +2178,8 @@ onBeforeUnmount(() => {
 .basic-info-create {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 16px;
-  gap: 14px 18px;
+  margin-top: 10px;
+  gap: 9px 16px;
 }
 
 .basic-info-grid > div,
@@ -2292,8 +2303,9 @@ onBeforeUnmount(() => {
 }
 
 .formula-wrap {
-  margin-top: 13px;
+  margin-top: 9px;
   overflow-x: auto;
+  scrollbar-width: none;
   border: 1px solid var(--color-rule);
   border-radius: 7px;
 }
@@ -2307,14 +2319,14 @@ onBeforeUnmount(() => {
 
 .formula-editor th {
   min-width: 180px;
-  padding: 6px 8px;
+  padding: 4px 6px;
   color: var(--color-ink-3);
   background: #f6f8fc;
   border-bottom: 1px solid var(--color-rule);
 }
 
 .formula-editor td {
-  padding: 5px 7px;
+  padding: 3px 5px;
   border-bottom: 1px solid var(--color-rule);
 }
 
@@ -2323,7 +2335,7 @@ onBeforeUnmount(() => {
 }
 
 .formula-editor input {
-  height: 38px;
+  height: 32px;
   padding: 0 10px;
 }
 
@@ -2371,14 +2383,14 @@ onBeforeUnmount(() => {
 }
 
 .process-copy > .section-heading {
-  margin-bottom: 13px;
+  margin-bottom: 9px;
 }
 
 .process-copy > textarea,
 .extra-process textarea,
 .result-section > textarea {
-  min-height: 124px;
-  padding: 12px 13px;
+  min-height: 104px;
+  padding: 9px 10px;
   line-height: 1.75;
   resize: vertical;
 }
@@ -2396,21 +2408,12 @@ onBeforeUnmount(() => {
 }
 
 .process-media {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 130px;
-  margin-top: 16px;
-  gap: 12px;
+  margin-top: 10px;
 }
 
 .subheading h3 span,
 .attachment-heading h4 span {
   color: var(--color-accent);
-}
-
-.subheading small,
-.attachment-heading small {
-  color: var(--color-ink-4);
-  font-size: 12px;
 }
 
 .image-grid {
@@ -2471,27 +2474,27 @@ onBeforeUnmount(() => {
   place-items: center;
 }
 
-.upload-tile {
-  display: flex;
-  height: 142px;
+.inline-upload-action {
+  display: inline-flex;
+  height: 32px;
   align-items: center;
   justify-content: center;
-  flex-direction: column;
+  padding: 0 10px;
   color: var(--color-accent);
-  background: #f8faff;
-  border: 1px dashed rgb(37 99 235 / 42%);
-  border-radius: 7px;
+  background: var(--color-accent-soft);
+  border: 1px solid rgb(37 99 235 / 24%);
+  border-radius: 6px;
   cursor: pointer;
-  gap: 7px;
+  flex-direction: row;
+  font-weight: 600;
+  gap: 6px;
 }
 
-.upload-tile svg {
-  width: 24px;
-  height: 24px;
+.inline-upload-action:hover {
+  border-color: var(--color-accent);
 }
 
-.upload-tile input,
-.upload-file input {
+.inline-upload-action input {
   display: none;
 }
 
@@ -2512,28 +2515,28 @@ onBeforeUnmount(() => {
 }
 
 .result-attachments {
-  display: grid;
-  grid-template-columns: 150px minmax(0, 1fr) 130px;
-  align-items: center;
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--color-rule);
-  gap: 14px;
+}
+
+.process-media .subheading,
+.attachment-heading {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
 }
 
 .attachment-heading h4 {
   font-size: 14px;
 }
 
-.attachment-heading small {
-  display: block;
-  margin-top: 4px;
-}
-
 .file-list {
   display: flex;
   min-width: 0;
   flex-wrap: wrap;
+  margin-top: 10px;
   gap: 8px;
 }
 
@@ -2579,24 +2582,11 @@ onBeforeUnmount(() => {
   place-items: center;
 }
 
-.upload-file {
-  display: inline-flex;
-  height: 38px;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-accent);
-  background: #f8faff;
-  border: 1px solid rgb(37 99 235 / 25%);
-  border-radius: 6px;
-  cursor: pointer;
-  gap: 6px;
-}
-
 .record-actions {
   position: absolute;
   z-index: 20;
-  right: 16px;
-  bottom: 14px;
+  right: 12px;
+  bottom: 8px;
   display: flex;
   padding: 8px;
   background: rgb(255 255 255 / 92%);
@@ -2696,7 +2686,7 @@ onBeforeUnmount(() => {
 
 @media (max-width: 1280px) {
   .eln-page {
-    --list-width: 435px;
+    --list-width: 390px;
   }
 
   .basic-info-grid,
@@ -2704,13 +2694,6 @@ onBeforeUnmount(() => {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .result-attachments {
-    grid-template-columns: 1fr;
-  }
-
-  .upload-file {
-    width: 150px;
-  }
 }
 
 @media (max-width: 800px) {
@@ -2719,6 +2702,7 @@ onBeforeUnmount(() => {
     height: 100%;
     flex-direction: column;
     overflow-y: auto;
+    scrollbar-width: none;
   }
 
   .experiment-list-panel {
@@ -2752,15 +2736,6 @@ onBeforeUnmount(() => {
   .basic-info-grid,
   .basic-info-create {
     grid-template-columns: 1fr;
-  }
-
-  .process-media,
-  .result-attachments {
-    grid-template-columns: 1fr;
-  }
-
-  .upload-tile {
-    height: 80px;
   }
 
   .record-actions {

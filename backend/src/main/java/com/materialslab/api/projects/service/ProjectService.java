@@ -14,6 +14,7 @@ import com.materialslab.api.projects.mapper.DashboardMapper;
 import com.materialslab.api.projects.mapper.ProjectMapper;
 import com.materialslab.api.projects.mapper.ProjectMapper.ProjectWriteCommand;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
@@ -108,7 +109,7 @@ public class ProjectService {
         accessControlService.requirePermission(principal, "project.update");
         Project existing = get(principal, projectNo);
         requireManageAccess(principal, existing);
-        ProjectWriteCommand command = command(existing.id(), principal.organizationId(), principal.userId(), payload, version, existing.projectNo());
+        ProjectWriteCommand command = command(existing, principal.organizationId(), principal.userId(), payload, version, existing.projectNo());
         requireOrganizationUser(principal.organizationId(), command.ownerId());
         if (projectMapper.update(command) == 0) throw new BusinessException(HttpStatus.PRECONDITION_FAILED, "version_conflict", "项目已被其他用户更新，请刷新后重试");
         return get(principal, projectNo);
@@ -273,17 +274,37 @@ public class ProjectService {
         }
     }
 
-    private ProjectWriteCommand command(UUID id, UUID organizationId, UUID actorId, JsonNode payload, int expectedVersion, String projectNo) {
-        String name = requiredText(payload, "name");
-        int progress = payload.path("progress_percent").asInt(0);
+    /** 按 PATCH 语义组装写入命令，更新时未提交的字段沿用数据库现值。 */
+    ProjectWriteCommand command(Project existing, UUID organizationId, UUID actorId, JsonNode payload,
+                                int expectedVersion, String projectNo) {
+        String name = payload.has("name") ? requiredText(payload, "name") : existing == null ? requiredText(payload, "name") : existing.name();
+        int progress = payload.has("progress_percent") ? payload.path("progress_percent").asInt() : existing == null ? 0 : existing.progressPercent();
         if (progress < 0 || progress > 100) throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "项目进度必须在 0 到 100 之间");
-        return new ProjectWriteCommand(id == null ? UUID.randomUUID() : id, organizationId, projectNo, name,
-                payload.path("project_type_code").asText("research"), payload.path("description").asText(""),
-                payload.path("current_stage").asText("方案设计"), progress, json(payload.path("objectives")), json(payload.path("milestones")),
-                payload.path("status").asText("not_started"), uuid(payload, "owner_id", actorId), null, null, actorId, expectedVersion);
+        return new ProjectWriteCommand(existing == null ? UUID.randomUUID() : existing.id(), organizationId, projectNo, name,
+                text(payload, "project_type_code", existing == null ? "research" : existing.projectTypeCode()),
+                text(payload, "description", existing == null ? "" : existing.description()),
+                text(payload, "current_stage", existing == null ? "方案设计" : existing.currentStage()),
+                progress,
+                payload.has("objectives") ? json(payload.path("objectives")) : existing == null ? "[]" : existing.objectives(),
+                payload.has("milestones") ? json(payload.path("milestones")) : existing == null ? "[]" : existing.milestones(),
+                text(payload, "status", existing == null ? "not_started" : existing.status()),
+                uuid(payload, "owner_id", existing == null ? actorId : existing.ownerId()),
+                dateTime(payload, "planned_start_date", existing == null ? null : existing.plannedStartDate()),
+                dateTime(payload, "planned_end_date", existing == null ? null : existing.plannedEndDate()),
+                actorId, expectedVersion);
     }
     private String requiredText(JsonNode payload, String key) { String value = payload.path(key).asText(); if (value.isBlank()) throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", key + " 不能为空"); return value; }
+    private String text(JsonNode payload, String key, String fallback) { return payload.hasNonNull(key) ? payload.get(key).asText() : fallback; }
     private UUID uuid(JsonNode payload, String key, UUID fallback) { try { return payload.hasNonNull(key) ? UUID.fromString(payload.get(key).asText()) : fallback; } catch (IllegalArgumentException error) { throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", key + " 必须为 UUID"); } }
+    private OffsetDateTime dateTime(JsonNode payload, String key, OffsetDateTime fallback) {
+        if (!payload.hasNonNull(key)) return fallback;
+        String value = payload.get(key).asText();
+        try { return OffsetDateTime.parse(value); }
+        catch (Exception ignored) {
+            try { return LocalDateTime.parse(value).atZone(ZoneId.of("Asia/Shanghai")).toOffsetDateTime(); }
+            catch (Exception error) { throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", key + " 必须为 ISO 8601 日期时间"); }
+        }
+    }
     private String json(JsonNode value) { try { return value.isMissingNode() || value.isNull() ? "[]" : objectMapper.writeValueAsString(value); } catch (Exception error) { throw new IllegalArgumentException("JSON 序列化失败", error); } }
     private String nextProjectNo() { return "PRJ-" + OffsetDateTime.now().toLocalDate().toString().replace("-", "") + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(); }
     private String normalizeStatus(String status) { return switch (status == null ? "" : status) { case "running" -> "active"; case "ended" -> "completed"; default -> status; }; }

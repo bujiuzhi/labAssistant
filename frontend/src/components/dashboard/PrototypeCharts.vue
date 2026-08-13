@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { Icon } from "@iconify/vue";
-import { LineChart, PieChart } from "echarts/charts";
+import { BarChart, PieChart } from "echarts/charts";
 import {
   GraphicComponent,
   GridComponent,
@@ -19,7 +18,7 @@ import type {
 
 echarts.use([
   PieChart,
-  LineChart,
+  BarChart,
   GraphicComponent,
   GridComponent,
   LegendComponent,
@@ -38,26 +37,20 @@ const props = defineProps<{
     selected_project_id: string;
     project_options: DashboardProjectOption[];
   };
-}>();
-const emit = defineEmits<{
-  projectChange: [projectId: string];
+  projectStatistics: Array<{ id: string; name: string; value: number }>;
 }>();
 const palette = ["#2563eb", "#0f9b8e", "#f59e0b", "#7c3aed", "#e11d48", "#0891b2"];
 const typeDistribution = computed(() =>
   props.typeDistribution.map((item, index) => ({ ...item, color: palette[index % palette.length] })),
 );
-const trendRange = computed(() => {
-  const dates = props.trend.dates;
-  if (dates.length === 0) return "暂无数据";
-  const format = (value: string) => value.slice(5).replace("-", "/");
-  return `${format(dates[0])}–${format(dates[dates.length - 1])}`;
-});
+const projectExperimentTotal = computed(() =>
+  props.projectStatistics.reduce((sum, item) => sum + item.value, 0),
+);
 
 let projectChart: ECharts | undefined;
 let experimentChart: ECharts | undefined;
 let trendChart: ECharts | undefined;
 let resizeObserver: ResizeObserver | undefined;
-let focusedTrendIndex = 0;
 
 function createDonutOption(mode: "project" | "experiment"): EChartsCoreOption {
   const isProject = mode === "project";
@@ -127,61 +120,38 @@ function createDonutOption(mode: "project" | "experiment"): EChartsCoreOption {
 }
 
 function createTrendOption(): EChartsCoreOption {
-  const values = props.trend.series.flatMap((item) => item.values);
-  const maximum = Math.max(2, ...values);
-  const yMaximum = Math.ceil(maximum / 2) * 2;
-
   return {
-    color: [palette[0]],
+    color: ["#087cf0"],
     animationDuration: 420,
-    grid: { left: 42, right: 18, top: 24, bottom: 54 },
+    grid: { left: 300, right: 42, top: 8, bottom: 8 },
     tooltip: {
       trigger: "axis",
+      axisPointer: { type: "shadow" },
       backgroundColor: "#ffffff",
       borderColor: "#e2e8f0",
       textStyle: { color: "#334155", fontSize: 12 },
     },
-    legend: {
-      bottom: 4,
-      itemWidth: 12,
-      itemHeight: 12,
-      icon: "circle",
-      textStyle: { color: "#667085", fontSize: 12 },
-    },
     xAxis: {
-      type: "category",
-      boundaryGap: false,
-      data: props.trend.dates.map((item) => item.slice(5).replace("-", "/")),
-      axisLine: { show: false },
-      axisTick: { show: false },
-      axisLabel: {
-        color: "#667085",
-        fontSize: 11,
-        interval: 4,
-        showMaxLabel: true,
-      },
+      type: "value",
+      show: false,
     },
     yAxis: {
-      type: "value",
-      min: 0,
-      max: yMaximum,
-      interval: Math.max(1, Math.ceil(yMaximum / 5)),
+      type: "category",
+      inverse: true,
+      data: props.projectStatistics.map((item) => item.name),
       axisLine: { show: false },
       axisTick: { show: false },
-      axisLabel: { color: "#667085", fontSize: 11 },
-      splitLine: {
-        lineStyle: { color: "#dce3ec", type: [4, 7] },
-      },
+      axisLabel: { color: "#344054", fontSize: 11, width: 278, overflow: "truncate", align: "left", margin: 294 },
     },
-    series: props.trend.series.map((item) => ({
-      name: item.name,
-      type: "line",
-      smooth: 0.35,
-      showSymbol: false,
-      lineStyle: { width: 2 },
-      emphasis: { focus: "series" },
-      data: item.values,
-    })),
+    series: [{
+      type: "bar",
+      barWidth: 9,
+      showBackground: true,
+      backgroundStyle: { color: "#e8eef5", borderRadius: 8 },
+      itemStyle: { borderRadius: 8 },
+      label: { show: true, position: "right", color: "#667085", fontSize: 11, formatter: "{c} 个" },
+      data: props.projectStatistics.map((item) => item.value),
+    }],
   };
 }
 
@@ -189,30 +159,9 @@ function updateTrend(): void {
   trendChart?.setOption(createTrendOption(), true);
 }
 
-function changeProject(event: Event): void {
-  emit("projectChange", (event.target as HTMLSelectElement).value);
-}
-
-/** 使用左右方向键逐日查看趋势数据，并复用图表提示层。 */
-function handleTrendKeydown(event: KeyboardEvent): void {
-  if (!trendChart || !props.trend.dates.length) return;
-  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-  event.preventDefault();
-  focusedTrendIndex = Math.min(
-    props.trend.dates.length - 1,
-    Math.max(0, focusedTrendIndex + (event.key === "ArrowRight" ? 1 : -1)),
-  );
-  trendChart.dispatchAction({
-    type: "showTip",
-    seriesIndex: 0,
-    dataIndex: focusedTrendIndex,
-  });
-}
-
 watch(
-  () => [props.typeDistribution, props.trend] as const,
+  () => [props.typeDistribution, props.trend, props.projectStatistics] as const,
   () => {
-    focusedTrendIndex = Math.max(0, props.trend.dates.length - 1);
     projectChart?.setOption(createDonutOption("project"), true);
     experimentChart?.setOption(createDonutOption("experiment"), true);
     updateTrend();
@@ -281,35 +230,13 @@ onBeforeUnmount(() => {
 
     <article class="dashboard-panel trend-panel">
       <header class="panel-heading trend-heading">
-        <div>
-          <h2>近30天实验趋势</h2>
-          <small>实验个数</small>
-        </div>
-        <label class="trend-select">
-          <select
-            :value="trend.selected_project_id"
-            aria-label="筛选趋势项目"
-            @change="changeProject"
-          >
-            <option value="">全部项目</option>
-            <option
-              v-for="item in trend.project_options"
-              :key="item.id"
-              :value="item.id"
-            >
-              {{ item.name }}
-            </option>
-          </select>
-          <Icon icon="tabler:chevron-down" aria-hidden="true" />
-        </label>
+        <h2>项目实验数统计</h2>
+        <small>共 {{ projectExperimentTotal }} 个实验</small>
       </header>
-      <span class="chart-date-range">{{ trendRange }}</span>
       <div
         ref="trendChartElement"
         class="trend-chart"
-        tabindex="0"
-        aria-label="近30天实验趋势折线图，可使用左右方向键逐日查看"
-        @keydown="handleTrendKeydown"
+        aria-label="按项目统计的实验数量横向条形图"
       />
     </article>
   </section>
@@ -318,8 +245,8 @@ onBeforeUnmount(() => {
 <style scoped>
 .dashboard-grid {
   display: grid;
-  grid-template-columns: minmax(440px, 0.96fr) minmax(560px, 1.17fr);
-  gap: var(--space-card);
+  grid-template-columns: minmax(500px, 0.9fr) minmax(620px, 1.1fr);
+  gap: 10px;
 }
 
 .dashboard-panel {
@@ -327,7 +254,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   background: var(--color-paper);
   border: 1px solid var(--color-rule);
-  border-radius: 8px;
+  border-radius: 7px;
   box-shadow: var(--shadow-whisper);
 }
 
@@ -335,8 +262,8 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 44px;
-  padding: 8px 12px;
+  min-height: 38px;
+  padding: 7px 10px;
   background: var(--color-paper-2);
 }
 
@@ -355,13 +282,13 @@ onBeforeUnmount(() => {
 }
 
 .type-body {
-  height: 210px;
+  height: 182px;
   padding: 0 10px 6px;
 }
 
 .pie-comparison {
   display: grid;
-  height: 176px;
+  height: 150px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -388,7 +315,7 @@ onBeforeUnmount(() => {
 
 .donut-chart {
   width: 100%;
-  height: 176px;
+  height: 150px;
 }
 
 .type-legend {
@@ -420,51 +347,9 @@ onBeforeUnmount(() => {
   position: relative;
 }
 
-.trend-heading {
-  min-height: 56px;
-}
-
-.trend-select {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.trend-select select {
-  width: 132px;
-  height: 34px;
-  padding: 0 30px 0 11px;
-  color: var(--color-ink-2);
-  appearance: none;
-  background: var(--color-paper);
-  border: 1px solid var(--color-rule-2);
-  border-radius: 6px;
-  outline: none;
-}
-
-.trend-select svg {
-  position: absolute;
-  right: 9px;
-  pointer-events: none;
-}
-
-.trend-select select:focus-visible {
-  border-color: var(--color-focus);
-  box-shadow: 0 0 0 2px color-mix(in oklch, var(--color-focus) 18%, transparent);
-}
-
-.chart-date-range {
-  position: absolute;
-  z-index: 2;
-  top: 58px;
-  right: 13px;
-  color: var(--color-faint);
-  font-size: 11px;
-}
-
 .trend-chart {
   width: 100%;
-  height: 198px;
+  height: 182px;
 }
 
 @media (max-width: 1180px) {
@@ -489,20 +374,6 @@ onBeforeUnmount(() => {
 
   .type-legend {
     flex-wrap: wrap;
-  }
-
-  .trend-heading {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .trend-select,
-  .trend-select select {
-    width: 100%;
-  }
-
-  .chart-date-range {
-    top: 99px;
   }
 
   .trend-chart {
