@@ -1,7 +1,4 @@
-# 后端运行数据
-backend/db.sqlite3
-backend/staticfiles/
-backend/media/
+# 后端构建产物
 backend/target/
 
 # 前端

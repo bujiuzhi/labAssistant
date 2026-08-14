@@ -4,7 +4,7 @@ info:
   version: 1.0.0
   description: |
     仅描述当前代码已经实现的会话、用户、工作台、项目、文档、实验和电子实验记录本接口。
-    数据资产与任务管理仍为原型中的研发中页签，不提供 API。
+    数据资产与任务管理尚未上线，当前不展示页面入口，也不提供 API。
 servers:
   - url: /api/v1
     description: 当前同源环境
@@ -127,7 +127,7 @@ paths:
     get:
       tags: [Auth]
       summary: 查询可选负责人和成员
-      description: 返回本人组织及下级组织中的有效用户。
+      description: 仅项目创建权限用户可调用，返回当前组织中的有效用户。
       responses:
         "200":
           description: 用户选项
@@ -291,7 +291,7 @@ paths:
     get:
       tags: [Projects]
       summary: 分页查询可见项目
-      description: 可见范围为本人组织及下级组织项目，并合并本人作为成员的跨组织项目。
+      description: 超级管理员可查看当前组织全部项目；普通用户仅可查看当前组织内本人负责或作为成员关联的项目。
       parameters:
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PageSize"

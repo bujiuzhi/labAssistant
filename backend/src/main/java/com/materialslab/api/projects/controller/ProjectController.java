@@ -15,6 +15,7 @@ import java.util.Map;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -73,6 +74,10 @@ public class ProjectController {
     /** 设置关注状态。 */
     @PostMapping("/projects/{projectKey}/follow")
     public ApiResponse<?> follow(@PathVariable String projectKey) { UserPrincipal p = IdentityService.currentPrincipal(); return ApiResponse.of(Map.of("is_followed", projectService.setFollow(p, projectKey, true))); }
+
+    /** 取消关注项目。 */
+    @DeleteMapping("/projects/{projectKey}/follow")
+    public ApiResponse<?> unfollow(@PathVariable String projectKey) { UserPrincipal p = IdentityService.currentPrincipal(); return ApiResponse.of(Map.of("is_followed", projectService.setFollow(p, projectKey, false))); }
 
     /** 查询项目真实操作日志。 */
     @GetMapping("/projects/{projectKey}/operation-logs")

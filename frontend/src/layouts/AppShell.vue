@@ -1,10 +1,12 @@
 <script setup lang="ts">
+import { Icon } from "@iconify/vue";
 import { computed } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 
 import { useSessionStore } from "@/stores/session";
 
 const route = useRoute();
+const router = useRouter();
 const sessionStore = useSessionStore();
 const baseProductNavigation = [
   { path: "/dashboard", label: "项目总览" },
@@ -21,6 +23,15 @@ function isProductRoute(path: string): boolean {
   if (path === "/system/users") return route.path.startsWith("/system");
   return route.path === path;
 }
+
+/** 注销当前会话并返回登录页。 */
+async function logout(): Promise<void> {
+  try {
+    await sessionStore.logout();
+  } finally {
+    await router.replace("/login");
+  }
+}
 </script>
 
 <template>
@@ -34,6 +45,9 @@ function isProductRoute(path: string): boolean {
           :class="{ active: isProductRoute(item.path) }"
         >{{ item.label }}</RouterLink>
       </nav>
+      <button class="logout-button" type="button" @click="logout">
+        <Icon icon="tabler:logout" />退出登录
+      </button>
     </header>
     <main class="route-content"><RouterView /></main>
   </div>
@@ -47,6 +61,9 @@ function isProductRoute(path: string): boolean {
 .product-nav a::after { position:absolute; right:0; bottom:-1px; left:0; height:2px; background:transparent; border-radius:2px 2px 0 0; content:""; }
 .product-nav a:hover,.product-nav a.active { color:#172033; }
 .product-nav a.active::after { background:#087cf0; }
+.logout-button { display:inline-flex; align-items:center; margin-left:auto; padding:0 4px; color:#536174; font-size:12px; background:transparent; border:0; cursor:pointer; gap:5px; }
+.logout-button:hover { color:#172033; }
+.logout-button svg { width:15px; height:15px; }
 .route-content { min-width:0; min-height:0; flex:1; overflow:hidden; padding:0 18px; }
-@media(max-width:760px){.assistant-header{padding:0 12px}.product-nav{overflow-x:auto;gap:22px}.route-content{padding:0 10px}}
+@media(max-width:760px){.assistant-header{padding:0 12px}.product-nav{overflow-x:auto;gap:22px}.logout-button{font-size:0}.route-content{padding:0 10px}}
 </style>

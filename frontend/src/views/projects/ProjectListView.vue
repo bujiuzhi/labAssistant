@@ -22,6 +22,7 @@ import type {
   ProjectCreateInput,
   ProjectMilestone,
 } from "@/types/api";
+import { futureDateShortcuts } from "@/utils/datePicker";
 
 type AggregateStatus = "" | "running" | "not_started" | "ended";
 type CreateProjectForm = Omit<ProjectCreateInput, "member_ids"> & {
@@ -419,11 +420,16 @@ onBeforeUnmount(() => {
 
         <label>
           <span>项目类型</span>
-          <select v-model="filters.projectType" @change="applyFilters">
-            <option value="">全部</option>
-            <option value="聚酰亚胺">聚酰亚胺</option>
-            <option value="环氧树脂">环氧树脂</option>
-          </select>
+          <el-select
+            v-model="filters.projectType"
+            placeholder="全部"
+            style="width: 120px"
+            @change="applyFilters"
+          >
+            <el-option label="全部" value="" />
+            <el-option label="聚酰亚胺" value="聚酰亚胺" />
+            <el-option label="环氧树脂" value="环氧树脂" />
+          </el-select>
         </label>
         <label>
           <span>负责人</span>
@@ -607,11 +613,13 @@ onBeforeUnmount(() => {
               </label>
               <label>
                 <span>项目类型 <i>*</i></span>
-                <select v-model="createForm.project_type_code">
-                  <option value="">请选择项目类型</option>
-                  <option value="聚酰亚胺">聚酰亚胺</option>
-                  <option value="环氧树脂">环氧树脂</option>
-                </select>
+                <el-select
+                  v-model="createForm.project_type_code"
+                  placeholder="请选择项目类型"
+                >
+                  <el-option label="聚酰亚胺" value="聚酰亚胺" />
+                  <el-option label="环氧树脂" value="环氧树脂" />
+                </el-select>
               </label>
               <label>
                 <span>项目经理 <i>*</i></span>
@@ -634,11 +642,27 @@ onBeforeUnmount(() => {
               </label>
               <label>
                 <span>开始时间 <i>*</i></span>
-                <input v-model="createForm.planned_start_date" type="datetime-local" />
+                <el-date-picker
+                  v-model="createForm.planned_start_date"
+                  type="datetime"
+                  format="YYYY/MM/DD HH:mm"
+                  value-format="YYYY-MM-DDTHH:mm"
+                  :shortcuts="futureDateShortcuts"
+                  placeholder="选择开始时间"
+                  style="width: 100%"
+                />
               </label>
               <label>
                 <span>结束时间 <i>*</i></span>
-                <input v-model="createForm.planned_end_date" type="datetime-local" />
+                <el-date-picker
+                  v-model="createForm.planned_end_date"
+                  type="datetime"
+                  format="YYYY/MM/DD HH:mm"
+                  value-format="YYYY-MM-DDTHH:mm"
+                  :shortcuts="futureDateShortcuts"
+                  placeholder="选择结束时间"
+                  style="width: 100%"
+                />
               </label>
             </div>
           </section>
@@ -721,10 +745,15 @@ onBeforeUnmount(() => {
                   aria-label="里程碑名称"
                   placeholder="例如：完成中试验证"
                 />
-                <input
+                <el-date-picker
                   v-model="milestone.date"
                   type="date"
+                  format="YYYY/MM/DD"
+                  value-format="YYYY-MM-DD"
+                  :shortcuts="futureDateShortcuts"
+                  placeholder="选择完成日期"
                   aria-label="完成日期"
+                  style="width: 100%"
                 />
                 <button
                   class="ui-button ui-button--danger ui-button--icon"
@@ -1198,7 +1227,7 @@ td small {
 }
 
 .form-section :is(
-  input[type="text"]:not(.el-select__input),
+  input[type="text"]:not(.el-select__input):not(.el-input__inner),
   input[type="datetime-local"],
   input[type="date"],
   select,
@@ -1213,7 +1242,7 @@ td small {
   outline: 0;
 }
 
-.form-section :is(input:not(.el-select__input), select) {
+.form-section :is(input:not(.el-select__input):not(.el-input__inner), select) {
   height: 38px;
   padding: 0 10px;
 }
@@ -1225,7 +1254,7 @@ td small {
   resize: vertical;
 }
 
-.form-section :is(input:not(.el-select__input), select, textarea):focus {
+.form-section :is(input:not(.el-select__input):not(.el-input__inner), select, textarea):focus {
   background: var(--color-paper);
   border-color: var(--color-accent);
   box-shadow: 0 0 0 3px rgb(37 99 235 / 10%);

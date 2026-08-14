@@ -46,7 +46,9 @@ const projects = computed<DashboardSummary["active_projects"]>(() => {
         risk_days: riskDays,
       };
     });
-  return [...dashboardProjects, ...additionalProjects].slice(0, 10);
+  return [...dashboardProjects, ...additionalProjects]
+    .sort((left, right) => Number(right.is_followed) - Number(left.is_followed))
+    .slice(0, 10);
 });
 const projectMetrics = computed(() => summary.value?.project_metrics);
 const experimentMetrics = computed(() => summary.value?.experiment_metrics);
@@ -97,9 +99,8 @@ function handleProjectKeydown(event: KeyboardEvent, projectId: string): void {
 /** 切换项目关注状态并立即反映到真实总览数据。 */
 async function toggleFollow(projectId: string, isFollowed: boolean): Promise<void> {
   try {
-    const nextValue = await projectApi.setFollow(projectId, !isFollowed);
-    const item = projects.value.find((project) => project.id === projectId);
-    if (item) item.is_followed = nextValue;
+    await projectApi.setFollow(projectId, !isFollowed);
+    await loadDashboard();
   } catch (error) {
     const problem = getProblemDetail(error);
     ElMessage.error(problem?.detail ?? "项目关注状态更新失败");

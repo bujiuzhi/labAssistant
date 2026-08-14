@@ -133,6 +133,7 @@ public class ExperimentService {
     }
 
     private boolean canEdit(UserPrincipal principal, Experiment experiment) {
+        if ("completed".equals(experiment.status())) return false;
         if (!accessControlService.hasPermission(principal, "experiment.update")) return false;
         return principal.isSuperAdmin()
                 || (accessControlService.hasPermission(principal, "experiment.create")

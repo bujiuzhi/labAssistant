@@ -76,7 +76,7 @@ public interface DashboardMapper {
             WHERE p.organization_id = #{organizationId} AND p.status IN ('active', 'at_risk')
               AND (#{readAll} = TRUE OR p.owner_id = #{userId}
                 OR EXISTS (SELECT 1 FROM project_member member WHERE member.project_id = p.id AND member.user_id = #{userId}))
-            ORDER BY p.updated_at DESC LIMIT 6
+            ORDER BY followed DESC, p.updated_at DESC LIMIT 6
             """)
     List<ActiveProject> activeProjects(@Param("organizationId") UUID organizationId, @Param("userId") UUID userId,
                                        @Param("readAll") boolean readAll);

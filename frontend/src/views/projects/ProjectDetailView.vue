@@ -19,6 +19,7 @@ import type {
   ProjectMilestone,
   ProjectOperationLog,
 } from "@/types/api";
+import { futureDateShortcuts } from "@/utils/datePicker";
 
 interface MilestoneStage {
   stage: string;
@@ -120,7 +121,7 @@ const project = computed<ProjectView | null>(() =>
   apiProject.value ? adaptApiProject(apiProject.value) : null,
 );
 
-const projectTabs = ["概览", "文档资料", "数据资产", "任务管理"];
+const projectTabs = ["概览", "文档资料"];
 const activeProjectTab = ref("概览");
 const canEdit = computed(
   () =>
@@ -642,10 +643,10 @@ watch(() => route.params.projectId, loadProject);
               </el-select>
             </el-form-item>
             <el-form-item label="开始时间" required>
-              <el-date-picker v-model="basicForm.startDate" type="datetime" value-format="YYYY-MM-DDTHH:mm" style="width: 100%" />
+              <el-date-picker v-model="basicForm.startDate" type="datetime" value-format="YYYY-MM-DDTHH:mm" :shortcuts="futureDateShortcuts" style="width: 100%" />
             </el-form-item>
             <el-form-item label="结束时间" required>
-              <el-date-picker v-model="basicForm.endDate" type="datetime" value-format="YYYY-MM-DDTHH:mm" style="width: 100%" />
+              <el-date-picker v-model="basicForm.endDate" type="datetime" value-format="YYYY-MM-DDTHH:mm" :shortcuts="futureDateShortcuts" style="width: 100%" />
             </el-form-item>
             <el-form-item v-if="canManageMembers" label="人员组成" class="full-row">
               <el-select v-model="basicForm.memberIds" multiple filterable style="width: 100%" placeholder="选择项目成员">
@@ -766,10 +767,15 @@ watch(() => route.params.projectId, loadProject);
                   placeholder="输入阶段目标"
                   aria-label="里程碑目标描述"
                 />
-                <input
+                <el-date-picker
                   v-model="item.date"
                   type="date"
+                  format="YYYY/MM/DD"
+                  value-format="YYYY-MM-DD"
+                  :shortcuts="futureDateShortcuts"
+                  placeholder="选择计划时间"
                   aria-label="计划时间"
+                  style="width: 100%"
                 />
                 <select v-model="item.state" aria-label="里程碑状态">
                   <option value="todo">未开始</option>
@@ -1101,7 +1107,7 @@ watch(() => route.params.projectId, loadProject);
   line-height: 1.3;
 }
 
-.basic-inline-editor :deep(.el-input__wrapper),
+.basic-inline-editor :deep(.el-input__wrapper:not(.el-date-editor)),
 .basic-inline-editor :deep(.el-select__wrapper),
 .basic-inline-editor :deep(.el-textarea__inner) {
   background: #f8fbff;
@@ -1629,7 +1635,7 @@ watch(() => route.params.projectId, loadProject);
     grid-template-columns: minmax(0, 1fr) 40px;
   }
 
-  .milestone-editor-row > input[type="date"],
+  .milestone-editor-row > .el-date-editor,
   .milestone-editor-row > select {
     grid-column: 1;
   }

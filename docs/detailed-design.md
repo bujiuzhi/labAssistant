@@ -2,7 +2,7 @@
 
 ## 1. 文档范围与事实来源
 
-本文件是项目唯一的详细设计，描述 `dev-java` 分支中 Java 后端的实现结构。
+本文件是项目唯一的详细设计，描述 `dev` 分支中 Java 后端的实现结构。
 实现事实以 Flyway Migration、Controller、Service、Mapper、前端接口调用和自动化测试为准。
 数据资产、任务管理、检测、报告、材料主数据和完整审计查询不在当前实现范围内。
 
@@ -25,7 +25,7 @@ backend/
 
 frontend/src/
 ├── api/                          # Axios 请求封装及业务 API
-├── components/projects/          # 文档、实验、数据资产、任务管理页签组件
+├── components/projects/          # 项目文档、预览及未开放功能的保留组件
 ├── views/                        # 登录、总览、项目、ELN、用户管理页面
 ├── stores/                       # 会话和权限状态
 ├── router/                       # 页面路由及访问控制
@@ -195,7 +195,7 @@ classDiagram
 | 项目 | `draft`、`not_started`、`active`、`at_risk`、`suspended`、`completed`、`archived` | 前五种可编辑；完成和归档只读 |
 | 项目成员 | `owner`、`researcher`、`inspector`、`viewer` | 项目负责人须同步存在 `owner` 成员记录 |
 | 项目类型 | `聚酰亚胺`、`环氧树脂` | 创建和更新均只接受需求规定值 |
-| 实验 | `not_started`、`in_progress`、`completed` | 只能依次开始和完成；完成前必须填写实验结果；完成后仍可留痕修订 |
+| 实验 | `not_started`、`in_progress`、`completed` | 只能依次开始和完成；完成后实验计划和 ELN 均不可编辑 |
 | 实验类型 | `单体`、`聚合`、`其他` | 创建和更新均只接受需求规定值 |
 | 实验参与人 | `owner`、`participant`、`reviewer` | 参与关系以项目可见范围为前提 |
 | 实验附件 | `process_image`、`result_file` | 附件数量和总大小由服务层校验 |
@@ -203,7 +203,7 @@ classDiagram
 
 ### 3.4.1 实验状态机（UML）
 
-实验状态迁移只有一个正式写入口：`POST /experiments/{key}/transition`。服务端在数据库事务中校验 `experiment.execute` 权限、对象范围、`If-Match` 版本和目标状态；不允许跳过“进行中”直接完成，也不支持完成后回退。
+实验状态迁移只有一个正式写入口：`POST /experiments/{key}/transition`。服务端在数据库事务中校验 `experiment.transition` 权限、对象范围、`If-Match` 版本和目标状态；不允许跳过“进行中”直接完成，也不支持完成后回退。
 
 ```mermaid
 ---
@@ -315,7 +315,7 @@ sequenceDiagram
 
 项目创建要求 `Idempotency-Key` 长度为 16–128。服务层在事务内锁定
 `business_number_sequence` 生成 `PRJ-年份-六位序号`，创建项目后同步负责人和普通成员关系；
-创建人不是负责人且未被选择时自动加入项目。负责人和成员必须属于本人组织或下级组织的有效用户。
+创建人会作为管理成员自动加入项目。负责人必须属于当前组织且处于启用状态。
 
 ### 5.2 实验与 ELN
 
@@ -348,8 +348,8 @@ sequenceDiagram
 ### 5.4 权限判定顺序
 
 1. Session 用户有效且具备对应权限码。
-2. 目标对象属于本人组织或下级组织，或者当前用户是跨组织项目成员。
-3. 实验可见范围从可见项目、实验负责人和参与人关系合并得出。
+2. 目标对象属于当前用户所在组织；普通用户还必须是项目负责人或项目成员，超级管理员可读取当前组织全部业务数据。
+3. 实验可见范围继承可见项目范围；写入时再校验实验负责人、参与人或项目管理成员关系。
 4. 对象状态允许该动作。
 5. 不可见对象以 404 返回，明确动作禁止以 403 返回。
 
@@ -357,13 +357,14 @@ sequenceDiagram
 
 | 权限码 | 超级管理员 | 项目管理员 | 实验员 | 含义 |
 |---|---|---|---|---|
-| `project.view` | 有 | 有 | 有 | 查看组织层级范围及成员关联项目 |
-| `project.view_all` | 有 | 无 | 无 | 超级管理员兼容权限码；业务选择器仍执行统一范围合并 |
-| `project.create`、`project.update`、`project.manage_members` | 有 | 有 | 有 | 创建、编辑、归档项目与维护成员 |
-| `document.view`、`document.upload` | 有 | 有 | 有 | 查看、预览、下载和上传授权项目文档 |
-| `experiment.view` | 有 | 有 | 有 | 查看可见项目和参与关系下的实验 |
-| `experiment.view_all` | 有 | 无 | 无 | 超级管理员兼容权限码；业务选择器仍执行统一范围合并 |
-| `experiment.create`、`experiment.update`、`experiment.execute` | 有 | 有 | 有 | 创建、编辑、复制、迁移实验与维护 ELN |
+| `organization.read` | 有 | 有 | 有 | 查看当前组织信息 |
+| `project.read` | 有 | 有 | 有 | 查看当前组织内授权项目；超级管理员可读取当前组织全部项目 |
+| `project.create`、`project.update`、`project.archive` | 有 | 有 | 无 | 创建项目，以及在对象范围内编辑、归档项目 |
+| `document.view` | 有 | 有 | 有 | 查看、预览和下载授权项目文档 |
+| `document.upload` | 有 | 有 | 无 | 在可管理且状态允许的项目中上传文档 |
+| `experiment.read` | 有 | 有 | 有 | 查看可见项目范围下的实验 |
+| `experiment.create` | 有 | 有 | 无 | 在拥有项目管理关系的项目中创建实验 |
+| `experiment.update`、`experiment.transition` | 有 | 有 | 有 | 在对象范围内维护实验、ELN 并顺序迁移状态；实验员不能变更所属项目或负责人 |
 
 ### 5.5 文件约束与存储语义
 
@@ -374,7 +375,7 @@ sequenceDiagram
 ## 6. 前端设计
 
 - 路由覆盖登录、工作台、项目列表、项目详情、ELN 和用户管理。
-- 项目详情由概览、文档资料、实验管理、数据资产、任务管理五个页签组成；后两项仅展示研发中状态。
+- 项目详情当前仅展示概览和文档资料；电子实验记录本为一级业务页面；数据资产和任务管理入口暂不展示。
 - 概览使用真实基础信息、里程碑、最近实验、成员角色和项目操作记录，项目头部提供编辑、新建实验和归档入口。
 - 文档预览使用服务端 `/preview` 地址，下载始终读取 `/content?download=1` 原文件。
 - `sessionStore` 保存当前会话和权限码；页面按钮仅作体验提示，后端是最终权限裁决点。
@@ -396,15 +397,14 @@ sequenceDiagram
 | 配置项 | 作用 | 注意事项 |
 |---|---|---|
 | `.env` | Java 服务、数据库、对象存储、开发初始化参数 | 不提交仓库；以 `.env.example` 为模板 |
-| `DATABASE_ENGINE` | `postgresql` 或 `sqlite` | 环境切换前执行 Migration |
+| `SPRING_PROFILES_ACTIVE`、`JDBC_DATABASE_URL`、`POSTGRES_*` | Spring Profile 与 PostgreSQL 连接 | 启动时由 Flyway 校验并执行 Migration |
 | `OBJECT_STORAGE_*` | RustFS endpoint、私有桶、区域、SigV4 凭据和 TLS 校验 | 密钥不提交；应用端使用 path-style S3 |
-| `MEDIA_ROOT` | 切换对象存储前的历史原件迁移源或测试文件系统 | 迁移后只保留受控回滚副本，不作为运行时正式存储 |
-| `ALLOWED_HOSTS`、`CSRF_TRUSTED_ORIGINS` | 访问域名与 CSRF 来源 | 生产环境必须精确配置 |
+| `SERVER_ADDRESS`、`SERVER_PORT`、`SESSION_COOKIE_SECURE` | Java API 监听地址、端口与 Session Cookie 策略 | 生产环境最小暴露并启用安全 Cookie |
 | LibreOffice | 办公文档预览转换依赖 | 运行前确认 `libreoffice` 或 `soffice` 可执行 |
 
-建议上线流程：备份数据库与对象原件 → 启动 RustFS 并执行 `bootstrap_object_storage` →
-执行 `migrate` → 必要时运行 `migrate_media_to_object_storage` 及 `--verify-only` →
-运行后端测试和前端构建 → 发布静态文件/API 进程 → 检查健康接口、登录、项目文档预览和 ELN 写入。
+建议上线流程：备份 PostgreSQL 与 RustFS 对象原件 → 检查配置和对象存储桶 →
+运行后端测试和前端构建 → 启动 Spring Boot 并由 Flyway 执行待应用迁移 →
+发布静态文件/API 进程 → 检查健康接口、登录、项目文档预览和 ELN 写入。
 
 ## 8. 测试与验收映射
 
@@ -413,21 +413,21 @@ sequenceDiagram
 | 认证与会话 | `backend/src/test/java/**` | 登录、会话、CSRF 与权限 |
 | 项目管理 | `backend/src/test/java/**` | 创建、编辑、成员、乐观锁和状态限制 |
 | 项目文档 | `backend/src/test/java/**`、`frontend/tests/document-preview.test.ts` | 上传、下载、可信 MIME、压缩包安全、组件分流、文本解析、PDF 原件和办公转换 |
-| 实验与 ELN | `backend/src/test/java/**` | 必填与类型、默认配方、状态迁移、完成后修订、附件增删 |
-| 用户与组织范围 | `backend/src/test/java/**`、项目/实验范围用例 | 超级管理员保护、三角色选项、下级组织和跨组织成员 |
+| 实验与 ELN | `backend/src/test/java/**` | 必填与类型、默认配方、状态迁移、完成后只读、附件增删 |
+| 用户与组织范围 | `backend/src/test/java/**`、项目/实验范围用例 | 超级管理员保护、三角色选项、当前组织隔离和项目成员范围 |
 | 系统初始化 | `backend/src/test/java/**` | 开发种子数据 |
 | 对象存储 | `backend/src/test/java/**` | 禁用配置保护、原件迁移、重复校验和就绪状态 |
 
 本基线下，后端完整测试命令为：
 
 ```bash
-conda run -n materials-lab-assistant mvn -f backend/pom.xml test
+mvn -f backend/pom.xml test
 ```
 
 前端构建命令为：
 
 ```bash
-conda run -n materials-lab-assistant pnpm --dir frontend run build
+pnpm --dir frontend run build
 ```
 
 ## 9. 后续设计约束

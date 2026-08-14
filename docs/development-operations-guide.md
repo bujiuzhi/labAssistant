@@ -2,7 +2,7 @@
 
 ## 1. 目的与适用范围
 
-本指南是项目唯一的开发、测试、部署、运维和协作规范，适用于当前 `dev-java` 分支。系统当前由 Vue 前端、Spring Boot API、PostgreSQL、RustFS 私有对象存储和 LibreOffice 预览组件构成。
+本指南是项目唯一的开发、测试、部署、运维和协作规范，适用于当前 `dev` 分支。系统当前由 Vue 前端、Spring Boot API、PostgreSQL、Redis、RustFS 私有对象存储和 LibreOffice 预览组件构成。
 
 ## 2. 目录与资产边界
 
@@ -24,14 +24,15 @@
 
 ## 3. 环境准备
 
-### 3.1 Conda 环境
+### 3.1 Java 与前端工具链
 
-项目使用现有 Conda 环境 `materials-lab-assistant`。新环境按 `environment.yml` 创建；后端命令统一使用 `mvn -f backend/pom.xml`。
+后端使用 Java 25 和 Maven，前端使用 Node.js、pnpm。后端命令统一使用 `mvn -f backend/pom.xml`，前端包管理器版本以 `frontend/package.json` 的 `packageManager` 字段为准。
 
 ```bash
-conda env create -f environment.yml
-conda run -n materials-lab-assistant mvn -f backend/pom.xml test
-conda run -n materials-lab-assistant mvn -f backend/pom.xml spring-boot:run
+java -version
+mvn -version
+node --version
+pnpm --version
 ```
 
 ### 3.2 配置文件
@@ -50,14 +51,19 @@ conda run -n materials-lab-assistant mvn -f backend/pom.xml spring-boot:run
 
 ## 4. 本地与服务器运行
 
-### 4.1 开发启动
+### 4.1 远程开发启动
 
 ```bash
-conda run -n materials-lab-assistant mvn -f backend/pom.xml spring-boot:run
-conda run -n materials-lab-assistant pnpm --dir frontend dev -- --host 0.0.0.0
+cd ~/work/code/labAssistant
+cp .env.example .env
+corepack enable
+pnpm --dir frontend install --frozen-lockfile
+docker compose --env-file .env -f infra/docker-compose.yml up -d
+docker compose --env-file .env -f infra/docker-compose.yml ps
 ```
 
-前端默认监听 `5173`，后端默认监听 `8000`。前端通过 `/api/v1/` 访问 API；登录前先获取 CSRF，认证采用 Session Cookie。
+Compose 会统一启动前端、API 和基础设施，不要再并行运行宿主机 API 或 Vite。前端默认监听
+`5173`，后端默认监听 `8000`。前端通过 `/api/v1/` 访问 API；登录前先获取 CSRF，认证采用 Session Cookie。
 
 ### 4.2 基础设施
 
@@ -66,8 +72,9 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d
 docker compose --env-file .env -f infra/docker-compose.yml ps
 ```
 
-Compose 提供 PostgreSQL、Redis 和 RustFS。RustFS S3 API 与控制台默认仅绑定服务器回环地址
-`19000`、`19001`；Java API 使用私有桶保存项目文档、实验附件和办公文档 PDF 预览缓存。
+Compose 提供 PostgreSQL、Redis 和 RustFS。RustFS S3 API 与控制台端口为 `19000`、`19001`，
+监听地址由 `OBJECT_STORAGE_BIND_ADDRESS` 控制；开发示例允许局域网访问，生产环境必须改为
+`127.0.0.1` 或由防火墙限制来源。Java API 使用私有桶保存项目文档、实验附件和办公文档 PDF 预览缓存。
 运行项目前必须确保目标桶和访问密钥已初始化，运行办公文档预览前还必须安装
 `libreoffice` 或 `soffice`。RustFS 单机数据映射到
 `${MATERIALS_LAB_DATA_ROOT}/rustfs`，不得放入代码仓库。
@@ -87,18 +94,18 @@ Compose 提供 PostgreSQL、Redis 和 RustFS。RustFS S3 API 与控制台默认�
 | 文件预览 | 分别打开 DOCX、XLSX、PPTX、PDF、图片和文本样例 | 首选组件渲染；组件失败时显示转换 PDF | 检查浏览器控制台、私有桶权限、LibreOffice、临时目录和磁盘空间 |
 
 开发环境若服务器端口不对外开放，应使用 README 给出的 SSH 隧道访问；不得通过修改后端认证逻辑或关闭 CSRF 来规避访问问题。
-二进制原件和 PDF 预览请求不要覆盖 `Accept` 为 DRF 未配置的媒体类型，否则请求可能在进入
-文件视图前被内容协商返回 406；前端只需设置 `responseType: arraybuffer`。
+二进制原件和 PDF 预览请求由 Spring MVC 文件接口返回；前端只需设置
+`responseType: arraybuffer`，不要自行拼接未经授权的对象存储地址。
 
 ## 5. 测试与质量门禁
 
 | 层级 | 命令/方法 | 通过标准 |
 |---|---|---|
-| 后端 | `conda run -n materials-lab-assistant mvn -f backend/pom.xml test` | Java 单测和编译通过 |
-| 后端静态检查 | `conda run -n materials-lab-assistant mvn -f backend/pom.xml verify` | 编译、测试和打包校验通过 |
-| 前端单测 | `conda run -n materials-lab-assistant pnpm --dir frontend test` | 格式分流、文本解码和 CSV 解析通过 |
-| 前端类型与构建 | `conda run -n materials-lab-assistant pnpm --dir frontend run build` | TypeScript 检查、组件懒加载和 Vite 构建通过 |
-| 数据库 | 执行 `migrate` 并验证关键查询 | Migration 可重复执行，约束和索引生效 |
+| 后端 | `mvn -f backend/pom.xml test` | Java 单测和编译通过 |
+| 后端静态检查 | `mvn -f backend/pom.xml verify` | 编译、测试和打包校验通过 |
+| 前端单测 | `pnpm --dir frontend test` | 格式分流、文本解码和 CSV 解析通过 |
+| 前端类型与构建 | `pnpm --dir frontend run build` | TypeScript 检查、组件懒加载和 Vite 构建通过 |
+| 数据库 | 启动 Spring Boot 并验证 Flyway 历史及关键查询 | Migration 按版本执行，约束和索引生效 |
 | 页面 | 登录、项目编辑、文档预览、ELN 写入等人工/浏览器验证 | 无空白页、无框架错误、权限与状态符合预期 |
 
 当前已实现链路的回归重点：
@@ -106,8 +113,8 @@ Compose 提供 PostgreSQL、Redis 和 RustFS。RustFS S3 API 与控制台默认�
 - 项目创建使用 `Idempotency-Key`，编辑和归档使用 `If-Match`，关键动作写入业务操作日志。
 - 项目文档上传、下载、签名与压缩包安全校验；DOCX/XLS/XLSX/PPTX/PDF 组件预览；
   图片、TXT/CSV 预览；旧格式及组件失败时转 PDF。
-- 实验创建、复制、顺序状态迁移、完成后修订、ELN 写入和真实附件增删读取。
-- 超级管理员用户管理、三类角色选项、下级组织和跨组织项目成员范围检查。
+- 实验创建、复制、顺序状态迁移、完成后只读、ELN 写入和真实附件增删读取。
+- 超级管理员用户管理、三类角色选项、当前组织隔离和项目成员范围检查。
 
 ### 5.1 文档图示与实现一致性检查
 
@@ -126,8 +133,8 @@ Compose 提供 PostgreSQL、Redis 和 RustFS。RustFS S3 API 与控制台默认�
 
 1. 确认 `dev` 分支已通过测试并完成代码审查。
 2. 备份数据库和 RustFS 对象数据，记录备份时间、版本和恢复位置。
-3. 拉取目标提交，安装已锁定依赖，执行 `migrate`。
-4. 构建前端，重启 API、静态资源服务和必要的 Worker。
+3. 拉取目标提交，安装已锁定的前端依赖，并执行后端测试和前端构建。
+4. 执行 `docker compose --env-file .env -f infra/docker-compose.yml up -d` 更新服务；API 启动时由 Flyway 执行待应用迁移。
 5. 验证健康接口、登录、项目列表、文档预览和 ELN 保存。
 
 ### 6.2 回滚原则
@@ -151,7 +158,7 @@ Compose 提供 PostgreSQL、Redis 和 RustFS。RustFS S3 API 与控制台默认�
 
 ## 7. 安全与运维检查
 
-- 生产环境使用 HTTPS、精确 `ALLOWED_HOSTS` 和 `CSRF_TRUSTED_ORIGINS`，禁止 `DEBUG=true`。
+- 生产环境使用 HTTPS，将 `SESSION_COOKIE_SECURE` 设为 `true`，并由反向代理限制允许的 Host、来源和请求大小。
 - 数据库、Redis 和 RustFS API/控制台仅对必要进程开放；Docker 端口绑定服务器回环地址。
 - 每次请求必须经过 Session、权限码、组织范围、对象范围和状态校验。
 - 日志应保留请求编号、资源和错误码，不记录密码、Cookie、完整 ELN 正文或文件内容。

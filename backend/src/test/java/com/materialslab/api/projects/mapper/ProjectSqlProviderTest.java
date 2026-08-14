@@ -20,4 +20,18 @@ class ProjectSqlProviderTest {
                 "organizationId", "org", "userId", "user", "readAll", false, "status", "active", "search", "材料"));
         assertThat(sql).contains("SELECT COUNT(*)", "p.organization_id = #{organizationId}", "#{readAll} = TRUE", "project_member", "p.status = #{status}", "p.name ILIKE");
     }
+
+    @Test
+    void 已结束筛选应同时包含已完成和已归档项目() {
+        Map<String, Object> parameters = Map.of(
+                "organizationId", "org", "userId", "user", "readAll", false,
+                "status", "ended", "search", "", "limit", 20, "offset", 0);
+
+        assertThat(new ProjectSqlProvider().findVisible(parameters))
+                .contains("p.status IN ('completed', 'archived')")
+                .doesNotContain("p.status = #{status}");
+        assertThat(new ProjectSqlProvider().countVisible(parameters))
+                .contains("p.status IN ('completed', 'archived')")
+                .doesNotContain("p.status = #{status}");
+    }
 }

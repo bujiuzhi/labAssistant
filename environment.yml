@@ -1,7 +1,0 @@
-name: materials-lab-assistant
-channels:
-  - conda-forge
-dependencies:
-  - openjdk=25
-  - maven=3.9.12
-  - nodejs=24

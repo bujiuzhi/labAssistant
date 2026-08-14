@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Icon } from "@iconify/vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import {
   computed,
   nextTick,
@@ -26,6 +26,7 @@ import type {
   Project,
   ResultFile,
 } from "@/types/api";
+import { futureDateShortcuts } from "@/utils/datePicker";
 
 const sessionStore = useSessionStore();
 const route = useRoute();
@@ -126,6 +127,7 @@ const canEdit = computed(
   () =>
     isCreating.value ||
     (sessionStore.hasPermission("experiment.update") &&
+      selectedExperiment.value?.status !== "completed" &&
       selectedExperiment.value?.can_edit === true),
 );
 
@@ -183,12 +185,6 @@ const copyOptions = computed(() => {
       !keyword ||
       `${item.name} ${item.experiment_no}`.toLowerCase().includes(keyword),
   );
-});
-
-const primaryActionLabel = computed(() => {
-  if (isCreating.value) return "创建实验";
-  if (selectedExperiment.value?.status === "not_started") return "开始实验";
-  return "保存记录";
 });
 
 function statusLabel(status: ExperimentStatus): string {
@@ -750,10 +746,22 @@ async function persistRecord(isDraft: boolean): Promise<void> {
     if (isCreating.value) {
       const created = await experimentApi.create(payloadFromEditor());
       replaceExperiment(created);
-      activeStatus.value = "not_started";
       selectedProjectId.value = created.project_id;
-      selectExperiment(created);
-      ElMessage.success(isDraft ? "实验草稿已暂存" : "实验计划已创建");
+      if (isDraft) {
+        activeStatus.value = "not_started";
+        selectExperiment(created);
+        ElMessage.success("实验已暂存");
+        return;
+      }
+      const started = await experimentApi.transition(
+        created.experiment_no,
+        created.version,
+        "in_progress",
+      );
+      replaceExperiment(started);
+      activeStatus.value = "in_progress";
+      selectExperiment(started);
+      ElMessage.success("实验已开始");
       return;
     }
     const current = selectedExperiment.value;
@@ -777,7 +785,7 @@ async function persistRecord(isDraft: boolean): Promise<void> {
       return;
     }
     selectExperiment(updated);
-    ElMessage.success(isDraft ? "草稿已暂存" : "实验记录已保存");
+    ElMessage.success("实验已暂存");
   } catch (error) {
     const problem = getProblemDetail(error);
     ElMessage.error(problem?.detail ?? "实验记录保存失败，请稍后重试");
@@ -801,6 +809,19 @@ async function completeExperiment(): Promise<void> {
     ElMessage.warning("完成实验前必须填写实验结果");
     return;
   }
+  try {
+    await ElMessageBox.confirm(
+      "完成后实验记录将锁定且不能继续编辑，是否确认完成？",
+      "确认完成实验",
+      {
+        confirmButtonText: "完成实验",
+        cancelButtonText: "取消",
+        type: "warning",
+      },
+    );
+  } catch {
+    return;
+  }
   saving.value = true;
   try {
     const updated = await experimentApi.update(
@@ -816,7 +837,7 @@ async function completeExperiment(): Promise<void> {
     replaceExperiment(completed);
     activeStatus.value = "completed";
     selectExperiment(completed);
-    ElMessage.success("实验已完成，记录仍可继续保存修订");
+    ElMessage.success("实验已完成，记录已锁定");
   } catch (error) {
     const problem = getProblemDetail(error);
     ElMessage.error(problem?.detail ?? "实验完成失败");
@@ -1200,11 +1221,27 @@ onBeforeUnmount(() => {
             </label>
             <label>
               <span>预估开始时间</span>
-              <input v-model="editor.estimated_start" type="datetime-local" />
+              <el-date-picker
+                v-model="editor.estimated_start"
+                type="datetime"
+                format="YYYY/MM/DD HH:mm"
+                value-format="YYYY-MM-DDTHH:mm"
+                :shortcuts="futureDateShortcuts"
+                placeholder="选择预估开始时间"
+                style="width: 100%"
+              />
             </label>
             <label>
               <span>预估结束时间</span>
-              <input v-model="editor.estimated_end" type="datetime-local" />
+              <el-date-picker
+                v-model="editor.estimated_end"
+                type="datetime"
+                format="YYYY/MM/DD HH:mm"
+                value-format="YYYY-MM-DDTHH:mm"
+                :shortcuts="futureDateShortcuts"
+                placeholder="选择预估结束时间"
+                style="width: 100%"
+              />
             </label>
             <label class="purpose-field">
               <span>实验目的</span>
@@ -1552,8 +1589,7 @@ onBeforeUnmount(() => {
         class="record-actions"
       >
         <button
-          v-if="selectedExperiment?.status !== 'completed'"
-          class="ui-button ui-button--secondary button"
+          class="ui-button button draft-button"
           type="button"
           :disabled="saving"
           @click="persistRecord(true)"
@@ -1561,19 +1597,14 @@ onBeforeUnmount(() => {
           暂存
         </button>
         <button
+          v-if="isCreating || selectedExperiment?.status === 'not_started'"
           class="ui-button ui-button--primary button primary"
           type="button"
           :disabled="saving"
           @click="persistRecord(false)"
         >
-          <Icon
-            :icon="
-              selectedExperiment?.status === 'not_started'
-                ? 'tabler:player-play'
-                : 'tabler:device-floppy'
-            "
-          />
-          {{ saving ? "处理中…" : primaryActionLabel }}
+          <Icon icon="tabler:player-play" />
+          {{ saving ? "处理中…" : "开始实验" }}
         </button>
         <button
           v-if="selectedExperiment?.status === 'in_progress'"
@@ -2209,7 +2240,7 @@ onBeforeUnmount(() => {
   grid-column: 1 / -1;
 }
 
-.basic-info-create input,
+.basic-info-create input:not(.el-input__inner),
 .basic-info-create select,
 .basic-info-create textarea,
 .formula-editor input,
@@ -2225,7 +2256,7 @@ onBeforeUnmount(() => {
   outline: 0;
 }
 
-.basic-info-create input,
+.basic-info-create input:not(.el-input__inner),
 .basic-info-create select {
   height: 36px;
   padding: 0 10px;
@@ -2237,7 +2268,7 @@ onBeforeUnmount(() => {
   resize: vertical;
 }
 
-.basic-info-create :is(input, select, textarea):focus,
+.basic-info-create :is(input:not(.el-input__inner), select, textarea):focus,
 .formula-editor input:focus,
 .process-copy textarea:focus,
 .result-section > textarea:focus,
@@ -2601,6 +2632,12 @@ onBeforeUnmount(() => {
   color: #ffffff;
   background: #14804a;
   border-color: #14804a;
+}
+
+.record-actions .draft-button {
+  color: var(--color-accent);
+  background: transparent;
+  border-color: transparent;
 }
 
 .workspace-empty {

@@ -6,8 +6,8 @@
 
 当前已完成组织内登录、超级管理员用户管理、工作台、项目管理、项目文档与电子实验记录本。
 项目详情已接通项目编辑、人员与里程碑维护、归档、操作记录，以及文档分类检索、真实文件上传、
-常用格式预览、下载和实验筛选、复制、状态流转、ELN 编辑与附件管理。数据资产和任务管理页签按
-最新原型保持“研发中，敬请期待”，不生成虚构业务数据。正式开发以 `docs/` 中批准的规范为依据。
+常用格式预览、下载和实验筛选、复制、状态流转、ELN 编辑与附件管理。数据资产和任务管理尚未
+上线，当前页面不展示对应入口，也不生成虚构业务数据。正式开发以 `docs/` 中批准的规范为依据。
 
 文档预览支持 DOC/DOCX/ODT/RTF、PDF、XLS/XLSX/ODS/CSV、PPT/PPTX/ODP、TXT，
 以及 PNG/JPG/JPEG/WebP/GIF/BMP。DOCX、XLS/XLSX、PPTX、PDF 优先使用专用前端组件，
@@ -23,8 +23,7 @@ materials-lab-assistant/
 ├── audit/                        # 原型来源、证据和审计记录
 ├── backend/                      # Spring Boot、MyBatis API 与 Flyway 迁移
 ├── frontend/                     # Vue 3 工作台
-├── infra/                        # PostgreSQL、Redis、RustFS 开发环境
-└── environment.yml              # Conda 开发环境
+└── infra/                        # PostgreSQL、Redis、RustFS 开发环境
 ```
 
 未实现的目录不提前创建，避免形成空模板。
@@ -52,22 +51,19 @@ materials-lab-assistant/
 
 ## 启动方式
 
-远程开发服务器目录为 `/home/bujiu/work/code/materials-lab-assistant`。首次启动：
+远程开发服务器目录为 `/home/bujiu/work/code/labAssistant`。首次启动：
 
 ```bash
-cd ~/work/code/materials-lab-assistant
+cd ~/work/code/labAssistant
 cp .env.example .env
-conda env create -f environment.yml
+corepack enable
+pnpm --dir frontend install --frozen-lockfile
 docker compose --env-file .env -f infra/docker-compose.yml up -d
-
-set -a
-source .env
-set +a
-conda run -n materials-lab-assistant mvn -f backend/pom.xml test
-conda run -n materials-lab-assistant mvn -f backend/pom.xml spring-boot:run
-conda run -n materials-lab-assistant pnpm --dir frontend install
-conda run -n materials-lab-assistant pnpm --dir frontend dev
+docker compose --env-file .env -f infra/docker-compose.yml ps
 ```
+
+Compose 会启动前端、Java API、PostgreSQL、Redis 和 RustFS；Spring Boot 启动时自动执行 Flyway
+迁移。不要再并行运行宿主机上的 API 或 Vite，以免端口冲突。提交前的测试与构建命令见部署运维指南。
 
 开发 `.env` 使用统一测试凭据：PostgreSQL 用户名/密码为 `dev` / `dev123456`，Redis 密码为
 `dev123456`，RustFS 访问密钥/密钥为 `dev` / `dev123456`。这些凭据仅用于开发测试环境；生产

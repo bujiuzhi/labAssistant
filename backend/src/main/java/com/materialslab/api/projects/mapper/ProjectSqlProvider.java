@@ -20,7 +20,7 @@ public class ProjectSqlProvider {
                   AND (#{readAll} = TRUE OR p.owner_id = #{userId}
                     OR EXISTS (SELECT 1 FROM project_member member WHERE member.project_id = p.id AND member.user_id = #{userId}))
                 """);
-        if (status != null && !status.isBlank()) sql.append(" AND p.status = #{status}");
+        appendStatusFilter(sql, status);
         if (search != null && !search.isBlank()) sql.append(" AND (p.project_no ILIKE '%' || #{search} || '%' OR p.name ILIKE '%' || #{search} || '%')");
         sql.append(" ORDER BY p.updated_at DESC LIMIT #{limit} OFFSET #{offset}");
         return sql.toString();
@@ -36,8 +36,18 @@ public class ProjectSqlProvider {
                   AND (#{readAll} = TRUE OR p.owner_id = #{userId}
                     OR EXISTS (SELECT 1 FROM project_member member WHERE member.project_id = p.id AND member.user_id = #{userId}))
                 """);
-        if (status != null && !status.isBlank()) sql.append(" AND p.status = #{status}");
+        appendStatusFilter(sql, status);
         if (search != null && !search.isBlank()) sql.append(" AND (p.project_no ILIKE '%' || #{search} || '%' OR p.name ILIKE '%' || #{search} || '%')");
         return sql.toString();
+    }
+
+    /** “已结束”聚合已完成和已归档两个终态，其余状态保持精确匹配。 */
+    private void appendStatusFilter(StringBuilder sql, String status) {
+        if (status == null || status.isBlank()) return;
+        if ("ended".equals(status)) {
+            sql.append(" AND p.status IN ('completed', 'archived')");
+            return;
+        }
+        sql.append(" AND p.status = #{status}");
     }
 }
