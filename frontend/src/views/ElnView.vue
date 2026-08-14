@@ -1224,7 +1224,7 @@ onBeforeUnmount(() => {
                 @click="addExtraTable"
               >
                 <Icon icon="tabler:table-plus" />
-                新增表格
+                新增
               </button>
             </div>
             <div>
@@ -2274,9 +2274,9 @@ onBeforeUnmount(() => {
 
 .module-add-button {
   height: 30px;
-  padding: 0 9px;
-  background: var(--color-accent-soft);
-  border: 1px solid rgb(37 99 235 / 18%);
+  padding: 0 4px;
+  background: transparent;
+  border: 0;
 }
 
 .text-action {
@@ -2383,6 +2383,7 @@ onBeforeUnmount(() => {
 }
 
 .process-copy > .section-heading {
+  justify-content: flex-start;
   margin-bottom: 9px;
 }
 
@@ -2479,11 +2480,11 @@ onBeforeUnmount(() => {
   height: 32px;
   align-items: center;
   justify-content: center;
-  padding: 0 10px;
+  padding: 0 2px;
   color: var(--color-accent);
-  background: var(--color-accent-soft);
-  border: 1px solid rgb(37 99 235 / 24%);
-  border-radius: 6px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   cursor: pointer;
   flex-direction: row;
   font-weight: 600;
@@ -2491,7 +2492,7 @@ onBeforeUnmount(() => {
 }
 
 .inline-upload-action:hover {
-  border-color: var(--color-accent);
+  color: color-mix(in srgb, var(--color-accent) 78%, black);
 }
 
 .inline-upload-action input {
@@ -2588,12 +2589,11 @@ onBeforeUnmount(() => {
   right: 12px;
   bottom: 8px;
   display: flex;
-  padding: 8px;
-  background: rgb(255 255 255 / 92%);
-  border: 1px solid var(--color-rule);
-  border-radius: 9px;
-  box-shadow: 0 8px 24px rgb(15 23 42 / 10%);
-  backdrop-filter: blur(8px);
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
   gap: 9px;
 }
 

@@ -553,36 +553,16 @@ watch(() => route.params.projectId, loadProject);
 <template>
   <section v-loading="loading" class="project-overview-page">
     <template v-if="project">
-      <p class="breadcrumb">
-        <button type="button" @click="router.push('/projects')">项目数据</button>
-        <span>/</span>
-        {{ project.name }}
-      </p>
-
       <header class="project-hero">
         <div>
           <div class="project-title-line"><h1>{{ project.name }}</h1></div>
           <p>
             <span>{{ project.id }}</span>
-            <span class="type-chip">{{ project.type }}</span>
             <span class="status-chip" :class="project.status">{{ statusLabel }}</span>
-            <span>负责人 {{ project.owner }}</span>
-            <span>·</span>
-            <span>{{ project.startDate }} 至 {{ project.endDate }}</span>
-            <span>·</span>
-            <span>当前阶段&nbsp; <strong>{{ project.stage }}</strong></span>
           </p>
         </div>
         <div class="project-hero-actions">
           <strong v-if="projectDeadline" class="deadline-hint">{{ projectDeadline }}</strong>
-          <button
-            v-if="canEdit"
-            class="ui-button ui-button--secondary"
-            type="button"
-            @click="openBasicEditor"
-          >
-            <Icon icon="tabler:edit" />编辑项目
-          </button>
           <button
             v-if="canEdit"
             class="ui-button ui-button--danger archive-button"
@@ -889,23 +869,6 @@ watch(() => route.params.projectId, loadProject);
   min-height: 420px;
 }
 
-.breadcrumb {
-  display: flex;
-  align-items: center;
-  margin: 0 0 8px;
-  color: var(--color-faint);
-  font-size: 12px;
-  gap: 5px;
-}
-
-.breadcrumb button {
-  padding: 0;
-  color: var(--color-muted);
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-}
-
 .project-hero {
   display: flex;
   align-items: center;
@@ -982,26 +945,23 @@ watch(() => route.params.projectId, loadProject);
   border-radius: 5px;
 }
 
-.type-chip {
-  padding: 3px 8px;
-  color: var(--color-ink-2);
-  background: var(--color-paper-3);
-  border-radius: 5px;
-}
-
 .status-chip {
   padding: 3px 8px;
-  color: #078545;
-  background: var(--color-success-soft);
+  color: #1769aa;
+  background: #e8f3ff;
   border-radius: 5px;
 }
 
 .status-chip.有风险 {
+  color: #c2413a;
+  background: #fff0ef;
+}
+
+.status-chip.待开始 {
   color: #a95200;
   background: var(--color-warning-soft);
 }
 
-.status-chip.待开始,
 .status-chip.已归档 {
   color: var(--color-muted);
   background: var(--color-paper-3);
@@ -1209,11 +1169,19 @@ watch(() => route.params.projectId, loadProject);
   margin-top: 16px;
 }
 
+.objective > span {
+  color: var(--color-ink-2);
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .objective ul {
   padding-left: 18px;
   margin: 0;
-  color: var(--color-ink-2);
-  line-height: 1.8;
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 550;
+  line-height: 1.75;
 }
 
 .milestone-card {
@@ -1344,8 +1312,10 @@ watch(() => route.params.projectId, loadProject);
 }
 
 .milestone-grid time {
-  color: var(--color-ink-2);
-  font-size: 11px;
+  color: var(--color-ink);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 24px;
   text-align: center;
 }
 

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Icon } from "@iconify/vue";
 import { computed } from "vue";
 import { useRoute } from "vue-router";
 
@@ -35,10 +34,6 @@ function isProductRoute(path: string): boolean {
           :class="{ active: isProductRoute(item.path) }"
         >{{ item.label }}</RouterLink>
       </nav>
-      <div class="header-actions">
-        <button type="button" aria-label="问题反馈"><Icon icon="tabler:message-circle-question" />问题反馈</button>
-        <span><i />在线</span>
-      </div>
     </header>
     <main class="route-content"><RouterView /></main>
   </div>
@@ -52,10 +47,6 @@ function isProductRoute(path: string): boolean {
 .product-nav a::after { position:absolute; right:0; bottom:-1px; left:0; height:2px; background:transparent; border-radius:2px 2px 0 0; content:""; }
 .product-nav a:hover,.product-nav a.active { color:#172033; }
 .product-nav a.active::after { background:#087cf0; }
-.header-actions { display:flex; align-items:center; margin-left:auto; color:#536174; font-size:12px; gap:16px; }
-.header-actions button { display:flex; align-items:center; padding:4px; color:inherit; background:transparent; border:0; cursor:pointer; gap:5px; }
-.header-actions span { display:flex; align-items:center; padding:4px 10px; color:#168a5b; background:#e5f8ed; border-radius:999px; gap:6px; }
-.header-actions i { width:6px; height:6px; background:#25a56a; border-radius:50%; }
 .route-content { min-width:0; min-height:0; flex:1; overflow:hidden; padding:0 18px; }
-@media(max-width:760px){.assistant-header{padding:0 12px}.product-nav{overflow-x:auto;gap:22px}.header-actions button{display:none}.header-actions span{padding:4px 7px}.route-content{padding:0 10px}}
+@media(max-width:760px){.assistant-header{padding:0 12px}.product-nav{overflow-x:auto;gap:22px}.route-content{padding:0 10px}}
 </style>

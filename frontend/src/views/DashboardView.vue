@@ -6,7 +6,6 @@ import { useRouter } from "vue-router";
 
 import projectApprovalIcon from "@/assets/prototype/project-approval.svg";
 import laboratoryIcon from "@/assets/prototype/laboratory.svg";
-import PrototypeCharts from "@/components/dashboard/PrototypeCharts.vue";
 import { getProblemDetail } from "@/api/http";
 import { projectApi } from "@/api/projects";
 import type { DashboardSummary, Project } from "@/types/api";
@@ -15,7 +14,6 @@ const router = useRouter();
 const loading = ref(true);
 const summary = ref<DashboardSummary | null>(null);
 const projectRecords = ref<Project[]>([]);
-const selectedTrendProjectId = ref("");
 
 const projects = computed<DashboardSummary["active_projects"]>(() => {
   const dashboardProjects = summary.value?.active_projects ?? [];
@@ -52,25 +50,16 @@ const projects = computed<DashboardSummary["active_projects"]>(() => {
 });
 const projectMetrics = computed(() => summary.value?.project_metrics);
 const experimentMetrics = computed(() => summary.value?.experiment_metrics);
-const projectStatistics = computed(() =>
-  projectRecords.value
-    .filter((item) => item.status === "active" || item.status === "at_risk")
-    .sort((first, second) => second.experiment_count - first.experiment_count)
-    .slice(0, 6)
-    .map((item) => ({ id: item.id, name: item.name, value: item.experiment_count })),
-);
-
 /** 加载当前用户可见范围内的实时汇总数据。 */
-async function loadDashboard(projectId = selectedTrendProjectId.value): Promise<void> {
+async function loadDashboard(): Promise<void> {
   loading.value = true;
   try {
     const [dashboardSummary, projectPage] = await Promise.all([
-      projectApi.dashboard(projectId),
+      projectApi.dashboard(),
       projectApi.list({ page: 1, page_size: 100 }),
     ]);
     summary.value = dashboardSummary;
     projectRecords.value = projectPage.data;
-    selectedTrendProjectId.value = dashboardSummary.trend.selected_project_id;
   } catch (error) {
     const problem = getProblemDetail(error);
     ElMessage.error(problem?.detail ?? "总览数据加载失败");
@@ -152,20 +141,6 @@ onMounted(loadDashboard);
         </div>
       </section>
     </section>
-
-    <PrototypeCharts
-      :type-distribution="summary?.type_distribution ?? []"
-      :trend="
-        summary?.trend ?? {
-          dates: [],
-          series: [],
-          selected_project_id: '',
-          project_options: [],
-        }
-      "
-      :project-statistics="projectStatistics"
-      @project-change="loadDashboard"
-    />
 
     <section class="project-section">
       <header class="project-section-heading">
@@ -398,38 +373,15 @@ onMounted(loadDashboard);
   cursor: pointer;
   gap: 3px;
   isolation: isolate;
-  transition:
-    transform 180ms ease,
-    border-color 180ms ease,
-    box-shadow 180ms ease;
-}
-
-.project-card::after {
-  position: absolute;
-  right: 14px;
-  bottom: 0;
-  left: 14px;
-  height: 2px;
-  background: var(--color-accent);
-  border-radius: 999px;
-  content: "";
-  opacity: 0;
+  transition: transform 180ms ease, box-shadow 180ms ease;
 }
 
 .project-card-overdue {
   background: var(--color-paper);
 }
 
-.project-card-overdue::after {
-  background: #e13932;
-}
-
 .project-card-warning {
   background: var(--color-paper);
-}
-
-.project-card-warning::after {
-  background: #df9100;
 }
 
 .project-card-heading {
@@ -591,19 +543,9 @@ onMounted(loadDashboard);
   white-space: nowrap;
 }
 
-.milestone-due-warning {
-  border-color: #df9100;
-  box-shadow: 0 0 0 2px rgb(223 145 0 / 10%);
-}
-
 .milestone-due-warning b {
   color: #a95200;
   background: var(--color-warning-soft);
-}
-
-.milestone-due-overdue {
-  border-color: #df655f;
-  box-shadow: 0 0 0 2px rgb(225 57 50 / 8%);
 }
 
 .milestone-due-overdue b {
@@ -613,23 +555,9 @@ onMounted(loadDashboard);
 
 @media (hover: hover) and (pointer: fine) {
   .project-card:hover {
-    border-color: var(--color-accent);
-    box-shadow: 0 14px 34px rgb(8 124 240 / 14%);
-    transform: translateY(-2px);
-  }
-
-  .project-card:hover::after {
-    opacity: 1;
-  }
-
-  .project-card-overdue:hover {
-    border-color: #e13932;
-    box-shadow: 0 14px 34px rgb(225 57 50 / 12%);
-  }
-
-  .project-card-warning:hover {
-    border-color: #df9100;
-    box-shadow: 0 14px 34px rgb(223 145 0 / 12%);
+    z-index: 1;
+    box-shadow: 0 12px 28px rgb(15 23 42 / 16%);
+    transform: translateY(-3px);
   }
 
   .project-section-heading button:hover,
