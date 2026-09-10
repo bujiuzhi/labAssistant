@@ -184,7 +184,7 @@ paths:
       operationId: "changeOwnPassword"
       tags: ["Auth"]
       summary: "修改当前登录用户密码"
-      description: "校验当前密码与统一密码策略（至少 8 个字符，包含字母和数字，不含空白或控制字符且不得与用户名相同）；成功后立即失效当前 Servlet Session，调用方需重新登录。"
+      description: "校验当前密码与统一密码策略（至少 6 个字符，包含英文字母和数字，不含空白或控制字符且不得与用户名相同）；成功后立即失效当前 Servlet Session，调用方需重新登录。"
       security:
         -
           cookieAuth: []
@@ -436,7 +436,7 @@ paths:
       operationId: "resetUserPassword"
       tags: ["Auth"]
       summary: "重置当前组织普通用户密码"
-      description: "仅超级管理员；超级管理员账号受保护；密码至少 8 个字符，包含字母和数字，不含空白或控制字符且不得与用户名相同。"
+      description: "仅超级管理员；超级管理员账号受保护；密码至少 6 个字符，包含英文字母和数字，不含空白或控制字符且不得与用户名相同。"
       security:
         -
           cookieAuth: []
@@ -456,7 +456,7 @@ paths:
               properties:
                 password:
                   type: "string"
-                  minLength: 8
+                  minLength: 6
                   format: "password"
                   writeOnly: true
       responses:
@@ -1570,8 +1570,8 @@ components:
           type: "string"
         password:
           type: "string"
-          minLength: 8
-          description: "至少 8 个字符，最多 72 个 UTF-8 字节；包含字母和数字，不含空白或控制字符且不得与用户名相同。"
+          minLength: 6
+          description: "至少 6 个字符，最多 72 个 UTF-8 字节；包含英文字母和数字，不含空白或控制字符且不得与用户名相同。"
           format: "password"
           writeOnly: true
     OwnPasswordChange:
@@ -1584,8 +1584,8 @@ components:
           writeOnly: true
         new_password:
           type: "string"
-          minLength: 8
-          description: "至少 8 个字符，最多 72 个 UTF-8 字节；包含字母和数字，不含空白或控制字符且不得与用户名相同。"
+          minLength: 6
+          description: "至少 6 个字符，最多 72 个 UTF-8 字节；包含英文字母和数字，不含空白或控制字符且不得与用户名相同。"
           format: "password"
           writeOnly: true
     RegistrationInvitationCreate:
@@ -1670,8 +1670,8 @@ components:
           properties:
             password:
               type: "string"
-              minLength: 8
-              description: "至少 8 个字符，最多 72 个 UTF-8 字节；包含字母和数字，不含空白或控制字符且不得与用户名相同。"
+              minLength: 6
+              description: "至少 6 个字符，最多 72 个 UTF-8 字节；包含英文字母和数字，不含空白或控制字符且不得与用户名相同。"
               format: "password"
               writeOnly: true
     ManagedUser:
@@ -1772,11 +1772,11 @@ components:
           maxLength: 254
         admin_password:
           type: "string"
-          minLength: 8
+          minLength: 6
           maxLength: 72
           format: "password"
           writeOnly: true
-          description: "至少 8 个字符，包含字母和数字，不含空白或控制字符且不得与管理员用户名相同"
+          description: "至少 6 个字符，包含英文字母和数字，不含空白或控制字符且不得与管理员用户名相同"
     ProjectWrite:
       type: "object"
       required: []

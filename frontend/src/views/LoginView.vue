@@ -106,13 +106,14 @@ function switchMode(nextMode: "login" | "register"): void {
 /** 返回与服务端一致的密码策略提示；服务端仍是最终校验边界。 */
 function passwordValidationMessage(password: string, username: string): string | null {
   if (
-    password.length < 8
+    password.length < 6
+    || new TextEncoder().encode(password).length > 72
     || /\s/.test(password)
-    || !/\p{L}/u.test(password)
-    || !/\d/.test(password)
+    || !/[A-Za-z]/.test(password)
+    || !/[0-9]/.test(password)
     || password.toLocaleLowerCase() === username.trim().toLocaleLowerCase()
   ) {
-    return "密码须至少8位，包含字母和数字，不含空白且不得与用户名相同";
+    return "密码须至少6位且不超过72个UTF-8字节，包含英文字母和数字，不含空白且不得与用户名相同";
   }
   return null;
 }
@@ -269,7 +270,7 @@ function passwordValidationMessage(password: string, username: string): string |
           type="password"
           show-password
           autocomplete="new-password"
-          placeholder="至少8位，包含字母和数字"
+          placeholder="至少6位，包含英文字母和数字"
         />
 
         <label class="field-label" for="registration-password-confirm">确认密码</label>

@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.env.MockEnvironment;
 
-/** 验证生产初始化参数无默认测试账号，密码通过 Secret 文件强校验。 */
+/** 验证生产初始化参数无默认测试账号，密码通过 Secret 文件统一校验。 */
 class BootstrapSettingsTest {
     @TempDir
     Path temporaryDirectory;
@@ -28,19 +28,23 @@ class BootstrapSettingsTest {
     @Test
     void readsSecretWithOptionalTrailingNewline() throws IOException {
         Path secret = temporaryDirectory.resolve("admin-password");
-        Files.writeString(secret, "Example.StrongPassword42!\r\n");
+        Files.writeString(secret, "admin@123!\r\n");
         var environment = environment().withProperty("MATERIALS_LAB_BOOTSTRAP_ADMIN_PASSWORD_FILE", secret.toString());
-        assertEquals("Example.StrongPassword42!", BootstrapSettings.readPassword(environment));
-        assertTrue(!BootstrapSettings.from(environment).toString().contains("Password42"));
+        assertEquals("admin@123!", BootstrapSettings.readPassword(environment));
+        assertTrue(!BootstrapSettings.from(environment).toString().contains("admin@123!"));
     }
 
     @Test
     void rejectsWeakOrBcryptTruncatedPasswordsWithoutExposingThem() {
-        for (String password : new String[] {"00000000", "abcdefghij1234567890", "ABCDEF1234567890!",
-                "Strong Password42!", "StrongPassword42!\u0000", "Aa1!" + "中".repeat(24)}) {
+        for (String password : new String[] {"a1234", "000000", "abcdef", "中12345", "pass word", "admin\u0000", "Aa1" + "中".repeat(24)}) {
             var exception = assertThrows(IllegalArgumentException.class, () -> BootstrapSettings.validatePassword(password));
             assertTrue(!exception.getMessage().contains(password));
         }
+    }
+
+    @Test
+    void rejectsPasswordMatchingBootstrapUsername() {
+        assertThrows(IllegalArgumentException.class, () -> BootstrapSettings.validatePassword("production.owner", "production.owner"));
     }
 
     @Test

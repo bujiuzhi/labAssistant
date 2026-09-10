@@ -16,14 +16,14 @@ public final class PasswordPolicy {
      * @throws BusinessException 密码不满足生产策略时抛出
      */
     public static void validateManagedPassword(String password, String username) {
-        if (password == null || password.length() < 8
+        if (password == null || password.length() < 6
                 || password.getBytes(StandardCharsets.UTF_8).length > 72
                 || password.chars().anyMatch(character -> Character.isWhitespace(character) || Character.isISOControl(character))
-                || password.chars().noneMatch(Character::isLetter)
-                || password.chars().noneMatch(Character::isDigit)
+                || password.chars().noneMatch(character -> (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z'))
+                || password.chars().noneMatch(character -> character >= '0' && character <= '9')
                 || (username != null && password.equalsIgnoreCase(username.trim()))) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error",
-                    "密码须至少 8 个字符且不超过 72 个 UTF-8 字节，包含字母和数字，不含空白或控制字符且不得与用户名相同");
+                    "密码须至少 6 个字符且不超过 72 个 UTF-8 字节，包含英文字母和数字，不含空白或控制字符且不得与用户名相同");
         }
     }
 }

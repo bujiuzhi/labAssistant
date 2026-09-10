@@ -439,10 +439,23 @@ test("预检接受应用支持的管理员密码单个 CRLF 行尾", () => {
   ready(f);
   const file = join(f.values.MATERIALS_LAB_SECRETS_DIR, "bootstrap_admin_password");
   chmodSync(file, 0o600);
-  writeFileSync(file, "StrongAdministrator1!\r\n");
+  writeFileSync(file, "admin@123!\r\n");
   chmodSync(file, 0o444);
   const result = command(f, "preflight");
   assert.equal(result.status, 0, result.output);
+});
+
+test("预检拒绝与首次管理员用户名相同的密码", () => {
+  const f = fixture({ MATERIALS_LAB_BOOTSTRAP_ADMIN_USERNAME: "admin123" });
+  ready(f);
+  const file = join(f.values.MATERIALS_LAB_SECRETS_DIR, "bootstrap_admin_password");
+  chmodSync(file, 0o600);
+  writeFileSync(file, "admin123");
+  chmodSync(file, 0o444);
+  const result = command(f, "preflight");
+  assert.notEqual(result.status, 0);
+  assert.match(result.output, /不得与管理员用户名相同/);
+  assert.ok(!calls(f).map(composeAction).some(call => call?.action === "config"));
 });
 
 test("预检仅执行引擎和 Compose 配置检查，显式使用所选项目与配置", () => {

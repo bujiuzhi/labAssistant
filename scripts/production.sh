@@ -210,10 +210,11 @@ check_secrets() {
         [[ $lab_suffix_hex == 0a || $lab_suffix_hex == 0d0a ]] || fail '管理员密码密钥只能包含密码正文和一个可选行尾' ;;
       *) fail '管理员密码密钥只能包含密码正文和一个可选行尾' ;;
     esac
-    [[ ${#lab_password} -ge 16 && $lab_password_bytes -le 72 ]] || fail '管理员密码长度不符合 16 字符至 72 字节要求'
+    [[ ${#lab_password} -ge 6 && $lab_password_bytes -le 72 ]] || fail '管理员密码长度不符合 6 字符至 72 字节要求'
     [[ ! $lab_password =~ [[:space:][:cntrl:]] ]] || fail '管理员密码不能包含空白或控制字符'
-    [[ $lab_password =~ [[:upper:]] && $lab_password =~ [[:lower:]] && $lab_password =~ [[:digit:]] && $lab_password =~ [^[:alnum:]] ]] \
-      || fail '管理员密码必须包含大小写字母、数字及符号'
+    [[ $lab_password =~ [A-Za-z] && $lab_password =~ [0-9] ]] || fail '管理员密码必须包含英文字母和数字'
+    [[ $(printf '%s' "$lab_password" | tr '[:upper:]' '[:lower:]') != $(printf '%s' "$MATERIALS_LAB_BOOTSTRAP_ADMIN_USERNAME" | tr '[:upper:]' '[:lower:]') ]] \
+      || fail '管理员密码不得与管理员用户名相同'
   done
   ! cmp -s "$MATERIALS_LAB_SECRETS_DIR/postgres_password" "$MATERIALS_LAB_SECRETS_DIR/database_password" || fail '数据库超级用户与应用密码必须不同'
   lab_password=$(<"$MATERIALS_LAB_SECRETS_DIR/object_storage_access_key")

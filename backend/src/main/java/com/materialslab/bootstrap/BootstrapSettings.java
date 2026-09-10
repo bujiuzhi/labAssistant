@@ -21,8 +21,13 @@ record BootstrapSettings(String organizationCode, String organizationName, Strin
                 required(environment, "ADMIN_DISPLAY_NAME", 100));
     }
 
-    /** 读取最多 72 个 UTF-8 字节的强密码；允许 Secret 文件末尾有一个换行，不裁剪密码空格。 */
+    /** 读取最多 72 个 UTF-8 字节的首次管理员密码；允许 Secret 文件末尾有一个换行，不裁剪密码空格。 */
     static String readPassword(Environment environment) {
+        return readPassword(environment, from(environment).username());
+    }
+
+    /** 读取首次管理员密码，并按首次管理员用户名校验口令。 */
+    static String readPassword(Environment environment, String username) {
         String secretPath = required(environment, "ADMIN_PASSWORD_FILE", 4096);
         try {
             Path path = Path.of(secretPath);
@@ -30,7 +35,7 @@ record BootstrapSettings(String organizationCode, String organizationName, Strin
                 throw new IllegalArgumentException("管理员密码 Secret 必须为不超过 74 字节的普通文件");
             }
             String password = Files.readString(path, StandardCharsets.UTF_8).replaceFirst("\\r?\\n$", "");
-            validatePassword(password);
+            validatePassword(password, username);
             return password;
         } catch (IOException | java.nio.file.InvalidPathException exception) {
             // 不附带路径或原始异常，避免将 Secret 目录与文件内容写入启动日志。
@@ -39,13 +44,16 @@ record BootstrapSettings(String organizationCode, String organizationName, Strin
     }
 
     static void validatePassword(String password) {
-        if (password.length() < 16 || password.getBytes(StandardCharsets.UTF_8).length > 72
+        validatePassword(password, null);
+    }
+
+    static void validatePassword(String password, String username) {
+        if (password == null || password.length() < 6 || password.getBytes(StandardCharsets.UTF_8).length > 72
                 || password.chars().anyMatch(character -> Character.isWhitespace(character) || Character.isISOControl(character))
-                || !password.chars().anyMatch(Character::isUpperCase)
-                || !password.chars().anyMatch(Character::isLowerCase)
-                || !password.chars().anyMatch(Character::isDigit)
-                || password.chars().noneMatch(character -> !Character.isLetterOrDigit(character))) {
-            throw new IllegalArgumentException("管理员密码须至少 16 个字符且不超过 72 个 UTF-8 字节，包含大小写字母、数字及符号且无空白或控制字符");
+                || password.chars().noneMatch(character -> (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z'))
+                || password.chars().noneMatch(character -> character >= '0' && character <= '9')
+                || (username != null && password.equalsIgnoreCase(username.trim()))) {
+            throw new IllegalArgumentException("管理员密码须至少 6 个字符且不超过 72 个 UTF-8 字节，包含英文字母和数字，无空白或控制字符且不得与用户名相同");
         }
     }
 

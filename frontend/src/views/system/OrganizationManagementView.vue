@@ -52,9 +52,10 @@ function validationMessage(): string | null {
   }
   if (!form.organization_name.trim() || !form.admin_display_name.trim()) return "请填写组织名称和管理员显示名称";
   if (!/^[A-Za-z0-9._-]{3,64}$/.test(form.admin_username.trim())) return "管理员用户名格式不正确";
-  if (form.admin_password.length < 8 || /\s/.test(form.admin_password) || !/\p{L}/u.test(form.admin_password)
-      || !/\d/.test(form.admin_password) || form.admin_password.toLocaleLowerCase() === form.admin_username.trim().toLocaleLowerCase()) {
-    return "密码须至少8位，包含字母和数字，不含空白且不得与用户名相同";
+  if (form.admin_password.length < 6 || new TextEncoder().encode(form.admin_password).length > 72 || /\s/.test(form.admin_password)
+      || !/[A-Za-z]/.test(form.admin_password) || !/[0-9]/.test(form.admin_password)
+      || form.admin_password.toLocaleLowerCase() === form.admin_username.trim().toLocaleLowerCase()) {
+    return "密码须至少6位且不超过72个UTF-8字节，包含英文字母和数字，不含空白且不得与用户名相同";
   }
   if (form.admin_password !== form.passwordConfirm) return "两次输入的初始密码不一致";
   return null;
@@ -136,7 +137,7 @@ onMounted(() => { void loadOrganizations(); });
           <el-form-item label="管理员邮箱" class="wide"><el-input v-model="form.admin_email" maxlength="254" placeholder="选填" /></el-form-item>
           <el-form-item label="管理员初始密码" required>
             <el-input v-model="form.admin_password" type="password" show-password maxlength="128" />
-            <span class="field-help">至少8位，包含字母和数字；不得含空白或与用户名相同</span>
+            <span class="field-help">至少6位且不超过72个UTF-8字节，包含英文字母和数字；不得含空白或与用户名相同</span>
           </el-form-item>
           <el-form-item label="确认初始密码" required><el-input v-model="form.passwordConfirm" type="password" show-password maxlength="128" /></el-form-item>
         </div>

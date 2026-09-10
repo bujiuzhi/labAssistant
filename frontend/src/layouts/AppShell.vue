@@ -87,13 +87,14 @@ async function changePassword(): Promise<void> {
 /** 返回与服务端一致的密码策略提示；服务端仍是最终校验边界。 */
 function passwordValidationMessage(password: string, username: string): string | null {
   if (
-    password.length < 8
+    password.length < 6
+    || new TextEncoder().encode(password).length > 72
     || /\s/.test(password)
-    || !/\p{L}/u.test(password)
-    || !/\d/.test(password)
+    || !/[A-Za-z]/.test(password)
+    || !/[0-9]/.test(password)
     || password.toLocaleLowerCase() === username.trim().toLocaleLowerCase()
   ) {
-    return "密码须至少8位，包含字母和数字，不含空白且不得与用户名相同";
+    return "密码须至少6位且不超过72个UTF-8字节，包含英文字母和数字，不含空白且不得与用户名相同";
   }
   return null;
 }
@@ -128,7 +129,7 @@ function passwordValidationMessage(password: string, username: string): string |
         </el-form-item>
         <el-form-item label="新密码" required>
           <el-input v-model="passwordForm.newPassword" type="password" show-password autocomplete="new-password" />
-          <span class="field-help">至少8位，包含字母和数字；不得含空白或与用户名相同</span>
+          <span class="field-help">至少6位且不超过72个UTF-8字节，包含英文字母和数字；不得含空白或与用户名相同</span>
         </el-form-item>
         <el-form-item label="确认新密码" required>
           <el-input v-model="passwordForm.newPasswordConfirm" type="password" show-password autocomplete="new-password" @keyup.enter="changePassword" />
