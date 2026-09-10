@@ -10,5 +10,7 @@ public record UserAccount(
         String password,
         String displayName,
         String status,
-        boolean superAdmin) {
+        boolean superAdmin,
+        boolean platformAdmin,
+        long sessionVersion) {
 }

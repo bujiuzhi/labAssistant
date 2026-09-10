@@ -1,191 +1,274 @@
-# 材料实验助手开发、部署与运维指南
+# 开发、部署与运维指南
 
-## 1. 目的与适用范围
+_适用于当前仓库；开发复现与生产准备分别说明，目标服务器参数以实际确认结果为准。_
 
-本指南是项目唯一的开发、测试、部署、运维和协作规范，适用于当前 `dev` 分支。系统当前由 Vue 前端、Spring Boot API、PostgreSQL、Redis、RustFS 私有对象存储和 LibreOffice 预览组件构成。
+---
 
-## 2. 目录与资产边界
+## 📋 运行范围与目录
 
-```text
-项目根目录/
-├── backend/          # Spring Boot、MyBatis、Flyway 与 JUnit
-├── frontend/         # Vue 应用与前端构建配置
-├── docs/             # 三份正式规范与索引
-├── contracts/        # OpenAPI 草案
-├── infra/            # Docker Compose 基础设施配置
-├── audit/            # 原型证据和实施审计，不属于正式规范
-└── .env              # 本地/服务器密钥配置，不提交 Git
-```
+当前后端必须访问 PostgreSQL 和 RustFS：PostgreSQL 保存业务元数据与 ELN，RustFS 保存新上传项目文档和实验附件正文。
+当前项目不启动也不依赖 Redis；不要为开发或生产额外添加 Redis 容器、端口或持久目录。
+LibreOffice 不在当前调用链中，安装软件本身不会使 `/preview` 获得 PDF 转换能力。
 
-- `backend/src/main/resources/db/migration/` 是数据库物理结构的唯一来源。
-- `backend/src/test/java/` 是后端核心链路的自动化验证来源。
-- `frontend/src/` 和后端接口共同定义实际页面行为。
-- 对象数据、预览缓存、数据库、依赖目录和 `.env` 不得提交 Git。
+| 资产 | 新服务器位置 | 要求 |
+| --- | --- | --- |
+| 代码与服务器私有配置 | `~/work/server/labAssistant` | 项目专属；`.env` 不提交 Git |
+| 数据、备份、运行日志 | `~/work/data/labAssistant` | 项目隔离、权限受控 |
+| PostgreSQL 数据 | `${MATERIALS_LAB_DATA_ROOT}/postgres` | Compose 映射至 `/var/lib/postgresql` |
+| RustFS 数据与日志 | `${MATERIALS_LAB_DATA_ROOT}/rustfs` | 新上传文件正文，必须与数据库一并备份和恢复 |
+| Maven 缓存 | `${MATERIALS_LAB_DATA_ROOT}/maven` | 可重新获取，不等同业务备份 |
 
-## 3. 环境准备
+`MATERIALS_LAB_DATA_ROOT` 必须填写服务器上的实际绝对路径。
+不要照抄模板中其他用户的目录，也不要使用依赖 shell 展开的字面量 `~`。
+变更已有数据挂载前先核对原路径与备份，避免新目录为空被误认为原数据丢失。
 
-### 3.1 Java 与前端工具链
+<a id="development-deployment"></a>
 
-后端使用 Java 25 和 Maven，前端使用 Node.js、pnpm。后端命令统一使用 `mvn -f backend/pom.xml`，前端包管理器版本以 `frontend/package.json` 的 `packageManager` 字段为准。
+## 🔧 新服务器开发部署
+
+### 1. 准备和版本确认
+
+先确认服务器系统、SSH 用户、代码来源及目标提交、网络入口、可用资源、现有服务和数据。
+以下命令假定代码已取得并位于约定目录；本指南不指定旧服务器 IP、私人仓库凭据或未经确认的生产环境。
 
 ```bash
-java -version
-mvn -version
+cd ~/work/server/labAssistant
+git status --short --branch
+git rev-parse HEAD
+docker version
+docker compose version
 node --version
 pnpm --version
 ```
 
-### 3.2 配置文件
+版本以 [Maven 配置](../backend/pom.xml)、[前端包清单](../frontend/package.json)、
+[锁文件](../frontend/pnpm-lock.yaml)和 Compose 为准。当前后端要求 Java 25，
+Compose 已使用对应 Maven 镜像；纯容器启动不要求宿主机安装 Java。
+宿主机执行 Maven 检查时则必须让 `mvn -version` 显示匹配的 JDK。
 
-从 `.env.example` 创建 `.env`，按实际环境配置以下类别：
+前端容器使用 Node 24 系列；宿主机安装依赖、执行测试时沿用项目兼容的 Node，
+通过已安装的 fnm/项目环境选择。pnpm 必须匹配 `packageManager`，保留锁文件，
+不为解决安装问题擅自换包管理器或升级依赖。
 
-| 类别 | 关键配置 | 说明 |
-|---|---|---|
-| Spring Boot | `SERVER_*`、`SESSION_COOKIE_SECURE`、`DATABASE_MAX_POOL_SIZE` | 生产环境启用安全 Cookie 并限制网络入口 |
-| 数据库 | `POSTGRES_*`、`JDBC_DATABASE_URL` | 启动时由 Flyway 执行 Migration |
-| 对象存储 | `OBJECT_STORAGE_*` | RustFS 使用私有桶、SigV4 和 path-style，访问密钥不得提交 |
-| 开发初始化 | `MATERIALS_LAB_DEVELOPMENT_PASSWORD` | 仅开发环境使用 |
-| Docker 数据卷 | `MATERIALS_LAB_DATA_ROOT` | 指向独立数据目录，禁止映射到仓库 |
+### 2. 创建与核对配置
 
-`.env`、密码、Cookie、访问令牌和生产数据均不得出现在代码、文档提交或日志中。
-
-## 4. 本地与服务器运行
-
-### 4.1 远程开发启动
+仅在新环境且文件尚不存在时从模板复制；已经存在的配置应先核对，不覆盖：
 
 ```bash
-cd ~/work/code/labAssistant
-cp .env.example .env
-corepack enable
+cd ~/work/server/labAssistant
+if [ ! -e .env ]; then
+  (umask 077; cp .env.example .env)
+fi
+mkdir -p ~/work/data/labAssistant
+chmod 600 .env
+```
+
+在服务器编辑 `.env` 后再启动，至少确认下表：
+
+| 配置 | 新环境设置原则 | 当前 Compose 行为 |
+| --- | --- | --- |
+| `MATERIALS_LAB_DATA_ROOT` | 实际绝对路径，项目专属 | 所有服务持久目录的根 |
+| `FRONTEND_BIND_ADDRESS` | 默认设为 `127.0.0.1` | 控制前端宿主机绑定 |
+| `API_BIND_ADDRESS` | 默认设为 `127.0.0.1` | 控制 API 宿主机绑定 |
+| `POSTGRES_BIND_ADDRESS` | `127.0.0.1` | 限制数据库对外入口 |
+| `OBJECT_STORAGE_BIND_ADDRESS` | `127.0.0.1` | 同时控制 RustFS API/控制台 |
+| `SERVER_PORT` | 保持 `8000` | 容器目标端口写死为 8000，单改此值会造成不一致 |
+| `POSTGRES_DEV_DB/USER/PASSWORD` | 新建隔离开发库及凭据 | API 与 PostgreSQL 容器共同使用 |
+| `MATERIALS_LAB_DEVELOPMENT_PASSWORD` | 为开发新账户设置密码 | 只影响新插入账户 |
+| `OBJECT_STORAGE_ACCESS_KEY/SECRET_KEY` | 新环境设置独立凭据 | RustFS 与 Java S3 客户端共同使用 |
+
+原模板端口默认使用 `0.0.0.0`；只有已确认可信局域网/VPN 且防火墙限源时才可保留。
+一般开发访问采用回环绑定加 SSH 隧道。已有数据库和存储目录的密码变更不能仅修改 `.env`，
+需要对应服务的受控凭据轮换。
+
+Compose 的 `rustfs-permissions` 会以 root 身份创建 RustFS 数据/日志目录，并递归将所有者
+改为 `10001:10001`。首次使用新建隔离目录时按此准备；如果恢复或复用旧目录，先记录原 UID/GID、
+确认原服务权限和恢复办法，再在获准的迁移范围内启动，不能指向其他服务的数据目录。
+
+### 3. 安装前端依赖并启动
+
+```bash
+cd ~/work/server/labAssistant
 pnpm --dir frontend install --frozen-lockfile
+docker compose --env-file .env -f infra/docker-compose.yml config --quiet
 docker compose --env-file .env -f infra/docker-compose.yml up -d
 docker compose --env-file .env -f infra/docker-compose.yml ps
+docker compose --env-file .env -f infra/docker-compose.yml logs --tail=100 api frontend
 ```
 
-Compose 会统一启动前端、API 和基础设施，不要再并行运行宿主机 API 或 Vite。前端默认监听
-`5173`，后端默认监听 `8000`。前端通过 `/api/v1/` 访问 API；登录前先获取 CSRF，认证采用 Session Cookie。
+前端容器直接执行绑定目录内的 `node_modules/.bin/vite`，必须先在目标 Linux 环境安装依赖。
+不要复制 macOS 的 `node_modules` 到 Linux。API 容器通过 Maven 开发启动，
+首次执行可能需要获取依赖；容器 `running` 不代表应用已完成初始化。
 
-### 4.2 基础设施
+Flyway 由
+[SchemaMigrationInitializer](../backend/src/main/java/com/materialslab/api/common/config/SchemaMigrationInitializer.java)
+显式执行首版完整 V1，随后开发初始化器补齐测试数据。每次 `dev` 启动都可能补齐示例记录并刷新统计；
+禁止连接生产数据库启动该 Profile。初始化器不会覆盖已有测试用户密码，
+也没有自动强制首次改密机制。
+
+### 4. 检查并访问
+
+默认回环配置下，在服务器执行：
 
 ```bash
-docker compose --env-file .env -f infra/docker-compose.yml up -d
-docker compose --env-file .env -f infra/docker-compose.yml ps
+curl --fail --silent --show-error http://127.0.0.1:5173/
+curl --fail --silent --show-error http://127.0.0.1:8000/api/v1/health/live
+curl --fail --silent --show-error http://127.0.0.1:8000/api/v1/health/ready
 ```
 
-Compose 提供 PostgreSQL、Redis 和 RustFS。RustFS S3 API 与控制台端口为 `19000`、`19001`，
-监听地址由 `OBJECT_STORAGE_BIND_ADDRESS` 控制；开发示例允许局域网访问，生产环境必须改为
-`127.0.0.1` 或由防火墙限制来源。Java API 使用私有桶保存项目文档、实验附件和办公文档 PDF 预览缓存。
-运行项目前必须确保目标桶和访问密钥已初始化，运行办公文档预览前还必须安装
-`libreoffice` 或 `soffice`。RustFS 单机数据映射到
-`${MATERIALS_LAB_DATA_ROOT}/rustfs`，不得放入代码仓库。
+`live` 返回 `data.status=ok`；`ready` 成功返回
+`data.status=ok`、`data.database=ready`，对象存储启用时还返回 `data.objectStorage=ready`。就绪检查要求应用全部启动任务（包括 Flyway）已完成并接受流量，
+同时验证 JDBC 连接和 RustFS 桶可访问性；启动未就绪返回 503。它不验证登录或每个文档正文的完整性。
 
-### 4.3 运行前检查与故障定位
+本机需要访问远程开发服务时，先将 `LABASSISTANT_SSH_TARGET` 设置为已确认的
+`用户@主机`，再执行；本地端口需事先确认未占用：
 
-每次启动或重启后，按“进程—接口—页面—文件”顺序检查，避免仅以端口监听判断系统可用。
+```bash
+ssh -N -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=15 -o ServerAliveCountMax=6 \
+  -L 15173:127.0.0.1:5173 \
+  -L 18000:127.0.0.1:8000 \
+  "${LABASSISTANT_SSH_TARGET:?请先设置已确认的 SSH 用户和主机}"
+```
 
-| 检查层次 | 命令或动作 | 预期结果 | 异常处理方向 |
-|---|---|---|---|
-| 依赖服务 | `docker compose --env-file .env -f infra/docker-compose.yml ps` | PostgreSQL、Redis、RustFS 为运行状态 | 查看容器日志和数据卷挂载，禁止重建并覆盖数据卷 |
-| 对象存储桶 | 使用兼容 S3 的客户端检查桶 | 私有桶存在且凭据可读写 | 检查 RustFS、endpoint、SigV4、path-style 和密钥 |
-| 数据库迁移 | `mvn -f backend/pom.xml spring-boot:run` | Flyway 历史无缺失 | 备份后由 Flyway 执行迁移，禁止手工修改表结构 |
-| API 存活 | `GET /api/v1/health/live` | 返回 200 | 检查 Java 进程、端口、环境变量和日志 |
-| API 就绪 | `GET /api/v1/health/ready` | 返回 200，依赖可连接 | 检查数据库连接、网络与配置 |
-| 前端页面 | 浏览器打开前端地址并登录 | 无空白页、接口无跨域/会话错误 | 检查 Vite 代理、浏览器控制台和 API 地址 |
-| 文件预览 | 分别打开 DOCX、XLSX、PPTX、PDF、图片和文本样例 | 首选组件渲染；组件失败时显示转换 PDF | 检查浏览器控制台、私有桶权限、LibreOffice、临时目录和磁盘空间 |
+浏览器打开 `http://127.0.0.1:15173`，后端检查可经本机 `18000` 端口完成。
+若使用域名访问 Vite，还应核对 `allowedHosts`；不要通过关闭认证、CSRF 或全部 Host 校验处理连接问题。
 
-开发环境若服务器端口不对外开放，应使用 README 给出的 SSH 隧道访问；不得通过修改后端认证逻辑或关闭 CSRF 来规避访问问题。
-二进制原件和 PDF 预览请求由 Spring MVC 文件接口返回；前端只需设置
-`responseType: arraybuffer`，不要自行拼接未经授权的对象存储地址。
+## ⚙️ 配置如何生效
 
-## 5. 测试与质量门禁
+### Compose 与 Java 的区别
 
-| 层级 | 命令/方法 | 通过标准 |
-|---|---|---|
-| 后端 | `mvn -f backend/pom.xml test` | Java 单测和编译通过 |
-| 后端静态检查 | `mvn -f backend/pom.xml verify` | 编译、测试和打包校验通过 |
-| 前端单测 | `pnpm --dir frontend test` | 格式分流、文本解码和 CSV 解析通过 |
-| 前端类型与构建 | `pnpm --dir frontend run build` | TypeScript 检查、组件懒加载和 Vite 构建通过 |
-| 数据库 | 启动 Spring Boot 并验证 Flyway 历史及关键查询 | Migration 按版本执行，约束和索引生效 |
-| 页面 | 登录、项目编辑、文档预览、ELN 写入等人工/浏览器验证 | 无空白页、无框架错误、权限与状态符合预期 |
+Compose CLI 的 `--env-file` 为配置插值提供值；容器实际收到的变量由服务的
+`environment` 或 `env_file` 决定，不能假定整个 `.env` 自动传入容器。[^1]
 
-当前已实现链路的回归重点：
+| 参数 | Java 直接运行 | 现有 Compose API |
+| --- | --- | --- |
+| `SPRING_PROFILES_ACTIVE` | 可选择 Profile，默认 dev | 命令固定 `-Dspring-boot.run.profiles=dev` |
+| `JDBC_DATABASE_URL` | 可覆盖数据库 URL | 固定使用 `postgres:5432/POSTGRES_DEV_DB` |
+| `POSTGRES_PROD_*` | prod 读取 | 未传入，也不用于建库 |
+| `SESSION_COOKIE_SECURE` | 控制 Session Cookie Secure | 未传入，应用默认 false |
+| `DATABASE_MAX_POOL_SIZE` | dev 默认 10，prod 默认 20 | 未传入，使用应用默认值 |
+| `SERVER_ADDRESS` | 应用绑定地址 | API 容器内固定 0.0.0.0，宿主暴露由 API_BIND_ADDRESS 控制 |
+| `OBJECT_STORAGE_*` | RustFS S3 客户端连接参数 | 必填；上传、读取和就绪检查均使用 RustFS |
 
-- 项目创建使用 `Idempotency-Key`，编辑和归档使用 `If-Match`，关键动作写入业务操作日志。
-- 项目文档上传、下载、签名与压缩包安全校验；DOCX/XLS/XLSX/PPTX/PDF 组件预览；
-  图片、TXT/CSV 预览；旧格式及组件失败时转 PDF。
-- 实验创建、复制、顺序状态迁移、完成后只读、ELN 写入和真实附件增删读取。
-- 超级管理员用户管理、三类角色选项、当前组织隔离和项目成员范围检查。
+Spring Boot 使用环境变量、系统属性、命令行参数和应用配置等配置源；本项目没有根目录
+`.env` 的自动加载器。直接运行 Maven 或 JAR 时必须由受控进程环境提供所需配置。[^2]
+不要通过打印完整环境或 `docker compose config` 展开内容来收集证据，以免输出凭据；
+可用 `config --quiet` 检查结构。
 
-### 5.1 文档图示与实现一致性检查
+前端 API 固定为同源 `/api/v1`。`VITE_API_PROXY_TARGET` 只配置 Vite 开发代理，
+不是生产静态文件的运行时 API 地址。生产入口必须正确转发该原路径。
 
-每次涉及领域、接口或部署边界的变更，还应检查图示是否仍然正确。图示是设计索引，不是独立事实来源；出现冲突时，以 Migration、后端服务、自动化测试和实际部署配置为准，再回写文档。
+### 时间与上传限额
 
-| 图示 | 对应事实来源 | 触发更新的变更 |
-|---|---|---|
-| 用例图 | 权限初始化、路由守卫、服务层权限校验 | 新角色、权限码或业务入口 |
-| 类图/ER 图 | Flyway Migration、领域对象 | 新实体、字段、关联、约束或索引 |
-| 时序图/状态机 | View、Service、异常处理、测试 | 写入流程、并发策略、状态迁移 |
-| 总体架构/部署拓扑 | `infra/`、环境变量、进程管理和网络策略 | 组件、端口、存储、反向代理或备份策略 |
+业务和人工运维记录约定为 `Asia/Shanghai`，时间戳写作 `YYYY-MM-DD HH:mm:ss`。
+部署时分别确认宿主机、容器/JVM、PostgreSQL 服务和连接会话时区。
+开发 Compose 没有设置 `TZ`、JVM 时区或 PostgreSQL 会话时区；Jackson 的配置不能替代它们。
+独立生产 Compose 已设置容器/JVM、数据库服务时区，prod Profile 设置 JDBC 连接会话时区；客户端仍需单独核验。
 
-## 6. 发布、备份与回滚
+当前业务代码限制项目文档为 20 MiB；prod 显式设置 Spring 文件 20 MiB、请求 22 MiB，生产 Nginx 请求上限 22 MiB。
+应用统一设置 25 MiB 文件/27 MiB 请求上限；外层网关也可能另有限额。项目文档服务仍实施 20 MiB 业务上限，前端“100 MB”提示不是服务保证。
 
-### 6.1 发布顺序
+<a id="production-deployment"></a>
 
-1. 确认 `dev` 分支已通过测试并完成代码审查。
-2. 备份数据库和 RustFS 对象数据，记录备份时间、版本和恢复位置。
-3. 拉取目标提交，安装已锁定的前端依赖，并执行后端测试和前端构建。
-4. 执行 `docker compose --env-file .env -f infra/docker-compose.yml up -d` 更新服务；API 启动时由 Flyway 执行待应用迁移。
-5. 验证健康接口、登录、项目列表、文档预览和 ELN 保存。
+## 📦 生产部署入口与交付门槛
 
-### 6.2 回滚原则
+生产运行统一使用[生产 Compose 部署指南](production-deployment.md)，其中维护实际构建、
+公网 HTTP IP:15105、一次性身份初始化、升级、备份及空库恢复步骤。本节只保留交付门槛，不复制命令。
+现有开发 Compose 不能通过单改 `SPRING_PROFILES_ACTIVE` 切成生产。
 
-- 先停止新版本写流量，再回滚应用版本。
-- 存在数据库 Migration 时，必须先评估可逆性；不可逆 Migration 采用向前修复或恢复备份，不允许直接删除生产数据。
-- 对象键、原件与业务记录一起备份；预览缓存可重新生成，原件丢失时不得用模拟内容替代。
-- 每次恢复演练记录耗时、失败原因和改进措施。
+| 待完成事项 | 原因及验收要求 |
+| --- | --- |
+| 生产运行资产 | 已提供独立 Dockerfile/Compose/Nginx，须在目标架构和服务器验证 |
+| 首次身份初始化 | 显式 bootstrap 只创建真实身份，拒绝非空库；生产不使用开发样例 |
+| 文件安全 | 核验 MIME/内容、上传大小、同源原件内联风险；当前没有内容签名和压缩包安全校验 |
+| 会话与组织验证 | 核验登录 Session 更新、退出和组织重名用户；修复超级管理员实验关联项目的跨组织校验缺口 |
+| 目标功能闭合 | 按交付范围处理成员、计划参与人、附件、预览转换、审计等缺口 |
+| 网络和配置 | 仅 Web 公网 HTTP 15105、内部数据库、强凭据、HttpOnly Cookie、请求限额与时区；明文传输风险须接受 |
+| 恢复能力 | 同版本恢复演练、文档正文校验、回滚或向前修复方案 |
 
-### 6.3 最小备份清单
+选定经审查和验证的版本，按生产指南创建独立配置、密钥和数据目录，完成初始化与公网 HTTP 验收。
+Nginx 配置保留 `/api/v1` 原路径；`proxy_pass` 的 URI 语义以配置及实际请求验证为准。[^3]
+若迁移旧环境，仍需备份、恢复和停写窗口确认，不能把开发库当作生产初始数据源。
 
-备份需要形成可追溯资产，不以“复制过目录”作为完成标志。每份备份至少记录应用提交号、Migration 状态、数据库文件/转储位置、RustFS 数据快照位置、桶清单、校验结果和操作者。
+## 💾 备份、迁移与恢复
 
-| 资产 | 备份方式 | 恢复验证 |
-|---|---|---|
-| PostgreSQL | 使用与部署版本兼容的逻辑备份或物理备份 | 恢复到隔离环境并执行就绪检查、项目和实验抽查 |
-| PostgreSQL（开发） | 逻辑备份与受控恢复 | 启动 Spring Boot 并执行只读查询 |
-| RustFS 对象原件 | 备份 `${MATERIALS_LAB_DATA_ROOT}/rustfs` 或复制私有桶到独立存储 | 比对对象清单并按文档、过程图片、结果附件抽样读取 |
-| `.env` 安全备份 | 受控密钥库或服务器权限目录 | 仅确认可恢复，禁止写入 Git 或普通日志 |
-| Compose 数据目录 | 按组件和应用版本记录 | 在隔离环境挂载后检查 PostgreSQL、Redis、RustFS 可启动 |
+### 资产及一致性
 
-## 7. 安全与运维检查
+当前版本的 PostgreSQL 备份必须包含全部业务表、历史 `project_document_content` 与
+`flyway_schema_history`；同时必须备份 RustFS 桶与对象清单，仅备份元数据不能恢复新上传原件。
+另保存可恢复的数据库角色/授权、受控配置、应用提交号、容器镜像及校验信息。
 
-- 生产环境使用 HTTPS，将 `SESSION_COOKIE_SECURE` 设为 `true`，并由反向代理限制允许的 Host、来源和请求大小。
-- 数据库、Redis 和 RustFS API/控制台仅对必要进程开放；Docker 端口绑定服务器回环地址。
-- 每次请求必须经过 Session、权限码、组织范围、对象范围和状态校验。
-- 日志应保留请求编号、资源和错误码，不记录密码、Cookie、完整 ELN 正文或文件内容。
-- 监控 API 可用性、错误率、数据库连接、RustFS 容量与错误率、对象增长、LibreOffice 转换失败和任务积压。
+RustFS 桶、对象清单和挂载目录属于当前恢复单元；迁移前先核验数据库对象标识与桶内对象的引用关系。
 
-## 8. Git 与文档维护
+逻辑备份使用兼容版本的 `pg_dump`，自定义归档由 `pg_restore` 恢复；
+集群角色等全局对象需单独处理。备份必须在隔离环境验证可恢复。[^4]
+不要把运行中的 PostgreSQL 数据目录直接复制当作一致备份。
 
-### 8.1 Git 工作流
+### 操作顺序
 
-- 日常开发在 `dev` 分支进行；提交信息格式为 `feat: 中文摘要`、`fix: 中文摘要`、`docs: 中文摘要` 等。
-- 提交前检查工作区，缓存、构建产物、密钥、媒体文件和临时文件不应进入提交。
-- 远程开发服务器应快进到已验证提交；本地与 Codeup `dev` 保持同一提交基线。
+1. 明确新旧环境、对象和停写窗口；只读核对版本、实际数据卷、数据库及服务用途。
+2. 在切换窗口停止应用写入，保存数据库、配置和实际使用的对象数据，记录备份时间与校验值。
+3. 在项目专属的隔离目标恢复，先运行同版本验证，再评估并执行目标版本迁移。
+4. 核对表及关键记录数量、Flyway 历史、文档正文、账户角色、项目和 ELN，再开放新环境写入。
+5. 保留旧环境及备份直到约定观察期结束；清理另行授权。
 
-### 8.2 文档维护
+现有 Flyway 初始化器在代码中显式调用 `migrate()`，并固定
+不启用自动 baseline；未知或已有结构的数据库必须人工核对来源，不能自动标记为已迁移。
+不能只用 `SPRING_FLYWAY_ENABLED=false` 保证阻止它。
+对非空旧库必须先核对结构与迁移历史；禁止把陌生旧库直接接入应用试启动。
 
-- 范围、架构或已实现边界变化：更新《概要设计》。
-- 表、接口、权限、页面或测试变化：更新《详细设计》。
-- 环境、部署、测试、发布或协作变化：更新本指南。
-- 重大技术取舍在相应规范的变更记录中说明，并保证代码、Migration 和测试可追溯。
+### 回滚与记录
 
-### 8.3 变更检查清单
+先停止新版本写入，再判断应用和数据库兼容性。有迁移时，单独退回 JAR 不一定恢复兼容。
+选择向前修复或恢复备份；恢复前明确会影响哪些新写入，并准备补偿。
+不改已执行迁移，不使用删库、删卷或覆盖数据目录作为常规故障恢复。
 
-| 变更类型 | 必须同步项 |
-|---|---|
-| 新增或修改表字段 | Model、Migration、详细设计、序列化/服务层和测试 |
-| 新增或修改 API | URL、View、OpenAPI 草案、详细设计、前端调用和测试 |
-| 变更权限或对象范围 | 权限初始化数据、服务层、前端可见性、详细设计和越权测试 |
-| 新增文件类型或预览能力 | 上传校验、转换/下载行为、容量限制、详细设计和人工验收 |
-| 改变部署方式 | `.env.example`、部署指南、README、健康检查与回滚方案 |
-| 仅文档调整 | 链接检查、`git diff --check` 和索引更新 |
+每次部署和恢复在 `audit/logs/` 记录：时间及语义、服务器环境标识、提交号、迁移状态、
+操作对象、影响、验证、缺口、备份位置引用、恢复策略及操作者；不写秘密值或业务正文。
+
+## ✅ 检查与验收
+
+| 检查 | 命令或方法 | 能证明的范围 |
+| --- | --- | --- |
+| 文档 | 链接/锚点、标题/围栏、契约引用、图示语法、`git diff --check` | 文档结构与一致性 |
+| 后端单测 | `mvn -f backend/pom.xml test` | 已有单元测试与编译 |
+| 后端构建 | `mvn -f backend/pom.xml verify` | 编译、现有测试、打包生命周期 |
+| 前端单测 | `pnpm --dir frontend test` | 工具函数与源码静态断言 |
+| 前端构建 | `pnpm --dir frontend run build` | TypeScript 与 Vite 产物 |
+| 运行 | Compose 状态、日志、live/ready | 进程与数据库连接 |
+| 数据 | Flyway 历史、关键只读查询、备份恢复 | 目标环境结构及可恢复性 |
+| 业务 | 登录、权限、项目、文档、ELN、版本冲突和完成只读 | 指定环境的实际交互 |
+
+`verify` 已包含测试，不要求为了同一结论重复执行 `test`。
+当前 pom 没有配置独立静态分析器；不能把 Maven verify 称为完整静态安全检查。
+纯文档修改不必启动服务或连接业务库。
+
+文档上传验收比较上传前后字节或摘要；选择当前前端可解析格式，
+并单独记录旧格式/大文件转换缺口。ELN 验收应确认暂存后重新读取内容、冲突拒绝及完成后只读。
+实验附件写入与正文读取已接通，但只有在隔离测试库完成上传、下载和删除往返后才能记录为端到端通过。
+集成验证使用隔离测试库；读取历史报告不算本次重跑。
+
+## 🔍 故障定位
+
+| 现象 | 优先检查 |
+| --- | --- |
+| 前端容器退出、找不到 vite | 目标系统是否安装锁定依赖，绑定目录是否正确 |
+| API 启动慢或退出 | Maven/JDK、依赖获取、数据库连接、Flyway 日志 |
+| 修改 prod 参数仍有示例数据 | 当前 Compose 固定 dev，不能按变量名判断生效 |
+| 页面正常但接口失败 | Vite/反向代理原路径、API 端口与 Cookie/CSRF |
+| ready 200 但文件失败 | ready 不检查正文或预览；核验 BYTEA、权限、格式与请求限额 |
+| prod 空库无法登录 | 核对是否已按生产指南显式执行 bootstrap，正常 API 不自动建账 |
+| 旧文档无法转 PDF | 后端未实现转换；安装 LibreOffice 不会自动接通 |
+| 计划时间或 ELN 丢失 | 创建字段支持范围、PATCH 全量正文覆盖、浏览器与数据库会话时区 |
+| 附件或 /copy 返回错误 | 当前后端不存在这些接口，不是 RustFS 参数修复可解决 |
+| 跨日时间偏移 | 客户端本地时区、JVM、数据库及 JDBC 会话分别核对 |
+
+## 🔗 官方参考
+
+以下链接用于配置和运维机制解释；项目版本仍以仓库清单和锁文件为准。
+
+[^1]: Docker. “Set environment variables within your container's environment.” https://docs.docker.com/compose/how-tos/environment-variables/set-environment-variables/
+[^2]: Spring. “Externalized Configuration.” https://docs.spring.io/spring-boot/reference/features/external-config.html
+[^3]: Nginx. “Module ngx_http_proxy_module — proxy_pass.” https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_pass
+[^4]: PostgreSQL. “SQL Dump.” https://www.postgresql.org/docs/18/backup-dump.html

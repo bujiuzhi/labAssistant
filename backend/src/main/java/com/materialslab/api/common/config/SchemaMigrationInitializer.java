@@ -27,8 +27,6 @@ public class SchemaMigrationInitializer implements ApplicationRunner {
         var result = Flyway.configure()
                 .dataSource(dataSource)
                 .locations("classpath:db/migration")
-                .baselineOnMigrate(true)
-                .baselineVersion("0")
                 .load()
                 .migrate();
         LOGGER.info("Flyway 迁移完成，已执行 {} 个版本", result.migrationsExecuted);

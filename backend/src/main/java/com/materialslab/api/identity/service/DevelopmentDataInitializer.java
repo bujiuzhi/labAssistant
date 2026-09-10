@@ -21,7 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /** 为开发测试数据库写入可追溯、可重复执行的账户、项目和实验种子数据。 */
 @Component
-@Profile("dev")
+@Profile("dev & !prod")
 @Order(Ordered.LOWEST_PRECEDENCE)
 public class DevelopmentDataInitializer implements ApplicationRunner {
     private static final Logger LOGGER = LoggerFactory.getLogger(DevelopmentDataInitializer.class);
@@ -94,11 +94,12 @@ public class DevelopmentDataInitializer implements ApplicationRunner {
     private void createUser(UUID userId, String username, String displayName, boolean superAdmin) {
         jdbcTemplate.update("""
                 INSERT INTO user_account(
-                  id, organization_id, password, username, display_name, is_super_admin, is_superuser, is_staff)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT (organization_id, username) DO NOTHING
+                  id, organization_id, password, username, display_name, is_super_admin, is_platform_admin, is_superuser, is_staff)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (organization_id, username) DO UPDATE
+                SET is_platform_admin = user_account.is_platform_admin OR EXCLUDED.is_platform_admin
                 """, userId, ORGANIZATION_ID, passwordEncoder.encode(developmentPassword), username, displayName,
-                superAdmin, superAdmin, superAdmin);
+                superAdmin, superAdmin && ADMIN_ID.equals(userId), superAdmin, superAdmin);
     }
 
     private void createRole(UUID roleId, String roleCode, String roleName, UUID userId) {
@@ -120,21 +121,18 @@ public class DevelopmentDataInitializer implements ApplicationRunner {
 
     /** 创建开发环境 RBAC 权限字典并绑定系统角色。 */
     private void createRolePermissions() {
-        createPermission("organization.read", "查看组织信息", "organization");
-        createPermission("project.read", "查看项目", "project");
-        createPermission("project.create", "创建项目", "project");
-        createPermission("project.update", "编辑项目", "project");
-        createPermission("project.archive", "归档项目", "project");
-        createPermission("document.view", "查看项目文档", "document");
-        createPermission("document.upload", "上传项目文档", "document");
-        createPermission("experiment.read", "查看实验", "experiment");
-        createPermission("experiment.create", "创建实验", "experiment");
-        createPermission("experiment.update", "编辑实验记录", "experiment");
-        createPermission("experiment.transition", "迁移实验状态", "experiment");
-
-        grant(MANAGER_ROLE_ID, "organization.read", "project.read", "project.create", "project.update", "project.archive",
-                "document.view", "document.upload", "experiment.read", "experiment.create", "experiment.update", "experiment.transition");
-        grant(RESEARCHER_ROLE_ID, "organization.read", "project.read", "document.view", "experiment.read", "experiment.update", "experiment.transition");
+        for (var permission : SystemIdentityCatalog.PERMISSIONS) {
+            createPermission(permission.code(), permission.name(), permission.moduleCode());
+        }
+        for (var role : SystemIdentityCatalog.ROLES) {
+            UUID roleId = switch (role.code()) {
+                case "super_admin" -> ADMIN_ROLE_ID;
+                case "project_manager" -> MANAGER_ROLE_ID;
+                case "researcher" -> RESEARCHER_ROLE_ID;
+                default -> throw new IllegalStateException("未配置开发角色 ID");
+            };
+            grant(roleId, role.permissions().toArray(String[]::new));
+        }
     }
 
     private void createPermission(String code, String name, String moduleCode) {

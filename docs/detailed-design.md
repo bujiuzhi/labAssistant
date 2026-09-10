@@ -1,438 +1,289 @@
 # 材料实验助手详细设计
 
-## 1. 文档范围与事实来源
+_描述当前 Java/Vue 实现及兼容性边界；结构与行为以链接的源码和迁移为依据。_
 
-本文件是项目唯一的详细设计，描述 `dev` 分支中 Java 后端的实现结构。
-实现事实以 Flyway Migration、Controller、Service、Mapper、前端接口调用和自动化测试为准。
-数据资产、任务管理、检测、报告、材料主数据和完整审计查询不在当前实现范围内。
-
-| 设计对象 | 当前事实来源 | 使用说明 |
-|---|---|---|
-| 数据库物理结构 | `backend/src/main/resources/db/migration/` | 新增字段必须先更新 Flyway Migration，再更新本文 |
-| API 路径与行为 | `backend/src/main/java/**/controller/` | 本文仅汇总公开资源和关键行为 |
-| 权限与数据范围 | `identity/service/`、Mapper、Service | 前端按钮不是授权依据 |
-| 页面与交互 | `frontend/src/` | 以真实 API 返回的数据和当前页面为准 |
-
-## 2. 实现结构
-
-```text
-backend/
-├── pom.xml                       # Spring Boot 与 Maven 依赖
-└── src/
-    ├── main/java/                # Controller、Service、Mapper、SQLProvider 与安全配置
-    ├── main/resources/db/migration/ # Flyway 数据库迁移
-    └── test/java/                # JUnit 核心路径测试
-
-frontend/src/
-├── api/                          # Axios 请求封装及业务 API
-├── components/projects/          # 项目文档、预览及未开放功能的保留组件
-├── views/                        # 登录、总览、项目、ELN、用户管理页面
-├── stores/                       # 会话和权限状态
-├── router/                       # 页面路由及访问控制
-└── types/                        # 前端 API 类型
-```
-
-## 3. 数据库设计
-
-### 3.1 通用约定
-
-- 各表统一使用 `UUID` 主键和 `created_at`、`updated_at` 审计字段。
-- 表名和字段名均为 `snake_case`，Migration 中定义中文表/字段注释。
-- 业务对象以 `organization_id` 作为组织隔离键；所有对象访问先通过组织范围过滤。
-- `project.version` 与 `experiment.version` 是乐观锁版本。更新请求必须携带 `If-Match: "<version>"`。
-- 当前数据库迁移由 Flyway 统一管理；不以设计文档中的未来实体替代已落地实体。
-
-### 3.2 实体关系
-
-```mermaid
 ---
-title: 已实现实体关系
----
-erDiagram
-    ORGANIZATION ||--o{ ORGANIZATION : "包含下级"
-    ORGANIZATION ||--o{ USER_ACCOUNT : "拥有"
-    ORGANIZATION ||--o{ ROLE : "定义"
-    USER_ACCOUNT ||--o{ USER_ROLE : "分配"
-    ROLE ||--o{ USER_ROLE : "被授予"
-    ROLE ||--o{ ROLE_PERMISSION : "拥有"
-    PERMISSION ||--o{ ROLE_PERMISSION : "组成"
-    ORGANIZATION ||--o{ PROJECT : "隔离"
-    USER_ACCOUNT ||--o{ PROJECT : "负责"
-    PROJECT ||--o{ PROJECT_MEMBER : "包含"
-    PROJECT ||--o{ PROJECT_DOCUMENT : "归集"
-    PROJECT ||--o{ PROJECT_FOLLOW : "被关注"
-    PROJECT ||--o{ EXPERIMENT : "包含"
-    EXPERIMENT ||--|| EXPERIMENT_RECORD : "形成"
-    EXPERIMENT ||--o{ EXPERIMENT_ATTACHMENT : "保存"
-    EXPERIMENT ||--o{ EXPERIMENT_PARTICIPANT : "参与"
-    BUSINESS_NUMBER_SEQUENCE ||--o{ PROJECT : "生成编号"
-    USER_ACCOUNT ||--o{ IDEMPOTENCY_REQUEST : "发起"
-    USER_ACCOUNT ||--o{ BUSINESS_OPERATION_LOG : "执行"
-```
 
-### 3.2.1 领域类图（UML）
+## 📚 模块与事实来源
 
-类图强调聚合根、核心属性和关联方向，不替代上一节的字段表与 Migration。UUID、创建时间、更新时间等通用继承字段在图中省略，以保持可读性。
+| 模块 | 实现入口 | 职责 |
+| --- | --- | --- |
+| 公共能力 | [common](../backend/src/main/java/com/materialslab/api/common/) | 成功/分页响应、错误转换、健康检查、Flyway |
+| 身份 | [identity](../backend/src/main/java/com/materialslab/api/identity/) | 登录、会话、用户、组织、权限与开发初始化 |
+| 项目 | [projects](../backend/src/main/java/com/materialslab/api/projects/) | 项目、成员读取、关注、总览、文档正文 |
+| 实验 | [experiments](../backend/src/main/java/com/materialslab/api/experiments/) | 实验、参与人读取、ELN、状态、附件元数据读取 |
+| 页面与请求 | [frontend/src](../frontend/src/) | Vue 页面、Pinia 会话、Axios、预览分流 |
 
-```mermaid
----
-title: 核心领域类图
----
-classDiagram
-    class Organization {
-        +UUID id
-        +String organization_code
-        +String name
-        +UUID parent_id
-        +String status
-    }
-    class User {
-        +UUID id
-        +String username
-        +String display_name
-        +Boolean is_super_admin
-        +permission_codes()
-    }
-    class Role {
-        +String role_code
-        +String name
-        +Boolean is_system
-    }
-    class Permission {
-        +String permission_code
-        +String module_code
-    }
-    class Project {
-        +UUID id
-        +String project_no
-        +String name
-        +String status
-        +Integer version
-        +JSON objectives
-        +JSON milestones
-    }
-    class ProjectMember {
-        +String member_role
-        +DateTime joined_at
-    }
-    class ProjectDocument {
-        +String name
-        +String category
-        +String file
-        +Integer file_size
-    }
-    class Experiment {
-        +UUID id
-        +String experiment_no
-        +String status
-        +Integer version
-        +String phase
-    }
-    class ExperimentRecord {
-        +JSON formula_columns
-        +JSON formula_rows
-        +String process_text
-        +String result_text
-    }
-    class ExperimentAttachment {
-        +String kind
-        +String name
-        +String file
-        +Integer file_size
-    }
-    class BusinessOperationLog {
-        +UUID organization_id
-        +String domain
-        +UUID object_id
-        +String action_type
-        +JSON changes
-    }
+架构源图见[概要设计](overview-design.md)。版本依赖以 Maven、前端包清单及锁文件为准。
+本文按领域说明语义；每个 HTTP 操作的参数、Schema 和响应统一维护在
+[OpenAPI](../contracts/openapi.yaml)，避免重复维护完整接口清单。
 
-    Organization "1" --> "*" User : 组织用户
-    Organization "1" --> "*" Role : 定义角色
-    Role "*" --> "*" Permission : 授予权限
-    User "*" --> "*" Role : 分配角色
-    Organization "1" --> "*" Project : 数据隔离
-    User "1" --> "*" Project : 负责
-    Project "1" --> "*" ProjectMember : 成员关系
-    User "1" --> "*" ProjectMember : 加入
-    Project "1" --> "*" ProjectDocument : 归档文档
-    Project "1" --> "*" Experiment : 包含实验
-    User "1" --> "*" Experiment : 负责
-    Experiment "1" --> "1" ExperimentRecord : ELN 正文
-    Experiment "1" --> "*" ExperimentAttachment : 真实附件
-    User "1" --> "*" BusinessOperationLog : 执行操作
-```
+## 💾 数据模型
 
-### 3.3 表与关键字段
+### 迁移与物理约束
 
-下表列出已实现表的完整业务字段集合；所有带 `*` 的表还继承或自定义了 `id` 与时间字段，外键实际列以 `_id` 结尾。
+[V1](../backend/src/main/resources/db/migration/V1__materials_lab_schema.sql)是首次正式发布的完整空库基线，创建 19 张表，
+包括项目文档和实验附件的二进制正文表。应用启动由
+[SchemaMigrationInitializer](../backend/src/main/java/com/materialslab/api/common/config/SchemaMigrationInitializer.java)
+执行 Flyway；未知既有结构不会自动基线化。首版发布后不得改写 V1，只能新增 V2 及更高版本迁移。
 
-| 表 | 关键字段 | 约束/索引 | 说明 |
-|---|---|---|---|
-| `organization`* | `organization_code`, `name`, `parent_id`, `status` | `organization_code` 唯一；上级组织保护删除 | 组织层级与数据范围根 |
-| `user_account` | `id`, `organization_id`, `username`, `display_name`, `email`, `status`, `is_super_admin`, 密码与认证字段 | 组织内用户名唯一；非空邮箱组织内唯一；`idx_user_org_status` | 登录用户 |
-| `role`* | `organization_id`, `role_code`, `name`, `description`, `is_system`, `status` | `(organization_id, role_code)` 唯一 | 组织内角色 |
-| `permission` | `id`, `permission_code`, `name`, `module_code`, `description` | `permission_code` 唯一 | 稳定权限码 |
-| `user_role` | `id`, `organization_id`, `user_id`, `role_id`, `created_at`, `created_by_id` | `(user_id, role_id)` 唯一 | 用户角色关联 |
-| `role_permission` | `id`, `role_id`, `permission_id`, `created_at`, `created_by_id` | `(role_id, permission_id)` 唯一 | 角色权限关联 |
-| `business_number_sequence` | `id`, `organization_id`, `business_type`, `period_key`, `current_value`, `updated_at` | `(organization_id, business_type, period_key)` 唯一 | 项目编号序列 |
-| `project`* | `organization_id`, `project_no`, `name`, `project_type_code`, `description`, `current_stage`, `progress_percent`, `document_count`, `experiment_count`, `data_resource_count`, `objectives`, `milestones`, `status`, `owner_id`, `planned_start_date`, `planned_end_date`, `actual_end_at`, `archived_at`, `version`, `created_by_id`, `updated_by_id` | 组织内项目编号唯一；日期顺序与进度范围检查；项目状态/负责人索引 | 项目聚合根 |
-| `project_member` | `id`, `organization_id`, `project_id`, `user_id`, `member_role`, `joined_at`, `created_by_id` | `(project_id, user_id)` 唯一；成员查询索引 | 项目成员和负责人关系 |
-| `project_follow` | `id`, `organization_id`, `project_id`, `user_id`, `created_at` | `(project_id, user_id)` 唯一；用户关注索引 | 个人工作台关注项 |
-| `project_document`* | `organization_id`, `project_id`, `name`, `file`, `extension`, `mime_type`, `file_size`, `category`, `related_content`, `version_label`, `uploaded_by_id`, `updated_by_id` | 项目分类更新时间、组织扩展名更新时间索引 | 项目文档元数据和文件路径 |
-| `experiment`* | `organization_id`, `project_id`, `experiment_no`, `name`, `experiment_type`, `phase`, `status`, `purpose`, `estimated_start`, `estimated_end`, `started_at`, `completed_at`, `owner_id`, `version`, `created_by_id`, `updated_by_id` | 组织内实验编号唯一；计划时间检查；组织/项目/负责人状态索引 | 实验聚合根 |
-| `experiment_record`* | `experiment_id`, `formula_columns`, `formula_rows`, `extra_tables`, `process_text`, `extra_processes`, `result_text` | `experiment_id` 一对一 | 结构化 ELN 正文，不保存附件元数据副本 |
-| `experiment_attachment`* | `organization_id`, `experiment_id`, `kind`, `name`, `file`, `mime_type`, `file_size`, `uploaded_by_id` | 组织、实验、用途、创建时间索引 | 真实过程图片或结果附件 |
-| `experiment_participant` | `id`, `organization_id`, `experiment_id`, `user_id`, `participant_role`, `joined_at`, `created_by_id` | `(experiment_id, user_id)` 唯一；参与人查询索引 | 实验参与人 |
-| `idempotency_request` | `id`, `organization_id`, `user_id`, `idempotency_key`, `route_key`, `request_hash`, `status`, `response_status`, `response_body`, `created_at`, `expires_at` | 请求作用域和幂等键唯一；过期时间索引 | 当前用于项目创建请求去重，并保留为通用幂等模型 |
-| `business_operation_log` | `id`, `organization_id`, `actor_id`, `domain`, `object_id`, `object_no`, `action_type`, `description`, `changes`, `created_at` | 对象时间、操作者时间索引 | 项目、文档、实验和附件关键操作追踪 |
+下表为关键字段与关系导航，不是完整 DDL 副本。
 
-### 3.4 状态和值域
+| 表 | 主要字段或关系 | 当前用途 |
+| --- | --- | --- |
+| `organization` | `organization_code` 唯一；`parent_id` 自引用 | 组织及层级 |
+| `user_account` | `organization_id`、`username`、`password`、`status`、`is_super_admin` | 组织内用户名唯一；含历史兼容身份字段 |
+| `role` | `organization_id`、`role_code`、`is_system` | 组织内角色代码唯一 |
+| `permission` | `permission_code` 唯一、`module_code` | 权限字典，无通用时间字段 |
+| `user_role` | `user_id`、`role_id`、`organization_id` | 用户角色组合唯一 |
+| `role_permission` | `id`、`role_id`、`permission_id` | 角色权限组合唯一，无时间字段 |
+| `project` | 编号、名称、类型、状态、负责人、目标/里程碑 JSONB、计划时间、`version` | 组织内编号唯一，进度有 0–100 CHECK |
+| `project_member` | `project_id`、`user_id`、`member_role` | 项目用户组合唯一 |
+| `project_follow` | `project_id`、`user_id`、`created_at` | 无 `organization_id` 列，经项目限定组织 |
+| `project_document` | 项目、分类、名称、版本标签、`file`、MIME、大小、上传人、预览字段 | 文档元数据；没有独立 `extension` 列 |
+| `project_document_content` | `document_id` 主键/外键、`content BYTEA` | 历史正文兼容读取；新上传正文存入 RustFS |
+| `experiment` | 项目、编号、类型、阶段、状态、计划/实际时间、负责人、`version` | 组织内编号唯一 |
+| `experiment_record` | `experiment_id` 唯一；配方/附表/附加过程 JSONB、过程/结果文本 | 一个实验至多一条 ELN 正文 |
+| `experiment_participant` | 实验、用户、参与角色 | 实验用户组合唯一，响应读取 |
+| `experiment_attachment` | 实验、用途、名称、`file`、MIME、大小、上传人 | 附件元数据，当前无业务上传入口 |
+| `business_number_sequence` | 组织、业务类型、期间、当前值 | 已建表，当前编号生成未使用 |
+| `idempotency_request` | 用户、作用域、键、请求摘要、响应、过期时间 | 已建表，当前创建流程未使用 |
+| `business_operation_log` | 组织、操作者、领域、对象、动作、变更 JSONB | 查询及文档上传日志 |
 
-| 对象 | 枚举值 | 设计规则 |
-|---|---|---|
-| 项目 | `draft`、`not_started`、`active`、`at_risk`、`suspended`、`completed`、`archived` | 前五种可编辑；完成和归档只读 |
-| 项目成员 | `owner`、`researcher`、`inspector`、`viewer` | 项目负责人须同步存在 `owner` 成员记录 |
-| 项目类型 | `聚酰亚胺`、`环氧树脂` | 创建和更新均只接受需求规定值 |
-| 实验 | `not_started`、`in_progress`、`completed` | 只能依次开始和完成；完成后实验计划和 ELN 均不可编辑 |
-| 实验类型 | `单体`、`聚合`、`其他` | 创建和更新均只接受需求规定值 |
-| 实验参与人 | `owner`、`participant`、`reviewer` | 参与关系以项目可见范围为前提 |
-| 实验附件 | `process_image`、`result_file` | 附件数量和总大小由服务层校验 |
-| 幂等请求 | `processing`、`completed`、`failed` | 同一键不同请求体返回校验错误 |
+V1 的三个显式普通索引为 `idx_project_org_status_updated`、
+`idx_experiment_org_status`、`idx_operation_log_object`。
+其他唯一约束及外键以迁移为准；不要声称已有邮箱唯一、所有日期顺序 CHECK、
+跨组织复合外键或幂等过期索引。
 
-### 3.4.1 实验状态机（UML）
+V1 为所有业务表和字段提供中文 `COMMENT`。后续结构变更须新增迁移并补充相应注释；
+共享环境已执行的迁移不得改写。
 
-实验状态迁移只有一个正式写入口：`POST /experiments/{key}/transition`。服务端在数据库事务中校验 `experiment.transition` 权限、对象范围、`If-Match` 版本和目标状态；不允许跳过“进行中”直接完成，也不支持完成后回退。
+<a id="time-semantics"></a>
 
-```mermaid
----
-title: 实验状态机
----
-flowchart LR
-    Create["创建实验"]:::process
-    NotStarted["未开始<br/>phase=方案设计"]:::state
-    InProgress["进行中<br/>phase=实验执行"]:::state
-    Completed["已完成<br/>phase=检测分析"]:::success
-    Revision["留痕修订 ELN<br/>权限 + If-Match"]:::process
+### 时间语义
 
-    Create --> NotStarted
-    NotStarted -->|"transition: in_progress<br/>记录 started_at"| InProgress
-    InProgress -->|"transition: completed<br/>记录 completed_at"| Completed
-    Completed -->|"保存补充记录<br/>version+1"| Revision
-    Revision --> Completed
+| 字段 | 语义 | 当前表示 |
+| --- | --- | --- |
+| `created_at/updated_at` | 记录创建/最近更新时刻 | 相关表为 TIMESTAMPTZ；不是所有表都有 |
+| `planned_start_date/planned_end_date` | 项目计划起止时刻 | 名称含 date，但物理类型为 TIMESTAMPTZ |
+| `estimated_start/estimated_end` | 实验预计起止时刻 | TIMESTAMPTZ，创建和更新均保存；无偏移量输入按 Asia/Shanghai 解释 |
+| `started_at/completed_at` | 实验开始/完成动作时刻 | 状态迁移时由数据库写入 |
+| `archived_at` | 项目归档时刻 | 归档操作写入 |
+| `actual_end_at` | 项目实际结束时刻 | 表与响应保留，不代表已实现自动结项写入 |
+| `milestones[].date` | 里程碑展示日期 | JSON 字符串，不与数据库时刻字段混淆 |
 
-    classDef process fill:#EAF3FF,stroke:#7AA7D9,stroke-width:1px,color:#1F2A44,rx:10,ry:10;
-    classDef state fill:#FFFFFF,stroke:#D4A63A,stroke-width:1px,color:#1F2A44,rx:10,ry:10;
-    classDef success fill:#EEF8EC,stroke:#88B47E,stroke-width:1px,color:#1F2A44,rx:10,ry:10;
-```
+业务约定时区为 `Asia/Shanghai`；人工记录使用 `YYYY-MM-DD HH:mm:ss`。
+API DTO 使用 `OffsetDateTime`，按实际序列化返回带偏移的日期时间，不把接口格式强改为人工记录格式。
 
-项目状态当前是项目属性和编辑限制条件，而不是独立状态迁移接口：`draft`、`not_started`、`active`、`at_risk`、`suspended` 允许在权限和负责人范围内编辑；`completed`、`archived` 拒绝项目编辑和文档上传。若后续增加项目状态迁移，必须先补充状态机、迁移接口、权限码和回归测试。
+Jackson 配置上海时区；项目无偏移时间输入按上海解释，但编号生成部分使用 JVM 默认时区。
+实验时间更新在 SQL 中转为 `timestamptz`，无偏移输入依赖数据库连接会话。
+生产 Compose 将容器/JVM、PostgreSQL 服务及 prod JDBC 会话配置为上海时区；既有开发运行参数保持不变。
+前端 `Intl.DateTimeFormat` 未显式指定时区，输入也可能不带偏移，因此不能声称全链路已统一。
 
-## 4. API 设计
+部署需分别核对 JVM、数据库服务/会话及客户端显示。若调整既有时区行为，先评估存量值、
+跨日日期、无偏移输入和外部调用兼容性；不直接重写历史时间。
 
-全部接口前缀为 `/api/v1`，认证依赖同域 Session。响应中的正常数据使用 `data`，列表使用分页信封，错误由统一 Problem Details 处理；重要写操作返回 `ETag`，后续更新使用 `If-Match`。
+## 🌐 HTTP、会话与错误
 
-| 领域 | 方法与路径 | 主要用途 |
-|---|---|---|
-| 健康检查 | `GET /health/live`、`GET /health/ready` | 进程存活，以及数据库、RustFS 私有桶就绪状态 |
-| 认证 | `GET /auth/csrf`、`POST /auth/login`、`POST /auth/logout`、`GET /auth/session` | CSRF、登录、注销和会话恢复 |
-| 用户管理 | `GET/POST /auth/users`、`GET/PATCH /auth/users/{id}`、`POST /auth/users/{id}/reset-password`、`GET /auth/users/options`、`GET /auth/roles/options` | 超级管理员用户管理与人员选项；当前通过停用而非删除账号 |
-| 工作台 | `GET /dashboard` | 当前可见范围内项目/实验统计和趋势 |
-| 项目 | `GET/POST /projects`、`GET/PATCH /projects/{key}` | 项目列表、创建、详情和编辑 |
-| 项目关注 | `POST/DELETE /projects/{key}/follow` | 新增或取消关注 |
-| 项目归档与追踪 | `POST /projects/{key}/archive`、`GET /projects/{key}/operation-logs` | 乐观锁归档和最近 100 条关键操作记录 |
-| 项目文档 | `GET/POST /projects/{key}/documents`、`GET /.../content`、`GET /.../preview` | 文档列表、上传、下载与预览 |
-| 实验 | `GET/POST /experiments`、`GET/PATCH /experiments/{key}`、`POST /.../copy`、`POST /.../transition` | 实验计划、ELN 更新、复制、状态迁移 |
-| 实验附件 | `POST /experiments/{key}/attachments`、`GET /.../attachments/{id}/content`、`DELETE /.../attachments/{id}` | 上传、读取和删除真实附件 |
+### 通用协议
 
-### 4.1 请求、响应与错误约定
+接口前缀为 `/api/v1`，JSON 字段为 `snake_case`。当前成功信封为
+`{data,request_id}`；普通分页为
+`{data,meta:{page,page_size,total,total_pages},request_id}`。
+单页大小归一到 1–100，空结果的 `total_pages` 仍为 1。
 
-除文件流接口外，成功响应使用 JSON。列表响应使用 `data` 数组和 `meta` 分页信息；单对象响应以 `data` 包装。分页默认每页 20 条，客户端可用 `page`、`page_size` 控制，单页最大 100 条。所有响应均由中间件写入 `X-Request-ID`；标准业务 JSON 通常同时在响应体提供 `request_id`，少量简单操作仅提供 `data`，客户端应以响应头作为统一追踪入口。
+`data=null` 受 NON_NULL 配置影响会被省略；创建/更新组织用户的成功体通常仅有
+`request_id`。文件为二进制，注销/重置密码等 204 响应无正文。
+项目文档列表使用 `total/filtered_total/category_counts` 元数据，不是普通分页。
 
-| 场景 | HTTP 状态 | 响应特征 | 客户端处理 |
-|---|---:|---|---|
-| 未登录或会话失效 | `401` | Problem Details，含 `request_id` | 清理会话状态并跳转登录 |
-| 无操作权限 | `403` | Problem Details | 提示无权限，不应重试 |
-| 对象不可见 | `404` | Problem Details | 按资源不存在处理，避免泄露跨范围对象 |
-| 字段校验失败 | `400` | `code=VALIDATION_ERROR`，可含 `field_errors` | 映射到表单字段 |
-| 幂等键冲突、状态不允许 | `409` | `BUSINESS_RULE_CONFLICT` 或业务冲突信息 | 刷新业务状态后由用户决定 |
-| 乐观锁冲突 | `412` | `RESOURCE_VERSION_CONFLICT` | 重新读取对象，提示合并或重填 |
-| 文件预览格式不支持/转换失败 | `406` 或明确业务错误 | 不返回伪造预览内容 | 提供下载原文件入口 |
+项目路径参数支持项目 UUID 或编号；实验路径参数当前只按实验编号查询，不能传实验 UUID 替代。
 
-Problem Details 的核心字段为 `type`、`title`、`status`、`code`、`detail`、`instance`、`request_id`，字段级错误附于 `field_errors`。前端 Axios 层统一识别这一结构，业务页面不自行拼接后端错误。
+普通业务异常返回 Problem Details 兼容 JSON，业务码为小写；
+安全过滤器的错误只有 `status/code/detail`，不能要求所有错误都有
+`request_id`、`instance` 或字段级错误列表。当前没有统一的 `X-Request-ID` 请求传播机制。
+协议依据：[响应模型](../backend/src/main/java/com/materialslab/api/common/model/)、
+[异常处理](../backend/src/main/java/com/materialslab/api/common/exception/GlobalExceptionHandler.java)。
 
-### 4.2 写入接口的并发和幂等规则
+### 认证流程
 
-| 操作 | 必填请求头 | 服务端行为 | 返回关键头 |
-|---|---|---|---|
-| 创建项目 | `Idempotency-Key`，长度 16–128 | 相同用户、组织、路由与请求体的重复提交返回首次结果；同键不同请求体拒绝 | `ETag` |
-| 更新项目 | `If-Match: "<version>"` | 只在版本一致、状态可编辑、对象范围允许时写入；成功后版本加一 | 新 `ETag` |
-| 更新实验或 ELN | `If-Match: "<version>"` | 同时校验实验计划与 ELN 内容；包含完成后的留痕修订 | 新 `ETag` |
-| 实验状态迁移 | `If-Match: "<version>"` | 仅允许未开始→进行中→已完成；完成前校验非空结果，服务端记录实际时间 | 新 `ETag` |
-| 归档项目 | `If-Match: "<version>"` | 校验项目可见范围和当前状态，写入归档时间与操作记录 | 新 `ETag` |
+1. 获取 `GET /auth/csrf`，使用 `csrftoken` Cookie 与 `X-CSRFToken` 请求头。
+2. 提交用户名/密码至 `POST /auth/login`；登录同样受 CSRF 保护。
+3. 浏览器携带 Session Cookie，`GET /auth/session` 获取用户、角色、权限和 `is_platform_admin` 标记。
+4. 退出调用 `POST /auth/logout`，随后恢复未登录状态。
+5. 未登录成员只能通过 `POST /auth/register` 使用管理员签发的一次性邀请码注册；邀请码绑定组织、角色和过期时刻，数据库仅保存 SHA-256 哈希，注册不自动登录。
+6. 已登录用户调用 `POST /auth/password` 提交旧密码和新密码；服务端校验旧密码及统一密码策略后失效当前 Session，客户端须重新登录。
 
-### 4.3 关键请求字段
+前端仅使用同源 Cookie 的 Session/CSRF 认证；HTTP Basic 已关闭。
+连续 5 次认证失败会按用户名临时限制 15 分钟，返回 429 `login_temporarily_locked`；
+该保护是单 API 实例内的有界内存状态，成功认证会清除记录，横向扩容前应改用共享限流存储。
+Session 当前是 Servlet 进程会话，没有 Redis 持久化实现。
+身份实现见 [AuthController](../backend/src/main/java/com/materialslab/api/identity/controller/AuthController.java)
+与 [SecurityConfig](../backend/src/main/java/com/materialslab/api/identity/security/SecurityConfig.java)。
 
-| 资源 | 创建/更新字段 | 关键校验 |
-|---|---|---|
-| 项目 | `name`、`project_type_code`、`owner_id`、`member_ids`、`objectives`、`milestones`、计划起止时间 | 创建时类型、计划时间、目标、至少一个里程碑必填；成员不重复；最多一个里程碑为 `current` |
-| 项目文档 | multipart：`file`、`category`、`related_content`、`version_label` | 不超过 100 MB；允许 DOC/DOCX/PDF/XLS/XLSX/CSV/TXT/PPT/PPTX/PNG/JPG/JPEG/WebP；扩展名须与内容签名匹配 |
-| 实验 | `project_id`、`name`、`experiment_type`、`purpose`、`owner_id`、`participant_ids`、计划时间、ELN 字段 | 类型限单体/聚合/其他；目的必填；参与人不重复；结束时间不得早于开始 |
-| ELN 配方 | `formula_columns`、`formula_rows`、`extra_tables` | 列 ID 不重复；行数据不得包含未定义列 |
-| ELN 过程与结果 | `process_text`、`extra_processes`、`result_text`；附件使用 multipart 独立接口 | 过程文字最长 50,000；单个附加过程 1,000 字；过程图片最多 20 张且单张 10 MB；结果附件最多 30 个且单个 25 MB |
+登录按用户名查找活动账户，没有组织选择参数，因此首版 V1 将登录名约束为全局唯一。
+首版只接受空库；若后续接入历史库且存在跨组织同名账号，必须先完成经确认的重命名，不能静默选择某个组织。无外部身份交换或单点登录 API。
 
-### 4.4 项目更新时序
+平台管理员通过 `GET/POST /organizations` 查看组织目录、开通组织。开通事务会创建根组织、`super_admin`、`project_manager`、`researcher` 三个内置角色及权限，并创建首个仅属于新组织的超级管理员；不会创建项目、实验、文件、邀请码或测试数据。`is_platform_admin` 不绕过租户业务查询中的 `organization_id` 条件，也不提供组织切换能力。
 
-```mermaid
----
-title: 项目编辑与乐观锁时序
----
-sequenceDiagram
-    participant UI as 前端
-    participant API as Spring Boot API
-    participant DB as 数据库
+### 并发与错误边界
 
-    UI->>API: GET /projects/{key}
-    API->>DB: 按组织和可见范围查询
-    DB-->>API: 项目和 version
-    API-->>UI: data + ETag "version"
-    UI->>API: PATCH /projects/{key} + If-Match
-    API->>DB: select_for_update + 权限/状态校验
-    alt version 一致
-        API->>DB: 写入字段、成员、version+1
-        DB-->>API: 更新结果
-        API-->>UI: data + 新 ETag
-    else version 不一致
-        DB-->>API: 当前版本不同
-        API-->>UI: 412 Precondition Failed
-    end
-```
+项目和实验的详情、创建及相关更新响应返回 `ETag`。
+PATCH、项目归档和实验迁移需传入 `If-Match: "版本号"`；SQL 用版本条件更新并递增版本。
+冲突返回 412 `version_conflict`，无效版本文本返回 428 `if_match_required`。
 
-## 5. 关键实现细节
+项目更新/归档和实验更新/迁移将缺失或非法 `If-Match` 统一转换为 428 `if_match_required`。
+其他常见业务错误为 400 校验、401 未登录/凭据错误、403 权限不足、404 不可见对象、
+409 非法实验迁移和 429 登录临时限制。前端应保留待提交内容并提示重新读取版本，不直接盲重试覆盖。
 
-### 5.1 项目创建与成员同步
+项目创建虽发送 `Idempotency-Key`，后端 Controller 不读取它，也不使用幂等表。
+重复提交可能创建多条记录；编号采用日期加 UUID 片段，不使用编号序列表。
 
-项目创建要求 `Idempotency-Key` 长度为 16–128。服务层在事务内锁定
-`business_number_sequence` 生成 `PRJ-年份-六位序号`，创建项目后同步负责人和普通成员关系；
-创建人会作为管理成员自动加入项目。负责人必须属于当前组织且处于启用状态。
+## 🔐 权限与对象关系
 
-### 5.2 实验与 ELN
+[AccessControlService](../backend/src/main/java/com/materialslab/api/identity/security/AccessControlService.java)
+负责权限码，Mapper/Service 负责组织、项目成员和实验关系。前端按钮不替代后端授权。
 
-实验编号、负责人、项目、状态和计划时间采用规范化字段；新记录默认创建 4 列、2 行配方表。
-动态配方列、配方行、附加表和过程模块以 JSON 保存到 `experiment_record`；过程图片和结果附件只存于
-`experiment_attachment`，序列化输出实时派生，不保留第二份 JSON 元数据。已完成实验仍可补充 ELN，
-每次保存均校验 `If-Match` 并写入业务操作日志。
+| 权限 | 项目管理员 | 实验员 |
+| --- | --- | --- |
+| `organization.read`、`project.read` | 有 | 有 |
+| `project.create/update/archive` | 有 | 无 |
+| `document.view` | 有 | 有 |
+| `document.upload` | 有 | 无 |
+| `experiment.read` | 有 | 有 |
+| `experiment.create` | 有 | 无 |
+| `experiment.update/transition` | 有 | 有 |
 
-### 5.3 文件与预览
+上表由开发和生产初始化共同复用的
+[SystemIdentityCatalog](../backend/src/main/java/com/materialslab/api/identity/service/SystemIdentityCatalog.java)
+定义；超级管理员具备权限通配。生产真实角色通过显式 bootstrap 任务建立，空库迁移本身不会产生身份。
 
-项目文档和实验附件的存储路径由服务端生成，路径按组织与业务对象隔离。项目文档预览使用
-真实文件并按能力分流：
+普通用户读取其负责或加入的项目，并读取这些项目下以及其本人负责或参与的实验。
+项目修改、归档、文档上传需相应权限以及负责人或 `owner/manager` 成员关系。
+实验写入还检查负责人、参与人或具备实验创建权限的项目管理关系；
+实验员不能修改归属项目或负责人。已完成实验即使超级管理员也不可编辑。
 
-| 格式 | 首选预览 | 自动兜底 |
-|---|---|---|
-| DOCX | `@vue-office/docx` 组件读取授权原件 | LibreOffice 转 PDF，再由 PDF 组件显示 |
-| XLS、XLSX | `@vue-office/excel` 组件读取授权原件 | LibreOffice 转 PDF，再由 PDF 组件显示 |
-| PPTX | `@vue-office/pptx` 组件读取授权原件 | LibreOffice 转 PDF，再由 PDF 组件显示 |
-| PDF | `@vue-office/pdf` 组件 | 浏览器原生 PDF 查看器 |
-| DOC、PPT、RTF、ODT、ODS、ODP | LibreOffice 转 PDF | 下载原件 |
-| TXT、CSV | 文本/CSV 表格组件，限制预览体积和行列数 | 大文件转换 PDF 或下载原件 |
-| PNG、JPG/JPEG、WebP、GIF、BMP | 浏览器图片组件 | 下载原件 |
+创建实验或变更 `project_id` 时先验证目标项目属于当前组织；超级管理员仅跳过项目管理成员资格检查。
+这条服务端校验阻止当前 API 形成跨组织实验项目关系，数据库现有外键本身仍不是组织复合外键。
 
-前端组件预览上限为 25 MB，文本直接解析上限为 5 MB；超过边界的办公文档使用服务端转换。
-上传端校验扩展名、文件签名、压缩包条目数、解压后总体积、加密标记和目录穿越路径。所有组件
-只接收通过当前 Session 权限读取的二进制数据，不使用第三方公网预览服务。转换失败时只允许
-下载原件，禁止显示模拟内容。每次 LibreOffice 转换使用独立临时目录和用户配置目录，避免并发
-请求共享进程配置或锁文件；转换结果按文档版本写入 RustFS 预览缓存。
+当前 `/auth/users/options` 需要 `project.create`，其 SQL 可列出下级组织用户，
+但项目/实验负责人写入要求当前组织有效账户，选择范围与保存范围并不完全一致。
+用户管理和邀请码签发/撤销均限超级管理员。邀请码不可绑定 `super_admin` 角色，并通过条件更新原子标记为已使用，避免并发重复注册。现有管理接口保护超级管理员账号，不能修改或重置其密码；超级管理员应使用自助改密入口。
 
-### 5.4 权限判定顺序
+## 🔄 项目、实验与 ELN
 
-1. Session 用户有效且具备对应权限码。
-2. 目标对象属于当前用户所在组织；普通用户还必须是项目负责人或项目成员，超级管理员可读取当前组织全部业务数据。
-3. 实验可见范围继承可见项目范围；写入时再校验实验负责人、参与人或项目管理成员关系。
-4. 对象状态允许该动作。
-5. 不可见对象以 404 返回，明确动作禁止以 403 返回。
+### 项目
 
-当前开发初始化的角色权限如下；生产环境可通过用户管理分配已有系统角色，但新增权限码必须同时修改初始化命令、后端服务和本文件。
+创建持久化项目并将创建者加入 `manager` 成员；负责人字段与成员角色不是自动同步关系。
+PATCH 支持已处理字段的增量更新，包含基础信息、`current_stage`、目标与里程碑，
+但没有保存 `member_ids` 的流程。JSON 数组提交时整体替换对应字段。
 
-| 权限码 | 超级管理员 | 项目管理员 | 实验员 | 含义 |
-|---|---|---|---|---|
-| `organization.read` | 有 | 有 | 有 | 查看当前组织信息 |
-| `project.read` | 有 | 有 | 有 | 查看当前组织内授权项目；超级管理员可读取当前组织全部项目 |
-| `project.create`、`project.update`、`project.archive` | 有 | 有 | 无 | 创建项目，以及在对象范围内编辑、归档项目 |
-| `document.view` | 有 | 有 | 有 | 查看、预览和下载授权项目文档 |
-| `document.upload` | 有 | 有 | 无 | 在可管理且状态允许的项目中上传文档 |
-| `experiment.read` | 有 | 有 | 有 | 查看可见项目范围下的实验 |
-| `experiment.create` | 有 | 有 | 无 | 在拥有项目管理关系的项目中创建实验 |
-| `experiment.update`、`experiment.transition` | 有 | 有 | 有 | 在对象范围内维护实验、ELN 并顺序迁移状态；实验员不能变更所属项目或负责人 |
+项目 UI 使用若干状态和中文类型选项，但后端并未实施对应完整白名单。
+项目更新 SQL 拒绝已归档记录；`completed` 在后端仍可编辑，文档上传不检查项目终态。
+前端更严格的按钮限制不能写成服务端已保证“所有终态只读”。
 
-### 5.5 文件约束与存储语义
+### 实验和正文
 
-文件二进制数据不写入 JSON 正文：项目文档存于 `project-documents/<organization>/<project>/`，实验附件存于 `experiment-attachments/<organization>/<experiment>/`。路径采用服务端 UUID 文件名，原文件名只是展示和下载元数据，因此不能由客户端路径决定授权。
+状态只能依次 `not_started → in_progress → completed`，迁移不自动修改 `phase`。
+开始/完成时写入实际时间并增加版本。完成后 `can_edit=false`，再更新或迁移被拒绝；
+没有完成后补充修订入口。
 
-项目文档分类固定为项目方案、文献资料、实验方案、阶段报告、会议纪要和其他。实验附件用途固定为过程图片或结果附件。ELN 的 `process_images` 和 `result_files` 输出由附件实际记录生成，客户端不能仅通过提交 JSON 声明一个不存在的文件。
+创建保存基础字段、计划时间、参与人和 ELN；参与人必须为当前组织有效用户。
+ELN 初始缺失字段使用空数组/空字符串，不能宣称服务端固定初始化四列两行配方。
 
-## 6. 前端设计
+实验 PATCH 的基础字段、计划时间、参与人和 ELN 均支持字段级增量更新：省略字段保留现值；
+计划时间传 null/空串、参与人传空数组、ELN 数组传空数组或文本传空串可显式清空。
+记录数组内部仍按已提交字段整体替换，不提供数组元素级补丁。
 
-- 路由覆盖登录、工作台、项目列表、项目详情、ELN 和用户管理。
-- 项目详情当前仅展示概览和文档资料；电子实验记录本为一级业务页面；数据资产和任务管理入口暂不展示。
-- 概览使用真实基础信息、里程碑、最近实验、成员角色和项目操作记录，项目头部提供编辑、新建实验和归档入口。
-- 文档预览使用服务端 `/preview` 地址，下载始终读取 `/content?download=1` 原文件。
-- `sessionStore` 保存当前会话和权限码；页面按钮仅作体验提示，后端是最终权限裁决点。
-- Axios 请求层统一处理 CSRF、Problem Details、会话失效和乐观锁冲突。
+“暂存”会提交到服务器；开始/完成也先保存再迁移，是两个 HTTP 请求。
+前端完成要求结果非空并确认，后端迁移没有相同非空校验。正文保存成功不等于状态迁移也成功。
 
-### 6.1 页面与真实数据映射
+页面“复制”可把已有记录填入新增编辑器后走创建 API；专用复制接口复制基础信息、计划时间、
+参与人、配方及过程，状态重置为未开始，不复制结果正文和附件。
+这属于前端复制草稿；请求层另有未被该页面使用的 `/copy` 封装，后端不存在该专用接口。
 
-| 页面 | 主要 API | 不应使用的兜底行为 |
-|---|---|---|
-| 登录页 | `GET /auth/csrf`、`POST /auth/login`、`GET /auth/session` | 不能仅在浏览器本地写入“已登录”标记 |
-| 工作台 | `GET /dashboard` | 不能静态拼接项目数、实验数或趋势数据 |
-| 项目列表/详情 | `GET/POST/PATCH /projects` | 项目成员、里程碑和统计必须来自 API 返回 |
-| 项目文档页签 | 文档列表、上传、`content`、`preview` | 预览失败时不能展示本地示例或模拟文本 |
-| 实验管理/ELN | 实验列表、详情、复制、迁移、附件增删接口 | 不得将浏览器本地文件名或预览 URL 当作已保存附件 |
-| 用户管理 | 组织用户、角色选项与密码重置接口 | 普通用户不得通过路由直达绕过超级管理员限制 |
+实现依据：[ProjectService](../backend/src/main/java/com/materialslab/api/projects/service/ProjectService.java)、
+[ExperimentService](../backend/src/main/java/com/materialslab/api/experiments/service/ExperimentService.java)、
+[ElnView](../frontend/src/views/ElnView.vue)。
 
-## 7. 部署与配置
+## 📦 文档与附件
 
-| 配置项 | 作用 | 注意事项 |
-|---|---|---|
-| `.env` | Java 服务、数据库、对象存储、开发初始化参数 | 不提交仓库；以 `.env.example` 为模板 |
-| `SPRING_PROFILES_ACTIVE`、`JDBC_DATABASE_URL`、`POSTGRES_*` | Spring Profile 与 PostgreSQL 连接 | 启动时由 Flyway 校验并执行 Migration |
-| `OBJECT_STORAGE_*` | RustFS endpoint、私有桶、区域、SigV4 凭据和 TLS 校验 | 密钥不提交；应用端使用 path-style S3 |
-| `SERVER_ADDRESS`、`SERVER_PORT`、`SESSION_COOKIE_SECURE` | Java API 监听地址、端口与 Session Cookie 策略 | 生产环境最小暴露并启用安全 Cookie |
-| LibreOffice | 办公文档预览转换依赖 | 运行前确认 `libreoffice` 或 `soffice` 可执行 |
+### 项目文档存储
 
-建议上线流程：备份 PostgreSQL 与 RustFS 对象原件 → 检查配置和对象存储桶 →
-运行后端测试和前端构建 → 启动 Spring Boot 并由 Flyway 执行待应用迁移 →
-发布静态文件/API 进程 → 检查健康接口、登录、项目文档预览和 ELN 写入。
+上传参数为 `file`、`category`、`version_label`。分类为项目方案、文献资料、实验方案、
+阶段报告、会议纪要和其他；版本标签是上传元数据，不是自动修订链。
 
-## 8. 测试与验收映射
+[ProjectDocumentService](../backend/src/main/java/com/materialslab/api/projects/service/ProjectDocumentService.java)
+先将已校验正文写入私有 RustFS，再在数据库事务中写入元数据与 `s3://桶名/对象键` 标识；若数据库写入异常会尽力删除刚写入对象，
+更新项目文档数量并记录上传操作日志。授权读取经 `/content` 或 `/preview` 返回原始二进制；
+下载使用 `download=true`。没有替换、删除文档和转换 PDF 的 API。
 
-| 验收链路 | 已有测试位置 | 核心断言 |
-|---|---|---|
-| 认证与会话 | `backend/src/test/java/**` | 登录、会话、CSRF 与权限 |
-| 项目管理 | `backend/src/test/java/**` | 创建、编辑、成员、乐观锁和状态限制 |
-| 项目文档 | `backend/src/test/java/**`、`frontend/tests/document-preview.test.ts` | 上传、下载、可信 MIME、压缩包安全、组件分流、文本解析、PDF 原件和办公转换 |
-| 实验与 ELN | `backend/src/test/java/**` | 必填与类型、默认配方、状态迁移、完成后只读、附件增删 |
-| 用户与组织范围 | `backend/src/test/java/**`、项目/实验范围用例 | 超级管理员保护、三角色选项、当前组织隔离和项目成员范围 |
-| 系统初始化 | `backend/src/test/java/**` | 开发种子数据 |
-| 对象存储 | `backend/src/test/java/**` | 禁用配置保护、原件迁移、重复校验和就绪状态 |
+服务校验文件非空、20 MiB 业务大小上限、分类、版本标签及文件名；
+项目文档业务上限为 20 MiB，Spring 文件上限为 25 MiB，生产 Nginx 请求上限为 27 MiB。
+上传仅允许服务端白名单中的 Word、Excel、PowerPoint、OpenDocument、PDF、RTF、文本及位图图片；
+MIME 由文件扩展名和基础文件头校验决定，不信任 multipart 声明。HTML、SVG 和未知扩展名被拒绝。
+`/content` 与 `/preview` 对 Office、文本及历史异常 MIME 一律返回 `attachment`、`nosniff`、私有不缓存；
+只有通过校验的 PDF 与位图图片可内联预览。当前未做杀毒、宏内容或压缩包深度扫描，受控生产环境仍应评估专用扫描链路。
 
-本基线下，后端完整测试命令为：
+### 前端预览策略
 
-```bash
-mvn -f backend/pom.xml test
-```
+| 文件 | 前端策略 | 当前后端能力 |
+| --- | --- | --- |
+| DOCX、XLS/XLSX、PPTX，至多 25 MiB | 专用 Vue Office 组件 | 可读取真实原件 |
+| PDF | 小文件组件，失败或大文件走浏览器 PDF | 可读取真实原件 |
+| PNG/JPEG/JPG/GIF/BMP/WebP | 浏览器图片 | 可读取真实原件 |
+| TXT/CSV，至多 5 MiB | 文本解码；CSV 最多 200 行、50 列 | 可读取真实原件 |
+| DOC/ODT/RTF/ODS/PPT/ODP，以及部分大文件或组件失败 | 前端尝试请求 PDF 兜底 | 未实现转换，不能保证预览成功 |
+| 其他格式 | 提示不支持并下载 | 仅原件读取 |
 
-前端构建命令为：
+前端文本支持 UTF-8、带 BOM 的 UTF-16，并对严格 UTF-8 失败回退 GB18030。
+策略实现见 [documentPreview](../frontend/src/utils/documentPreview.ts)、
+[预览组件](../frontend/src/components/projects/DocumentPreviewViewer.vue)。
+前端写着“服务端转换”不代表返回内容一定为 PDF。
 
-```bash
-pnpm --dir frontend run build
-```
+### 实验附件
 
-## 9. 后续设计约束
+实验附件元数据保存在 `experiment_attachment`，二进制正文保存在
+`experiment_attachment_content.content`。上传、删除和授权正文读取路由均已接通。
+服务端忽略 multipart MIME，按文件扩展名和基础文件头判定附件类型。过程图片只允许经确认的 JPG/PNG 且限制 10 MiB；结果附件使用与项目文档相同的格式白名单并限制 25 MiB；完成实验不可修改附件。历史异常 MIME 或非过程图片一律附件下载，只有已确认的过程图片可内联，并附加 `nosniff`、私有不缓存和最小 CSP。
+附件新增或删除后实验版本递增，使响应 ETag 能反映附件列表变化。
+当前仅有实现与单元测试证据，仍需在隔离数据库完成迁移和端到端上传/读取/删除验收。
 
-- 新增表必须先补充 Migration 与本文件第 3 节，再更新数据字典。
-- 新增接口必须补充 OpenAPI 契约、权限码、对象范围和测试用例。
-- 文件对象存储迁移时，须保留现有 `ProjectDocument`、`ExperimentAttachment` 的业务主键与下载授权语义。
-- 检测、报告、审计查询等未来领域不得绕过现有组织隔离、事务和版本控制约束。
+## 📍 页面与验证映射
+
+| 路由 | 当前页面 | 限制 |
+| --- | --- | --- |
+| `/login` | 登录 | Session/CSRF |
+| `/dashboard` | 指标和进行中项目卡片 | 最多 10 张卡片，当前模板无旧图表 |
+| `/projects` | 查询、筛选、排序、分页与新建 | 前端选项与后端校验范围不同 |
+| `/projects/:projectId` | 概览、文档资料 | 数据资产与任务页签未开放 |
+| `/eln` | 计划、正文、暂存与状态 | 初次最多取前 100 条实验及项目，再本地筛选 |
+| `/system/users` | 组织用户管理 | 仅超级管理员 |
+| `/system/organizations` | 组织目录与开通 | 仅平台管理员 |
+
+`/` 重定向总览，`/system` 重定向用户管理；非平台管理员不可访问组织管理路由。
+UI 当前为顶部横向导航；不把新后台的默认布局规则追写成当前已实现的主题、语言或固定左栏功能。
+生产静态部署需为 `createWebHistory` 配置页面回退与同源 API 代理。
+
+后端现有测试主要覆盖 SQL 过滤、权限、项目部分写入命令/总览、完成实验只读、分页和开发文档夹具。
+前端测试覆盖预览/解码/幂等键函数以及布局、样式和组件源码断言。
+当前没有据此证明登录、上传、附件、存储或生产初始化全链路已通过；命令与验收入口见
+[运维指南](development-operations-guide.md)。
+
+<a id="implementation-limits"></a>
+
+## 🔍 当前实现限制与后续变更
+
+| 限制 | 交付影响 | 后续处理边界 |
+| --- | --- | --- |
+| 项目成员写入未闭合 | 页面选择不保证项目成员持久化 | 接通写入后增加角色与范围测试 |
+| 实验附件尚未做数据库往返验收 | 不能仅凭单元测试宣称生产可用 | 在隔离数据库验证上传、读取、删除及大小限制 |
+| 项目终态前后端限制不同 | 页面只读不能防止直接 API 写入 | 以确认的业务状态规则修复 |
+| 项目文档未做杀毒、宏与压缩包深度扫描 | 已阻断 HTML/SVG 内联和客户端 MIME 欺骗，但不能宣称文件无恶意内容 | 评估隔离扫描链路并压测 |
+| 正常 prod 启动不自动建立身份 | 空生产库必须先显式初始化 | 使用生产 Compose bootstrap；拒绝非空库，不重置管理员 |
+| 全局用户名唯一性存在数据前置条件 | 历史跨组织重名不符合首版 V1 约束 | 上线前执行重复用户名预检并完成重命名 |
+| Redis 未接入 | Session、缓存与限流均不依赖 Redis | 多实例或明确短期状态需求出现后再评估 |
+| 幂等/编号表未使用，审计覆盖不全 | 不能保证创建去重或所有变更留痕 | 按实际范围实现并验证 |
+| 时区、COMMENT 和关系约束有历史缺口 | 不满足全部现行规范要求 | 后续影响范围内通过评估与新增迁移处理 |
+
+上述项是修复后的剩余事实与验证缺口登记，不等同于目标环境验收结论。
+若属于发布目标的核心能力或安全要求，应在对应变更中解决并验证后再发布。

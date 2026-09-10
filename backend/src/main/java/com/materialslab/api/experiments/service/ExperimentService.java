@@ -3,6 +3,7 @@ package com.materialslab.api.experiments.service;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.materialslab.api.common.exception.BusinessException;
+import com.materialslab.api.common.storage.ObjectStorageService;
 import com.materialslab.api.identity.security.AccessControlService;
 import com.materialslab.api.identity.security.UserPrincipal;
 import com.materialslab.api.experiments.domain.Experiment;
@@ -10,23 +11,39 @@ import com.materialslab.api.experiments.domain.ExperimentRecordResponse;
 import com.materialslab.api.experiments.domain.ExperimentResponse;
 import com.materialslab.api.experiments.mapper.ExperimentMapper;
 import com.materialslab.api.experiments.mapper.ExperimentMapper.ExperimentCommand;
+import com.materialslab.api.projects.service.ProjectDocumentFilePolicy;
+import java.io.IOException;
+import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.web.multipart.MultipartFile;
 
 /** 实验计划、ELN 初始化和状态迁移应用服务。 */
 @Service
 public class ExperimentService {
+    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final Set<String> RECORD_FIELDS = Set.of(
+            "formula_columns", "formula_rows", "extra_tables", "process_text", "extra_processes", "result_text");
     private final ExperimentMapper experimentMapper;
     private final ObjectMapper objectMapper;
     private final AccessControlService accessControlService;
-    public ExperimentService(ExperimentMapper experimentMapper, ObjectMapper objectMapper, AccessControlService accessControlService) {
+    private final ObjectStorageService objectStorageService;
+    public ExperimentService(ExperimentMapper experimentMapper, ObjectMapper objectMapper, AccessControlService accessControlService,
+                             ObjectStorageService objectStorageService) {
         this.experimentMapper = experimentMapper;
         this.objectMapper = objectMapper;
         this.accessControlService = accessControlService;
+        this.objectStorageService = objectStorageService;
     }
     /** 查询实验计划。 */
     public List<Experiment> list(UserPrincipal principal, UUID projectId, String status, String search, int page, int pageSize) {
@@ -71,13 +88,19 @@ public class ExperimentService {
     public Experiment create(UserPrincipal principal, JsonNode payload) {
         accessControlService.requirePermission(principal, "experiment.create");
         UUID projectId = uuid(payload, "project_id"); String name = required(payload, "name");
-        String number = "EXP-" + OffsetDateTime.now().toLocalDate().toString().replace("-", "") + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
         requireProjectManageAccess(principal, projectId);
         UUID ownerId = uuidOr(payload, "owner_id", principal.userId());
         requireOrganizationUser(principal.organizationId(), ownerId);
-        ExperimentCommand command = new ExperimentCommand(UUID.randomUUID(), principal.organizationId(), projectId, number, name, payload.path("experiment_type").asText("research"), payload.path("phase").asText("方案设计"), "not_started", payload.path("purpose").asText(""), ownerId, principal.userId());
+        OffsetDateTime estimatedStart = timestamp(payload, "estimated_start", null);
+        OffsetDateTime estimatedEnd = timestamp(payload, "estimated_end", null);
+        validateDateRange(estimatedStart, estimatedEnd);
+        String number = nextNumber();
+        ExperimentCommand command = new ExperimentCommand(UUID.randomUUID(), principal.organizationId(), projectId, number,
+                name, payload.path("experiment_type").asText("research"), payload.path("phase").asText("方案设计"),
+                "not_started", payload.path("purpose").asText(""), estimatedStart, estimatedEnd, ownerId, principal.userId());
         experimentMapper.insert(command);
         saveRecord(command.id(), payload);
+        replaceParticipants(principal, command.id(), participantIds(payload));
         return get(principal, number);
     }
 
@@ -100,12 +123,116 @@ public class ExperimentService {
         String experimentType = textOr(payload, "experiment_type", existing.experimentType());
         String phase = textOr(payload, "phase", existing.phase());
         String purpose = textOr(payload, "purpose", existing.purpose());
+        OffsetDateTime estimatedStart = timestamp(payload, "estimated_start", existing.estimatedStart());
+        OffsetDateTime estimatedEnd = timestamp(payload, "estimated_end", existing.estimatedEnd());
+        validateDateRange(estimatedStart, estimatedEnd);
         requireOrganizationUser(principal.organizationId(), ownerId);
         var command = new ExperimentMapper.ExperimentUpdateCommand(existing.id(), projectId, name, experimentType, phase, purpose,
-                nullableText(payload, "estimated_start"), nullableText(payload, "estimated_end"), ownerId, principal.userId(), version);
+                estimatedStart, estimatedEnd, ownerId, principal.userId(), version);
         if (experimentMapper.update(command) == 0) throw new BusinessException(HttpStatus.PRECONDITION_FAILED, "version_conflict", "实验已被其他用户更新，请刷新后重试");
-        saveRecord(existing.id(), payload);
+        updateRecord(existing.id(), payload);
+        if (payload.hasNonNull("participant_ids")) {
+            replaceParticipants(principal, existing.id(), participantIds(payload));
+        }
         return get(principal, experimentNo);
+    }
+
+    /** 复制实验计划与 ELN 过程内容；结果、附件和状态不继承。 */
+    @Transactional
+    public Experiment copy(UserPrincipal principal, String experimentNo) {
+        accessControlService.requirePermission(principal, "experiment.create");
+        Experiment source = get(principal, experimentNo);
+        requireProjectManageAccess(principal, source.projectId());
+        requireOrganizationUser(principal.organizationId(), source.ownerId());
+        String number = nextNumber();
+        String copiedName = source.name().length() <= 197 ? source.name() + "-副本" : source.name().substring(0, 197) + "-副本";
+        UUID experimentId = UUID.randomUUID();
+        experimentMapper.insert(new ExperimentCommand(experimentId, principal.organizationId(), source.projectId(), number,
+                copiedName, source.experimentType(), source.phase(), "not_started", source.purpose(), source.estimatedStart(),
+                source.estimatedEnd(), source.ownerId(), principal.userId()));
+        ExperimentMapper.ExperimentRecordRow record = experimentMapper.findRecord(source.id());
+        experimentMapper.saveRecord(new ExperimentMapper.ExperimentRecordCommand(UUID.randomUUID(), experimentId,
+                record == null ? "[]" : record.formulaColumns(), record == null ? "[]" : record.formulaRows(),
+                record == null ? "[]" : record.extraTables(), record == null ? "" : record.processText(),
+                record == null ? "[]" : record.extraProcesses(), ""));
+        replaceParticipants(principal, experimentId,
+                experimentMapper.listParticipants(source.id()).stream().map(item -> item.userId()).toList());
+        return get(principal, number);
+    }
+
+    /** 上传实验附件正文到 RustFS，数据库仅保留元数据、授权关系与对象标识。 */
+    @Transactional
+    public Experiment uploadAttachment(UserPrincipal principal, String experimentNo, MultipartFile file, String kind) {
+        Experiment experiment = writableExperiment(principal, experimentNo);
+        String normalizedKind = attachmentKind(kind);
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "请选择非空附件");
+        }
+        long maximumSize = "process_image".equals(normalizedKind) ? 10L * 1024 * 1024 : 25L * 1024 * 1024;
+        if (file.getSize() > maximumSize) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error",
+                    "process_image".equals(normalizedKind) ? "过程图片不能超过 10 MB" : "结果附件不能超过 25 MB");
+        }
+        String name = safeFileName(file.getOriginalFilename());
+        byte[] content;
+        try {
+            content = file.getBytes();
+        } catch (IOException error) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "attachment_read_failed", "读取上传附件失败");
+        }
+        String mimeType = ProjectDocumentFilePolicy.validateExperimentAttachment(normalizedKind, name, content);
+        UUID attachmentId = UUID.randomUUID();
+        String key = "organizations/" + principal.organizationId() + "/experiments/" + experiment.id()
+                + "/attachments/" + normalizedKind + "/" + attachmentId;
+        String storageReference = objectStorageService.put(key, content, mimeType);
+        try {
+            experimentMapper.insertAttachment(new ExperimentMapper.ExperimentAttachmentCommand(attachmentId,
+                    principal.organizationId(), experiment.id(), normalizedKind, name, storageReference, mimeType, content.length, principal.userId()));
+            experimentMapper.touchExperiment(experiment.id(), principal.userId());
+            return get(principal, experimentNo);
+        } catch (RuntimeException error) {
+            objectStorageService.deleteBestEffort(storageReference);
+            throw error;
+        }
+    }
+
+    /** 删除当前实验内的指定附件。 */
+    @Transactional
+    public Experiment deleteAttachment(UserPrincipal principal, String experimentNo, UUID attachmentId) {
+        Experiment experiment = writableExperiment(principal, experimentNo);
+        var attachment = experimentMapper.findAttachmentContent(experiment.id(), attachmentId);
+        if (attachment == null) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "attachment_not_found", "实验附件不存在");
+        }
+        if (experimentMapper.deleteAttachment(experiment.id(), attachmentId) == 0) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "attachment_not_found", "实验附件不存在");
+        }
+        experimentMapper.touchExperiment(experiment.id(), principal.userId());
+        if (objectStorageService.isObjectReference(attachment.file())) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    objectStorageService.deleteBestEffort(attachment.file());
+                }
+            });
+        }
+        return get(principal, experimentNo);
+    }
+
+    /** 读取当前用户可见实验的附件正文。 */
+    public AttachmentContent attachmentContent(UserPrincipal principal, String experimentNo, UUID attachmentId) {
+        Experiment experiment = get(principal, experimentNo);
+        ExperimentMapper.ExperimentAttachmentContentRow row = experimentMapper.findAttachmentContent(experiment.id(), attachmentId);
+        if (row == null) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "attachment_not_found", "实验附件不存在");
+        }
+        byte[] content = objectStorageService.isObjectReference(row.file())
+                ? objectStorageService.read(row.file())
+                : experimentMapper.findLegacyAttachmentContent(attachmentId);
+        if (content == null) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "attachment_not_found", "实验附件不存在");
+        }
+        return new AttachmentContent(row.name(), row.kind(), row.mimeType(), row.fileSize(), content);
     }
     /** 执行不可跳级的实验状态迁移。 */
     @Transactional
@@ -120,10 +247,20 @@ public class ExperimentService {
     }
 
     private void requireProjectManageAccess(UserPrincipal principal, UUID projectId) {
-        if (!principal.isSuperAdmin()
-                && !experimentMapper.hasProjectManageAccess(principal.organizationId(), projectId, principal.userId())) {
+        if (!experimentMapper.isOrganizationProject(principal.organizationId(), projectId)) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "project_not_found", "项目不存在或不属于当前组织");
+        }
+        if (!principal.isSuperAdmin() && !experimentMapper.hasProjectManageAccess(
+                principal.organizationId(), projectId, principal.userId())) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "permission_denied", "当前用户无权在该项目下创建实验");
         }
+    }
+
+    private Experiment writableExperiment(UserPrincipal principal, String experimentNo) {
+        accessControlService.requirePermission(principal, "experiment.update");
+        Experiment experiment = get(principal, experimentNo);
+        requireExperimentWriteAccess(principal, experiment);
+        return experiment;
     }
 
     private void requireExperimentWriteAccess(UserPrincipal principal, Experiment experiment) {
@@ -143,11 +280,15 @@ public class ExperimentService {
 
     private void requireOrganizationUser(UUID organizationId, UUID userId) {
         if (!experimentMapper.isActiveOrganizationUser(organizationId, userId)) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "实验负责人必须是当前组织的有效用户");
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "实验负责人或参与人必须是当前组织的有效用户");
         }
     }
     private String required(JsonNode payload, String key) { String value=payload.path(key).asText(); if (value.isBlank()) throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", key+" 不能为空"); return value; }
-    private UUID uuid(JsonNode payload, String key) { return uuidOr(payload, key, null); }
+    private UUID uuid(JsonNode payload, String key) {
+        UUID value = uuidOr(payload, key, null);
+        if (value == null) throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", key + " 不能为空");
+        return value;
+    }
     private UUID uuidOr(JsonNode payload, String key, UUID fallback) { try { return payload.hasNonNull(key) ? UUID.fromString(payload.get(key).asText()) : fallback; } catch (IllegalArgumentException error) { throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", key+" 必须为 UUID"); } }
 
     private ExperimentRecordResponse record(ExperimentMapper.ExperimentRecordRow row, UUID experimentId) {
@@ -172,6 +313,18 @@ public class ExperimentService {
                 textOr(payload, "process_text", ""), json(payload, "extra_processes", "[]"), textOr(payload, "result_text", "")));
     }
 
+    private void updateRecord(UUID experimentId, JsonNode payload) {
+        if (RECORD_FIELDS.stream().noneMatch(payload::has)) return;
+        ExperimentMapper.ExperimentRecordRow existing = experimentMapper.findRecord(experimentId);
+        experimentMapper.saveRecord(new ExperimentMapper.ExperimentRecordCommand(UUID.randomUUID(), experimentId,
+                json(payload, "formula_columns", existing == null ? "[]" : existing.formulaColumns()),
+                json(payload, "formula_rows", existing == null ? "[]" : existing.formulaRows()),
+                json(payload, "extra_tables", existing == null ? "[]" : existing.extraTables()),
+                textOr(payload, "process_text", existing == null ? "" : existing.processText()),
+                json(payload, "extra_processes", existing == null ? "[]" : existing.extraProcesses()),
+                textOr(payload, "result_text", existing == null ? "" : existing.resultText())));
+    }
+
     private String json(JsonNode payload, String key, String fallback) {
         try {
             JsonNode value = payload.get(key);
@@ -185,7 +338,75 @@ public class ExperimentService {
         return payload.hasNonNull(key) ? payload.path(key).asText() : fallback;
     }
 
-    private String nullableText(JsonNode payload, String key) {
-        return payload.hasNonNull(key) && !payload.path(key).asText().isBlank() ? payload.path(key).asText() : null;
+    private OffsetDateTime timestamp(JsonNode payload, String key, OffsetDateTime fallback) {
+        if (!payload.has(key)) return fallback;
+        if (payload.get(key) == null || payload.get(key).isNull() || payload.path(key).asText().isBlank()) return null;
+        String value = payload.path(key).asText();
+        try {
+            return OffsetDateTime.parse(value);
+        } catch (DateTimeParseException ignored) {
+            try {
+                return LocalDateTime.parse(value).atZone(BUSINESS_ZONE).toOffsetDateTime();
+            } catch (DateTimeParseException error) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error",
+                        key + " 必须为 ISO-8601 日期时间，未带时区时按 Asia/Shanghai 解释");
+            }
+        }
     }
+
+    private void validateDateRange(OffsetDateTime start, OffsetDateTime end) {
+        if (start != null && end != null && end.isBefore(start)) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "estimated_end 不能早于 estimated_start");
+        }
+    }
+
+    private List<UUID> participantIds(JsonNode payload) {
+        JsonNode participants = payload.get("participant_ids");
+        if (participants == null) return List.of();
+        if (!participants.isArray()) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "participant_ids 必须为 UUID 数组");
+        }
+        LinkedHashSet<UUID> result = new LinkedHashSet<>();
+        for (JsonNode participant : participants) {
+            try {
+                result.add(UUID.fromString(participant.asText()));
+            } catch (IllegalArgumentException error) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "participant_ids 必须为 UUID 数组");
+            }
+        }
+        return List.copyOf(result);
+    }
+
+    private void replaceParticipants(UserPrincipal principal, UUID experimentId, List<UUID> participantIds) {
+        for (UUID participantId : participantIds) requireOrganizationUser(principal.organizationId(), participantId);
+        experimentMapper.deleteParticipants(principal.organizationId(), experimentId);
+        for (UUID participantId : participantIds) {
+            experimentMapper.insertParticipant(new ExperimentMapper.ExperimentParticipantCommand(
+                    UUID.randomUUID(), principal.organizationId(), experimentId, participantId, principal.userId()));
+        }
+    }
+
+    private String attachmentKind(String kind) {
+        if (!List.of("process_image", "result_file").contains(kind)) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "kind 参数无效");
+        }
+        return kind;
+    }
+
+    private String safeFileName(String source) {
+        String name = source == null ? "" : source.replace('\\', '/');
+        name = name.substring(name.lastIndexOf('/') + 1).trim();
+        if (name.isBlank() || name.length() > 255) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "文件名无效");
+        }
+        return name;
+    }
+
+    private String nextNumber() {
+        return "EXP-" + OffsetDateTime.now(BUSINESS_ZONE).toLocalDate().toString().replace("-", "")
+                + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+    }
+
+    /** 实验附件正文与响应元数据。 */
+    public record AttachmentContent(String name, String kind, String mimeType, long fileSize, byte[] content) { }
 }

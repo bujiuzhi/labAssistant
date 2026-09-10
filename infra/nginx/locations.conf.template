@@ -1,0 +1,49 @@
+root /usr/share/nginx/html;
+index index.html;
+
+add_header X-Content-Type-Options nosniff always;
+add_header Referrer-Policy strict-origin-when-cross-origin always;
+add_header Permissions-Policy 'camera=(), microphone=(), geolocation=()' always;
+add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; connect-src 'self'; font-src 'self' data:; img-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'" always;
+
+# 使用固定的公开 IP、协议、端口；不透传客户端伪造的转发信息。
+location ^~ /api/v1/ {
+    proxy_pass http://materials_lab_api;
+    proxy_http_version 1.1;
+    proxy_set_header Host "${MATERIALS_LAB_PUBLIC_HOST}:${MATERIALS_LAB_PUBLIC_PORT}";
+    proxy_set_header Forwarded "";
+    proxy_set_header X-Forwarded-Host "${MATERIALS_LAB_PUBLIC_HOST}:${MATERIALS_LAB_PUBLIC_PORT}";
+    proxy_set_header X-Forwarded-Proto http;
+    proxy_set_header X-Forwarded-Port "${MATERIALS_LAB_PUBLIC_PORT}";
+    proxy_set_header X-Forwarded-Prefix "";
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header Connection "";
+    proxy_connect_timeout 5s;
+    proxy_send_timeout 120s;
+    proxy_read_timeout 120s;
+    proxy_intercept_errors off;
+}
+
+# 不把错误的 API 路径伪装成 SPA 的成功响应。
+location = /api {
+    return 404;
+}
+location /api/ {
+    return 404;
+}
+
+# Vite 哈希产物长缓存；入口和前端路由始终重新验证，避免发布后长期持有旧入口。
+location /assets/ {
+    expires 1y;
+    try_files $uri =404;
+}
+location = /index.html {
+    expires -1;
+}
+location / {
+    try_files $uri $uri/ /index.html;
+}
+location ~ /\. {
+    deny all;
+}

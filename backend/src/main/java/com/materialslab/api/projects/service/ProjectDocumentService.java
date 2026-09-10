@@ -1,6 +1,7 @@
 package com.materialslab.api.projects.service;
 
 import com.materialslab.api.common.exception.BusinessException;
+import com.materialslab.api.common.storage.ObjectStorageService;
 import com.materialslab.api.identity.security.AccessControlService;
 import com.materialslab.api.identity.security.UserPrincipal;
 import com.materialslab.api.projects.domain.Project;
@@ -33,12 +34,14 @@ public class ProjectDocumentService {
     private final ProjectDocumentMapper documentMapper;
     private final ProjectService projectService;
     private final AccessControlService accessControlService;
+    private final ObjectStorageService objectStorageService;
 
     public ProjectDocumentService(ProjectDocumentMapper documentMapper, ProjectService projectService,
-                                  AccessControlService accessControlService) {
+                                  AccessControlService accessControlService, ObjectStorageService objectStorageService) {
         this.documentMapper = documentMapper;
         this.projectService = projectService;
         this.accessControlService = accessControlService;
+        this.objectStorageService = objectStorageService;
     }
 
     /** 查询当前用户有权查看的项目文档。 */
@@ -60,7 +63,7 @@ public class ProjectDocumentService {
                 documentMapper.countFilteredByProject(project.id(), normalizedCategory, normalizedSearch, normalizedFileType, normalizedUpdatedRange), counts);
     }
 
-    /** 上传文档及其真实二进制正文到开发测试数据库。 */
+    /** 上传文档正文至 RustFS，数据库仅保存可授权读取的元数据和对象标识。 */
     @Transactional
     public ProjectDocumentResponse upload(UserPrincipal principal, String projectKey, MultipartFile file, String category,
                                           String versionLabel) {
@@ -80,29 +83,40 @@ public class ProjectDocumentService {
         } catch (IOException error) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "document_read_failed", "读取上传文档失败");
         }
-        String mimeType = optionalMimeType(file.getContentType(), name);
-        documentMapper.insert(new DocumentWriteCommand(documentId, principal.organizationId(), project.id(), normalizedCategory,
-                name, normalizedVersion, "database://project-documents/" + documentId, mimeType, content.length,
-                principal.userId(), now, now));
-        documentMapper.insertContent(documentId, content);
-        documentMapper.refreshProjectDocumentCount(project.id());
-        documentMapper.insertUploadOperationLog(UUID.randomUUID(), principal.organizationId(), principal.userId(), project.id(),
-                project.projectNo(), "上传项目文档：" + name,
-                "{\"document_id\":\"" + documentId + "\",\"category\":\"" + normalizedCategory + "\",\"test_data\":false}");
-        return response(documentMapper.findById(project.id(), documentId));
+        String mimeType = ProjectDocumentFilePolicy.validateAndResolveMimeType(name, content);
+        String key = "organizations/" + principal.organizationId() + "/projects/" + project.id() + "/documents/" + documentId;
+        String storageReference = objectStorageService.put(key, content, mimeType);
+        try {
+            documentMapper.insert(new DocumentWriteCommand(documentId, principal.organizationId(), project.id(), normalizedCategory,
+                    name, normalizedVersion, storageReference, mimeType, content.length, principal.userId(), now, now));
+            documentMapper.refreshProjectDocumentCount(project.id());
+            documentMapper.insertUploadOperationLog(UUID.randomUUID(), principal.organizationId(), principal.userId(), project.id(),
+                    project.projectNo(), "上传项目文档：" + name,
+                    "{\"document_id\":\"" + documentId + "\",\"category\":\"" + normalizedCategory + "\",\"test_data\":false}");
+            return response(documentMapper.findById(project.id(), documentId));
+        } catch (RuntimeException error) {
+            objectStorageService.deleteBestEffort(storageReference);
+            throw error;
+        }
     }
 
-    /** 读取项目文档及其真实数据库正文。 */
+    /** 读取项目文档正文；已迁移文档从 RustFS 读取，旧记录保留 BYTEA 兼容读取。 */
     public DocumentContent content(UserPrincipal principal, String projectKey, UUID documentId) {
         accessControlService.requirePermission(principal, "document.view");
         Project project = projectService.get(principal, projectKey);
         ProjectDocument document = documentMapper.findById(project.id(), documentId);
         if (document == null) throw new BusinessException(HttpStatus.NOT_FOUND, "document_not_found", "项目文档不存在或无权访问");
-        var contentRow = documentMapper.findContent(documentId);
-        if (contentRow == null || contentRow.content() == null) {
+        byte[] content;
+        if (objectStorageService.isObjectReference(document.file())) {
+            content = objectStorageService.read(document.file());
+        } else {
+            var contentRow = documentMapper.findLegacyContent(documentId);
+            content = contentRow == null ? null : contentRow.content();
+        }
+        if (content == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "document_content_not_found", "项目文档正文不存在");
         }
-        return new DocumentContent(document, contentRow.content());
+        return new DocumentContent(document, content);
     }
 
     private ProjectDocumentResponse response(ProjectDocument document) {
@@ -132,10 +146,6 @@ public class ProjectDocumentService {
         name = name.substring(name.lastIndexOf('/') + 1).trim();
         if (name.isBlank() || name.length() > 255) throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "文件名无效");
         return name;
-    }
-    private String optionalMimeType(String source, String name) {
-        if (source != null && !source.isBlank()) return source;
-        return "txt".equals(extension(name)) ? "text/plain; charset=utf-8" : "application/octet-stream";
     }
     private String extension(String name) {
         int index = name.lastIndexOf('.');

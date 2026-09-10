@@ -1,1772 +1,2349 @@
-openapi: 3.1.0
+# 维护依据：当前后端 Controller、Service、domain 与 SecurityConfig；这是 API 文档，不代表运行验收。
+openapi: "3.1.0"
 info:
-  title: 材料实验助手 API
-  version: 1.0.0
-  description: |
-    仅描述当前代码已经实现的会话、用户、工作台、项目、文档、实验和电子实验记录本接口。
-    数据资产与任务管理尚未上线，当前不展示页面入口，也不提供 API。
+  title: "材料实验助手 API"
+  version: "1.0.0"
+  description: |-
+    当前后端实现的接口清单；维护依据为 backend 中的 Controller、Service、响应模型和安全配置。
+    普通成功响应使用 data 和 request_id；分页另有 meta。空 data 按当前 NON_NULL 配置省略。
+    204 和文件正文不使用成功信封。错误返回 application/json，包含业务 Problem Details 兼容对象、精简安全错误或内部错误；不能假定所有错误都有 detail、instance 或 request_id。
+
+    前端使用同源 Session（默认 Cookie 为 JSESSIONID）。先获取 /auth/csrf 并保留 csrftoken，写请求携带匹配的 X-CSRFToken；登录也受 CSRF 校验。当前 SecurityConfig 另启用了 HTTP Basic。
+    项目和实验读取按当前组织限定数据范围，普通用户另受项目、负责人或实验参与关系约束。创建实验或变更实验关联项目时先校验项目属于当前组织；超级管理员仅跳过项目管理成员检查。平台管理员仅能开通与查看组织目录，不获得其他组织的业务数据读取权。项目和实验受版本保护的操作使用 ETag / If-Match；当前没有 Idempotency-Key 去重实现。
+
+    时间字段沿用现有 API 的 ISO 8601 表示，带时间的响应为含偏移量的日期时间。规范要求客户端展示及人工记录统一到 Asia/Shanghai，但当前页面部分格式化使用浏览器默认时区，尚未统一。项目和实验计划时间省略偏移量时服务端按 Asia/Shanghai 解释；调用方仍应优先提交含偏移量的日期时间。
+
+    能力边界：ready 检查应用启动就绪及数据库连接；项目文档和实验附件正文保存在 PostgreSQL，文档 preview 返回原件。RustFS 存储和 LibreOffice 服务端转换尚未接入。
+    实验参与人可随创建或 PATCH 写入；项目成员仅可读取，创建时加入创建者。开发初始化不能替代生产组织、角色和管理员引导；本契约不表示已完成生产部署验收。
 servers:
-  - url: /api/v1
-    description: 当前同源环境
+  -
+    url: "/api/v1"
+    description: "同源 API"
 tags:
-  - name: Health
-    description: 服务健康检查
-  - name: Auth
-    description: 会话与超级管理员用户管理
-  - name: Dashboard
-    description: 实时工作台统计
-  - name: Projects
-    description: 项目、里程碑、成员、归档和操作记录
-  - name: Documents
-    description: 项目文档上传、下载与真实预览
-  - name: Experiments
-    description: 实验计划、电子实验记录本和真实附件
+  -
+    name: "Health"
+    description: "进程和数据库健康检查"
+  -
+    name: "Auth"
+    description: "会话、用户与角色选项"
+  -
+    name: "Organizations"
+    description: "当前组织范围与平台组织开通"
+  -
+    name: "Dashboard"
+    description: "当前可见数据统计"
+  -
+    name: "Projects"
+    description: "项目、关注和操作日志"
+  -
+    name: "Documents"
+    description: "项目文档元数据和原始正文"
+  -
+    name: "Experiments"
+    description: "实验计划、电子实验记录和状态迁移"
 security:
-  - cookieAuth: []
+  -
+    cookieAuth: []
+  -
+    basicAuth: []
 paths:
-  /health/live:
+  "/health/live":
     get:
-      tags: [Health]
-      summary: 检查进程存活
+      operationId: "getLiveness"
+      tags: ["Health"]
+      summary: "检查 API 进程存活"
       security: []
       responses:
         "200":
-          description: 服务进程正常
+          description: "进程可响应，不检查外部依赖"
           content:
-            application/json:
+            "application/json":
               schema:
-                $ref: "#/components/schemas/HealthResponse"
-  /health/ready:
+                "$ref": "#/components/schemas/HealthResponse"
+  "/health/ready":
     get:
-      tags: [Health]
-      summary: 检查数据库和对象存储就绪
+      operationId: "getReadiness"
+      tags: ["Health"]
+      summary: "检查应用启动状态及数据库连接"
+      description: "全部启动任务完成且应用接受流量后，获取 JDBC 连接并执行 isValid(2)；不检查 Redis、RustFS、文档转换或业务完整性。"
       security: []
       responses:
         "200":
-          description: 服务依赖正常
+          description: "data.status 为 ok，data.database 为 ready"
           content:
-            application/json:
+            "application/json":
               schema:
-                $ref: "#/components/schemas/HealthResponse"
+                "$ref": "#/components/schemas/HealthResponse"
         "503":
-          description: 数据库或对象存储依赖未就绪
+          description: "应用未就绪时 data.status 为 error、data.application 为 not_ready；数据库故障时 data.status 为 error、data.database 为 unavailable。"
           content:
-            application/json:
+            "application/json":
               schema:
-                $ref: "#/components/schemas/HealthResponse"
-  /auth/csrf:
+                "$ref": "#/components/schemas/HealthResponse"
+  "/auth/csrf":
     get:
-      tags: [Auth]
-      summary: 获取 CSRF 令牌
+      operationId: "getCsrfToken"
+      tags: ["Auth"]
+      summary: "获取 CSRF 令牌"
       security: []
       responses:
         "200":
-          description: 设置 CSRF Cookie 并返回令牌
+          description: "返回令牌并设置或复用 csrftoken Cookie"
           content:
-            application/json:
+            "application/json":
               schema:
-                type: object
-                required: [data]
-                properties:
-                  data:
-                    type: object
-                    required: [csrf_token]
+                allOf:
+                  -
+                    "$ref": "#/components/schemas/Envelope"
+                  -
+                    type: "object"
+                    required: ["data"]
                     properties:
-                      csrf_token:
-                        type: string
-  /auth/login:
+                      data:
+                        type: "object"
+                        required: ["csrf_token"]
+                        properties:
+                          csrf_token:
+                            type: "string"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/auth/login":
     post:
-      tags: [Auth]
-      summary: 登录
+      operationId: "login"
+      tags: ["Auth"]
+      summary: "登录并建立服务器会话"
+      description: "登录也受 CSRF 校验；username 和 password 必须非空白字符串。"
       security:
-        - csrfHeader: []
+        -
+          csrfCookie: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
-          application/json:
+          "application/json":
             schema:
-              type: object
-              required: [username, password]
+              type: "object"
+              required: ["username","password"]
               properties:
                 username:
-                  type: string
-                  maxLength: 64
+                  type: "string"
+                  minLength: 1
                 password:
-                  type: string
-                  format: password
-                  maxLength: 256
+                  type: "string"
+                  minLength: 1
+                  format: "password"
+                  writeOnly: true
       responses:
         "200":
-          $ref: "#/components/responses/Session"
-        "400":
-          $ref: "#/components/responses/ValidationError"
+          "$ref": "#/components/responses/Session"
         "401":
-          $ref: "#/components/responses/Unauthorized"
-  /auth/logout:
+          "$ref": "#/components/responses/ApiError"
+        "403":
+          "$ref": "#/components/responses/ApiError"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/auth/register":
     post:
-      tags: [Auth]
-      summary: 注销当前会话
+      operationId: "registerByInvitation"
+      tags: ["Auth"]
+      summary: "使用一次性邀请码注册普通用户"
+      description: "无需登录但必须携带 CSRF。邀请码决定组织和角色，明文邀请码不被持久化；注册不自动登录，不能创建超级管理员。"
       security:
-        - cookieAuth: []
+        -
+          csrfCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/InvitationRegistration"
+      responses:
+        "201":
+          "$ref": "#/components/responses/EmptySuccess"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/auth/logout":
+    post:
+      operationId: "logout"
+      tags: ["Auth"]
+      summary: "失效当前服务器会话"
+      description: "按同源 Session 流程调用，要求已有服务器会话。"
+      security:
+        -
+          cookieAuth: []
+          csrfCookie: []
           csrfHeader: []
       responses:
         "204":
-          description: 注销成功
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-  /auth/session:
-    get:
-      tags: [Auth]
-      summary: 获取当前会话
-      responses:
-        "200":
-          $ref: "#/components/responses/Session"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-  /auth/users/options:
-    get:
-      tags: [Auth]
-      summary: 查询可选负责人和成员
-      description: 仅项目创建权限用户可调用，返回当前组织中的有效用户。
-      responses:
-        "200":
-          description: 用户选项
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/UserOptionListResponse"
-  /auth/users:
-    get:
-      tags: [Auth]
-      summary: 分页查询当前组织用户
-      description: 仅超级管理员。
-      parameters:
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PageSize"
-        - $ref: "#/components/parameters/Search"
-        - name: status
-          in: query
-          schema:
-            $ref: "#/components/schemas/UserStatus"
-        - name: role_code
-          in: query
-          schema:
-            $ref: "#/components/schemas/AssignableRoleCode"
-      responses:
-        "200":
-          description: 用户分页列表
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ManagedUserListResponse"
-        "403":
-          $ref: "#/components/responses/Forbidden"
+          description: "注销成功，无响应正文"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/auth/password":
     post:
-      tags: [Auth]
-      summary: 创建组织用户
-      description: 仅超级管理员；密码至少 8 位。
+      operationId: "changeOwnPassword"
+      tags: ["Auth"]
+      summary: "修改当前登录用户密码"
+      description: "校验当前密码与统一密码策略（至少 8 个字符，包含字母和数字，不含空白或控制字符且不得与用户名相同）；成功后立即失效当前 Servlet Session，调用方需重新登录。"
       security:
-        - cookieAuth: []
+        -
+          cookieAuth: []
+          csrfCookie: []
           csrfHeader: []
       requestBody:
         required: true
         content:
-          application/json:
+          "application/json":
             schema:
-              $ref: "#/components/schemas/ManagedUserCreate"
+              "$ref": "#/components/schemas/OwnPasswordChange"
+      responses:
+        "204":
+          description: "密码已修改，当前会话已失效"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/auth/session":
+    get:
+      operationId: "getSession"
+      tags: ["Auth"]
+      summary: "获取当前认证用户"
+      responses:
+        "200":
+          "$ref": "#/components/responses/Session"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/auth/users/options":
+    get:
+      operationId: "listUserOptions"
+      tags: ["Auth"]
+      summary: "查询当前组织及下级组织的有效用户选项"
+      description: "要求 project.create 权限；递归包含当前组织及下级组织的 active 用户，仅返回 id、username 和 display_name。注意项目和实验负责人写入仍要求用户属于当前组织，因此下级组织选项不一定可用于保存。"
+      responses:
+        "200":
+          description: "有效用户选项"
+          content:
+            "application/json":
+              schema:
+                allOf:
+                  -
+                    "$ref": "#/components/schemas/Envelope"
+                  -
+                    type: "object"
+                    required: ["data"]
+                    properties:
+                      data:
+                        type: "array"
+                        items:
+                          "$ref": "#/components/schemas/UserOption"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/auth/roles/options":
+    get:
+      operationId: "listRoleOptions"
+      tags: ["Auth"]
+      summary: "查询当前组织可分配角色"
+      description: "仅超级管理员可访问；角色代码以本接口返回值为准。"
+      responses:
+        "200":
+          description: "角色选项"
+          content:
+            "application/json":
+              schema:
+                allOf:
+                  -
+                    "$ref": "#/components/schemas/Envelope"
+                  -
+                    type: "object"
+                    required: ["data"]
+                    properties:
+                      data:
+                        type: "array"
+                        items:
+                          "$ref": "#/components/schemas/RoleOption"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/auth/invitations":
+    get:
+      operationId: "listRegistrationInvitations"
+      tags: ["Auth"]
+      summary: "查询当前组织的邀请码元数据"
+      description: "仅超级管理员。邀请码明文仅在创建响应中返回一次，列表不包含明文或哈希。"
+      responses:
+        "200":
+          description: "最近 100 条邀请码元数据"
+          content:
+            "application/json":
+              schema:
+                allOf:
+                  - "$ref": "#/components/schemas/Envelope"
+                  - type: "object"
+                    properties:
+                      data:
+                        type: "array"
+                        items:
+                          "$ref": "#/components/schemas/RegistrationInvitation"
+        default:
+          "$ref": "#/components/responses/ApiError"
+    post:
+      operationId: "createRegistrationInvitation"
+      tags: ["Auth"]
+      summary: "签发绑定角色的一次性邀请码"
+      description: "仅超级管理员。角色不能是 super_admin；邀请码有效期为 1 至 720 小时，明文只随本次响应返回。"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/RegistrationInvitationCreate"
       responses:
         "201":
-          description: 用户创建成功
+          description: "邀请码签发成功"
           content:
-            application/json:
+            "application/json":
               schema:
-                $ref: "#/components/schemas/ManagedUserResponse"
-        "400":
-          $ref: "#/components/responses/ValidationError"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-  /auth/users/{user_id}:
-    parameters:
-      - $ref: "#/components/parameters/UserId"
-    get:
-      tags: [Auth]
-      summary: 查询组织用户详情
-      responses:
-        "200":
-          description: 用户详情
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ManagedUserResponse"
-        "404":
-          $ref: "#/components/responses/NotFound"
-    patch:
-      tags: [Auth]
-      summary: 更新组织用户
-      description: 可更新用户名、显示名称、邮箱、状态和系统角色；超级管理员账号受保护。
-      security:
-        - cookieAuth: []
-          csrfHeader: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ManagedUserUpdate"
-      responses:
-        "200":
-          description: 用户更新成功
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ManagedUserResponse"
-        "400":
-          $ref: "#/components/responses/ValidationError"
-        "409":
-          $ref: "#/components/responses/Conflict"
-  /auth/users/{user_id}/reset-password:
-    parameters:
-      - $ref: "#/components/parameters/UserId"
+                allOf:
+                  - "$ref": "#/components/schemas/Envelope"
+                  - type: "object"
+                    properties:
+                      data:
+                        "$ref": "#/components/schemas/RegistrationInvitationIssue"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/auth/invitations/{invitationId}/revoke":
     post:
-      tags: [Auth]
-      summary: 重置组织用户密码
+      operationId: "revokeRegistrationInvitation"
+      tags: ["Auth"]
+      summary: "撤销尚未使用的邀请码"
+      description: "仅超级管理员；邀请码已使用、已撤销或不存在时返回 404。"
+      parameters:
+        -
+          name: "invitationId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+      responses:
+        "204":
+          description: "邀请码已撤销"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/auth/users":
+    get:
+      operationId: "listUsers"
+      tags: ["Auth"]
+      summary: "分页查询当前组织用户"
+      description: "仅超级管理员可访问。"
+      parameters:
+        -
+          "$ref": "#/components/parameters/Page"
+        -
+          "$ref": "#/components/parameters/PageSize"
+        -
+          "$ref": "#/components/parameters/Search"
+        -
+          name: "status"
+          in: "query"
+          schema:
+            type: "string"
+          description: "用户状态筛选，例如 active、locked、disabled"
+        -
+          name: "role_code"
+          in: "query"
+          schema:
+            type: "string"
+          description: "角色选项接口返回的角色代码"
+      responses:
+        "200":
+          description: "用户分页列表"
+          content:
+            "application/json":
+              schema:
+                allOf:
+                  -
+                    "$ref": "#/components/schemas/PageEnvelope"
+                  -
+                    type: "object"
+                    required: ["data"]
+                    properties:
+                      data:
+                        type: "array"
+                        items:
+                          "$ref": "#/components/schemas/ManagedUser"
+        default:
+          "$ref": "#/components/responses/ApiError"
+    post:
+      operationId: "createUser"
+      tags: ["Auth"]
+      summary: "创建当前组织用户并绑定角色"
+      description: "仅超级管理员。当前返回 HTTP 200 和 request_id，不返回新建用户实体。"
       security:
-        - cookieAuth: []
+        -
+          cookieAuth: []
+          csrfCookie: []
+          csrfHeader: []
+        -
+          basicAuth: []
+          csrfCookie: []
           csrfHeader: []
       requestBody:
         required: true
         content:
-          application/json:
+          "application/json":
             schema:
-              type: object
-              required: [password]
+              "$ref": "#/components/schemas/UserCreate"
+      responses:
+        "200":
+          "$ref": "#/components/responses/EmptySuccess"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/auth/users/{userId}":
+    parameters:
+      -
+        "$ref": "#/components/parameters/UserId"
+    patch:
+      operationId: "updateUser"
+      tags: ["Auth"]
+      summary: "更新当前组织普通用户"
+      description: |-
+        仅超级管理员，不能修改超级管理员账号。虽使用 PATCH，username、display_name、status、role_codes 均必须完整提交。
+        email 省略时写入空串，角色关联按本次 role_codes 整体替换。返回 request_id，不返回用户实体。
+        当前没有按用户 ID 读取详情的 GET 接口。
+      security:
+        -
+          cookieAuth: []
+          csrfCookie: []
+          csrfHeader: []
+        -
+          basicAuth: []
+          csrfCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/UserWrite"
+      responses:
+        "200":
+          "$ref": "#/components/responses/EmptySuccess"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/auth/users/{userId}/reset-password":
+    parameters:
+      -
+        "$ref": "#/components/parameters/UserId"
+    post:
+      operationId: "resetUserPassword"
+      tags: ["Auth"]
+      summary: "重置当前组织普通用户密码"
+      description: "仅超级管理员；超级管理员账号受保护；密码至少 8 个字符，包含字母和数字，不含空白或控制字符且不得与用户名相同。"
+      security:
+        -
+          cookieAuth: []
+          csrfCookie: []
+          csrfHeader: []
+        -
+          basicAuth: []
+          csrfCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              type: "object"
+              required: ["password"]
               properties:
                 password:
-                  type: string
-                  format: password
+                  type: "string"
                   minLength: 8
-                  maxLength: 128
+                  format: "password"
+                  writeOnly: true
       responses:
         "204":
-          description: 密码重置成功
-        "409":
-          $ref: "#/components/responses/Conflict"
-  /auth/roles/options:
+          description: "密码已更新，无响应正文"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/organizations/current":
     get:
-      tags: [Auth]
-      summary: 查询可分配系统角色
-      description: 仅返回超级管理员、项目管理员、实验员三类有效角色。
+      operationId: "getCurrentOrganization"
+      tags: ["Organizations"]
+      summary: "获取当前会话所属有效组织"
+      description: "要求 organization.read 权限；组织不存在或停用时返回 404。"
       responses:
         "200":
-          description: 角色选项
+          description: "当前组织"
           content:
-            application/json:
+            "application/json":
               schema:
-                type: object
-                required: [data]
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/RoleOption"
-  /dashboard:
+                allOf:
+                  -
+                    "$ref": "#/components/schemas/Envelope"
+                  -
+                    type: "object"
+                    required: ["data"]
+                    properties:
+                      data:
+                        "$ref": "#/components/schemas/Organization"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/organizations":
     get:
-      tags: [Dashboard]
-      summary: 获取实时工作台
-      parameters:
-        - name: project_id
-          in: query
-          description: 仅统计指定项目的近 30 天实验趋势；空值表示全部项目。
-          schema:
-            type: string
-            format: uuid
+      operationId: "listOrganizations"
+      tags: ["Organizations"]
+      summary: "查询平台组织目录"
+      description: "仅 is_platform_admin=true 的平台管理员可调用；只返回组织基础元数据，不返回任何组织业务数据。"
       responses:
         "200":
-          description: 项目、实验、类型分布、趋势和进行中项目
+          description: "组织目录"
           content:
-            application/json:
+            "application/json":
               schema:
-                $ref: "#/components/schemas/DashboardResponse"
-  /projects:
-    get:
-      tags: [Projects]
-      summary: 分页查询可见项目
-      description: 超级管理员可查看当前组织全部项目；普通用户仅可查看当前组织内本人负责或作为成员关联的项目。
-      parameters:
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PageSize"
-        - $ref: "#/components/parameters/Search"
-        - name: status
-          in: query
-          schema:
-            oneOf:
-              - $ref: "#/components/schemas/ProjectStatus"
-              - type: string
-                enum: [running, not_started, ended]
-        - name: project_type
-          in: query
-          schema:
-            $ref: "#/components/schemas/ProjectType"
-        - name: owner_id
-          in: query
-          schema:
-            type: string
-            format: uuid
-        - name: ordering
-          in: query
-          schema:
-            type: string
-            enum:
-              - updated_at
-              - -updated_at
-              - project_no
-              - -project_no
-              - planned_end_date
-              - -planned_end_date
-            default: -updated_at
-      responses:
-        "200":
-          description: 项目分页列表
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ProjectListResponse"
+                allOf:
+                  - "$ref": "#/components/schemas/Envelope"
+                  - type: "object"
+                    required: ["data"]
+                    properties:
+                      data:
+                        type: "array"
+                        items: { "$ref": "#/components/schemas/PlatformOrganization" }
+        default:
+          "$ref": "#/components/responses/ApiError"
     post:
-      tags: [Projects]
-      summary: 创建项目
-      security:
-        - cookieAuth: []
-          csrfHeader: []
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
+      operationId: "createOrganization"
+      tags: ["Organizations"]
+      summary: "开通组织及其首个组织管理员"
+      description: "仅平台管理员。一个事务内创建根组织、三个内置角色、角色权限及该组织首个超级管理员；不创建业务数据，新管理员不继承平台管理员权限。"
       requestBody:
         required: true
         content:
-          application/json:
+          "application/json":
             schema:
-              $ref: "#/components/schemas/ProjectCreate"
+              "$ref": "#/components/schemas/PlatformOrganizationCreate"
       responses:
         "201":
-          $ref: "#/components/responses/Project"
-        "400":
-          $ref: "#/components/responses/ValidationError"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "409":
-          $ref: "#/components/responses/Conflict"
-  /projects/{project_key}:
-    parameters:
-      - $ref: "#/components/parameters/ProjectKey"
+          description: "组织已开通；响应不含管理员密码"
+          content:
+            "application/json":
+              schema:
+                allOf:
+                  - "$ref": "#/components/schemas/Envelope"
+                  - type: "object"
+                    required: ["data"]
+                    properties:
+                      data: { "$ref": "#/components/schemas/PlatformOrganization" }
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/dashboard":
     get:
-      tags: [Projects]
-      summary: 获取项目详情
+      operationId: "getDashboard"
+      tags: ["Dashboard"]
+      summary: "获取当前可见项目和实验统计"
+      description: |-
+        要求 project.read 权限。趋势按 Asia/Shanghai 当前日期生成最近 30 个日期。
+        当前 project_id 仅回显到 trend.selected_project_id，没有参与统计查询，不应依赖它筛选趋势。
+      parameters:
+        -
+          name: "project_id"
+          in: "query"
+          schema:
+            type: "string"
+            format: "uuid"
+          description: "当前仅回显的项目选择值"
       responses:
         "200":
-          $ref: "#/components/responses/Project"
-        "404":
-          $ref: "#/components/responses/NotFound"
+          description: "工作台统计"
+          content:
+            "application/json":
+              schema:
+                allOf:
+                  -
+                    "$ref": "#/components/schemas/Envelope"
+                  -
+                    type: "object"
+                    required: ["data"]
+                    properties:
+                      data:
+                        "$ref": "#/components/schemas/Dashboard"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/projects":
+    get:
+      operationId: "listProjects"
+      tags: ["Projects"]
+      summary: "分页查询当前用户可见项目"
+      description: "要求 project.read 权限；普通用户按项目负责人或成员身份限定数据范围。"
+      parameters:
+        -
+          "$ref": "#/components/parameters/Page"
+        -
+          "$ref": "#/components/parameters/PageSize"
+        -
+          "$ref": "#/components/parameters/Search"
+        -
+          name: "status"
+          in: "query"
+          schema:
+            type: "string"
+          description: "状态筛选；running 兼容映射为 active，ended 聚合 completed 和 archived，其余非空值按原值筛选"
+      responses:
+        "200":
+          description: "项目分页列表"
+          content:
+            "application/json":
+              schema:
+                allOf:
+                  -
+                    "$ref": "#/components/schemas/PageEnvelope"
+                  -
+                    type: "object"
+                    required: ["data"]
+                    properties:
+                      data:
+                        type: "array"
+                        items:
+                          "$ref": "#/components/schemas/Project"
+        default:
+          "$ref": "#/components/responses/ApiError"
+    post:
+      operationId: "createProject"
+      tags: ["Projects"]
+      summary: "创建项目并加入创建者为管理成员"
+      description: |-
+        要求 project.create 和返回资源所需的 project.read 权限；负责人须为当前组织有效用户。
+        当前不处理 members 或 member_ids，不实现 Idempotency-Key 去重；重试可能创建多个项目。
+      security:
+        -
+          cookieAuth: []
+          csrfCookie: []
+          csrfHeader: []
+        -
+          basicAuth: []
+          csrfCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              allOf:
+                -
+                  "$ref": "#/components/schemas/ProjectWrite"
+                -
+                  type: "object"
+                  required: ["name"]
+      responses:
+        "201":
+          "$ref": "#/components/responses/Project"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/projects/{projectKey}":
+    parameters:
+      -
+        "$ref": "#/components/parameters/ProjectKey"
+    get:
+      operationId: "getProject"
+      tags: ["Projects"]
+      summary: "获取可见项目详情及版本"
+      description: "要求 project.read 权限；项目不存在或不在可见范围时返回 404。"
+      responses:
+        "200":
+          "$ref": "#/components/responses/Project"
+        default:
+          "$ref": "#/components/responses/ApiError"
     patch:
-      tags: [Projects]
-      summary: 更新项目、成员或里程碑
+      operationId: "updateProject"
+      tags: ["Projects"]
+      summary: "按资源版本更新项目"
+      description: |-
+        要求 project.update、project.read 和项目管理范围。未提交字段保留原值；当前不处理成员写入。
+        已归档项目不能继续更新，版本不匹配或已归档时返回 412。
+        objectives 和 milestones 整体替换，显式 null 写为空数组。
+        计划时间省略或显式 null 均保留原值，当前没有清空已有计划时间的语义。
       security:
-        - cookieAuth: []
+        -
+          cookieAuth: []
+          csrfCookie: []
+          csrfHeader: []
+        -
+          basicAuth: []
+          csrfCookie: []
           csrfHeader: []
       parameters:
-        - $ref: "#/components/parameters/IfMatch"
+        -
+          "$ref": "#/components/parameters/IfMatch"
       requestBody:
         required: true
         content:
-          application/json:
+          "application/json":
             schema:
-              $ref: "#/components/schemas/ProjectUpdate"
+              "$ref": "#/components/schemas/ProjectWrite"
       responses:
         "200":
-          $ref: "#/components/responses/Project"
-        "400":
-          $ref: "#/components/responses/ValidationError"
-        "409":
-          $ref: "#/components/responses/Conflict"
+          "$ref": "#/components/responses/Project"
         "412":
-          $ref: "#/components/responses/PreconditionFailed"
-  /projects/{project_key}/follow:
+          "$ref": "#/components/responses/ApiError"
+        "428":
+          "$ref": "#/components/responses/ApiError"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/projects/{projectKey}/archive":
     parameters:
-      - $ref: "#/components/parameters/ProjectKey"
+      -
+        "$ref": "#/components/parameters/ProjectKey"
     post:
-      tags: [Projects]
-      summary: 关注项目
+      operationId: "archiveProject"
+      tags: ["Projects"]
+      summary: "归档项目"
+      description: "要求 project.archive、project.read 和项目管理范围；已归档或版本不匹配返回 412。"
       security:
-        - cookieAuth: []
+        -
+          cookieAuth: []
+          csrfCookie: []
+          csrfHeader: []
+        -
+          basicAuth: []
+          csrfCookie: []
+          csrfHeader: []
+      parameters:
+        -
+          "$ref": "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          "$ref": "#/components/responses/Project"
+        "412":
+          "$ref": "#/components/responses/ApiError"
+        "428":
+          "$ref": "#/components/responses/ApiError"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/projects/{projectKey}/follow":
+    parameters:
+      -
+        "$ref": "#/components/parameters/ProjectKey"
+    post:
+      operationId: "followProject"
+      tags: ["Projects"]
+      summary: "关注可见项目"
+      description: "要求 project.read 权限及项目可见性。"
+      security:
+        -
+          cookieAuth: []
+          csrfCookie: []
+          csrfHeader: []
+        -
+          basicAuth: []
+          csrfCookie: []
           csrfHeader: []
       responses:
         "200":
-          $ref: "#/components/responses/FollowState"
+          "$ref": "#/components/responses/Follow"
+        default:
+          "$ref": "#/components/responses/ApiError"
     delete:
-      tags: [Projects]
-      summary: 取消关注项目
+      operationId: "unfollowProject"
+      tags: ["Projects"]
+      summary: "取消关注可见项目"
+      description: "要求 project.read 权限及项目可见性。"
       security:
-        - cookieAuth: []
+        -
+          cookieAuth: []
+          csrfCookie: []
+          csrfHeader: []
+        -
+          basicAuth: []
+          csrfCookie: []
           csrfHeader: []
       responses:
         "200":
-          $ref: "#/components/responses/FollowState"
-  /projects/{project_key}/archive:
+          "$ref": "#/components/responses/Follow"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/projects/{projectKey}/operation-logs":
     parameters:
-      - $ref: "#/components/parameters/ProjectKey"
-      - $ref: "#/components/parameters/IfMatch"
-    post:
-      tags: [Projects]
-      summary: 归档项目
-      security:
-        - cookieAuth: []
-          csrfHeader: []
-      responses:
-        "200":
-          $ref: "#/components/responses/Project"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "412":
-          $ref: "#/components/responses/PreconditionFailed"
-  /projects/{project_key}/operation-logs:
-    parameters:
-      - $ref: "#/components/parameters/ProjectKey"
+      -
+        "$ref": "#/components/parameters/ProjectKey"
     get:
-      tags: [Projects]
-      summary: 查询项目最近操作记录
+      operationId: "listProjectOperationLogs"
+      tags: ["Projects"]
+      summary: "读取项目已有操作日志"
+      description: "要求 project.read 权限及项目可见性；返回数据库已有日志，不承诺所有写操作均产生日志。"
       responses:
         "200":
-          description: 最近 100 条项目域操作记录
+          description: "项目操作日志列表"
           content:
-            application/json:
+            "application/json":
               schema:
-                type: object
-                required: [data]
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/OperationLog"
-  /projects/{project_key}/documents:
+                allOf:
+                  -
+                    "$ref": "#/components/schemas/Envelope"
+                  -
+                    type: "object"
+                    required: ["data"]
+                    properties:
+                      data:
+                        type: "array"
+                        items:
+                          "$ref": "#/components/schemas/ProjectOperationLog"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/projects/{projectKey}/documents":
     parameters:
-      - $ref: "#/components/parameters/ProjectKey"
+      -
+        "$ref": "#/components/parameters/ProjectKey"
     get:
-      tags: [Documents]
-      summary: 查询项目文档
+      operationId: "listProjectDocuments"
+      tags: ["Documents"]
+      summary: "查询项目文档和分类统计"
+      description: "要求 document.view、project.read 及项目可见性；列表不分页，分类总数不受筛选影响。"
       parameters:
-        - $ref: "#/components/parameters/Search"
-        - name: category
-          in: query
+        -
+          name: "category"
+          in: "query"
           schema:
-            $ref: "#/components/schemas/DocumentCategory"
-        - name: file_type
-          in: query
+            "$ref": "#/components/schemas/DocumentCategory"
+        -
+          "$ref": "#/components/parameters/Search"
+        -
+          name: "file_type"
+          in: "query"
           schema:
-            type: string
-            enum: [word, pdf, excel, powerpoint, image, text]
-        - name: updated_range
-          in: query
+            type: "string"
+            enum: ["word","pdf","excel","powerpoint","image","text"]
+          description: "按文件名扩展名筛选，不依据 MIME 类型"
+        -
+          name: "updated_range"
+          in: "query"
           schema:
-            type: string
-            enum: [week, month]
+            type: "string"
+            enum: ["week","month"]
+          description: "week 为最近 7 天，month 为最近 30 天"
       responses:
         "200":
-          description: 文档列表和分类统计
+          description: "文档列表、项目总数、筛选总数和分类计数"
           content:
-            application/json:
+            "application/json":
               schema:
-                $ref: "#/components/schemas/DocumentListResponse"
+                "$ref": "#/components/schemas/DocumentListResponse"
+        default:
+          "$ref": "#/components/responses/ApiError"
     post:
-      tags: [Documents]
-      summary: 上传项目文档
-      description: |
-        单文件最大 100 MB，服务端校验扩展名、真实内容签名和办公压缩包安全边界。
-        支持 DOC/DOCX/ODT/RTF、PDF、XLS/XLSX/ODS/CSV、PPT/PPTX/ODP、
-        TXT、PNG/JPG/JPEG/WebP/GIF/BMP。
+      operationId: "uploadProjectDocument"
+      tags: ["Documents"]
+      summary: "上传文档元数据和原始正文"
+      description: |-
+        要求 document.upload、project.read 和项目管理范围。正文写入 PostgreSQL。
+        服务层要求文件非空且不超过 20971520 字节；实际可上传大小还受服务器 multipart 与反向代理限制。
+        当前没有内容格式鉴定、对象存储转存或服务端办公文档转换。
       security:
-        - cookieAuth: []
+        -
+          cookieAuth: []
+          csrfCookie: []
+          csrfHeader: []
+        -
+          basicAuth: []
+          csrfCookie: []
           csrfHeader: []
       requestBody:
         required: true
         content:
-          multipart/form-data:
+          "multipart/form-data":
             schema:
-              type: object
-              required: [file, category, version_label]
+              type: "object"
+              required: ["file","category","version_label"]
               properties:
                 file:
-                  type: string
-                  format: binary
+                  type: "string"
+                  format: "binary"
+                  description: "非空原始文件"
                 category:
-                  $ref: "#/components/schemas/DocumentCategory"
+                  "$ref": "#/components/schemas/DocumentCategory"
                 version_label:
-                  type: string
-                  pattern: "^[A-Za-z0-9._-]{1,32}$"
+                  type: "string"
+                  minLength: 1
+                  description: "去除首尾空白后必须非空"
       responses:
         "201":
-          description: 文档上传成功
+          description: "已保存的文档元数据"
           content:
-            application/json:
+            "application/json":
               schema:
-                $ref: "#/components/schemas/DocumentResponse"
-        "400":
-          $ref: "#/components/responses/ValidationError"
-        "409":
-          $ref: "#/components/responses/Conflict"
-  /projects/{project_key}/documents/{document_id}/content:
+                allOf:
+                  -
+                    "$ref": "#/components/schemas/Envelope"
+                  -
+                    type: "object"
+                    required: ["data"]
+                    properties:
+                      data:
+                        "$ref": "#/components/schemas/ProjectDocument"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/projects/{projectKey}/documents/{documentId}/content":
     parameters:
-      - $ref: "#/components/parameters/ProjectKey"
-      - $ref: "#/components/parameters/DocumentId"
+      -
+        "$ref": "#/components/parameters/ProjectKey"
+      -
+        "$ref": "#/components/parameters/DocumentId"
     get:
-      tags: [Documents]
-      summary: 读取或下载原始文档
+      operationId: "getProjectDocumentContent"
+      tags: ["Documents"]
+      summary: "读取或下载项目文档原件"
+      description: "要求 document.view、project.read 及项目可见性；文档或正文不存在返回 404。"
       parameters:
-        - name: download
-          in: query
+        -
+          name: "download"
+          in: "query"
           schema:
-            type: string
-            enum: ["0", "1"]
+            type: "boolean"
+            default: false
+          description: "true 使用 attachment，false 使用 inline"
       responses:
         "200":
-          description: 真实原文件流
-          content:
-            application/octet-stream:
-              schema:
-                type: string
-                format: binary
-        "404":
-          $ref: "#/components/responses/NotFound"
-  /projects/{project_key}/documents/{document_id}/preview:
+          "$ref": "#/components/responses/DocumentBinary"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/projects/{projectKey}/documents/{documentId}/preview":
     parameters:
-      - $ref: "#/components/parameters/ProjectKey"
-      - $ref: "#/components/parameters/DocumentId"
+      -
+        "$ref": "#/components/parameters/ProjectKey"
+      -
+        "$ref": "#/components/parameters/DocumentId"
     get:
-      tags: [Documents]
-      summary: 在线预览真实文档
-      description: |
-        该接口是组件失败和旧版格式的服务端兜底。PDF/图片返回原件；
-        DOC/DOCX/ODT/RTF、XLS/XLSX/ODS/CSV、PPT/PPTX/ODP、TXT
-        通过 LibreOffice 转换为缓存 PDF。前端优先从 content 接口读取
-        DOCX、XLS/XLSX、PPTX、PDF 原件并使用专用组件渲染。
+      operationId: "getProjectDocumentPreview"
+      tags: ["Documents"]
+      summary: "以内联方式读取文档原件"
+      description: |-
+        与 content 调用相同正文读取逻辑，Content-Disposition 固定为 inline。
+        返回原始字节和保存的 MIME 类型（包括 image/webp 等），不会把办公文档转换为 PDF。
+        浏览器或前端能否预览取决于实际文件格式及其预览组件。要求 document.view、project.read 及项目可见性。
       responses:
         "200":
-          description: 原始图片、PDF 或转换后的 PDF
-          headers:
-            X-Frame-Options:
-              schema:
-                type: string
-                const: SAMEORIGIN
-          content:
-            application/pdf:
-              schema:
-                type: string
-                format: binary
-            image/png:
-              schema:
-                type: string
-                format: binary
-            image/jpeg:
-              schema:
-                type: string
-                format: binary
-            image/gif:
-              schema:
-                type: string
-                format: binary
-            image/bmp:
-              schema:
-                type: string
-                format: binary
-        "406":
-          description: 文件无法转换或服务器未配置转换程序
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/Problem"
-  /experiments:
+          "$ref": "#/components/responses/DocumentBinary"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/experiments":
     get:
-      tags: [Experiments]
-      summary: 分页查询可见实验
+      operationId: "listExperiments"
+      tags: ["Experiments"]
+      summary: "分页查询可见实验及电子记录"
+      description: "要求 experiment.read 权限；普通用户按所属项目的负责人或成员身份限定可见范围。"
       parameters:
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PageSize"
-        - $ref: "#/components/parameters/Search"
-        - name: status
-          in: query
+        -
+          "$ref": "#/components/parameters/Page"
+        -
+          "$ref": "#/components/parameters/PageSize"
+        -
+          "$ref": "#/components/parameters/Search"
+        -
+          name: "project_id"
+          in: "query"
           schema:
-            $ref: "#/components/schemas/ExperimentStatus"
-        - name: project_id
-          in: query
+            type: "string"
+            format: "uuid"
+        -
+          name: "status"
+          in: "query"
           schema:
-            type: string
-            format: uuid
+            type: "string"
+          description: "按实验状态原值筛选"
       responses:
         "200":
-          description: 实验分页列表
+          description: "含电子记录的实验分页列表"
           content:
-            application/json:
+            "application/json":
               schema:
-                $ref: "#/components/schemas/ExperimentListResponse"
+                allOf:
+                  -
+                    "$ref": "#/components/schemas/PageEnvelope"
+                  -
+                    type: "object"
+                    required: ["data"]
+                    properties:
+                      data:
+                        type: "array"
+                        items:
+                          "$ref": "#/components/schemas/Experiment"
+        default:
+          "$ref": "#/components/responses/ApiError"
     post:
-      tags: [Experiments]
-      summary: 创建实验及默认 ELN
-      description: 实验目的必填；未提供配方结构时默认创建 4 列、2 行。
+      operationId: "createExperiment"
+      tags: ["Experiments"]
+      summary: "创建实验和电子实验记录"
+      description: |-
+        要求 experiment.create、experiment.read；普通用户须满足目标项目管理范围，负责人须为当前组织有效用户。
+        所有用户均须保证目标项目属于当前组织；超级管理员仅跳过项目管理成员检查。
+        初始状态固定 not_started，自动生成实验编号，并保存计划时间、参与人和 ELN 字段。
       security:
-        - cookieAuth: []
+        -
+          cookieAuth: []
+          csrfCookie: []
+          csrfHeader: []
+        -
+          basicAuth: []
+          csrfCookie: []
           csrfHeader: []
       requestBody:
         required: true
         content:
-          application/json:
+          "application/json":
             schema:
-              $ref: "#/components/schemas/ExperimentCreate"
+              allOf:
+                -
+                  "$ref": "#/components/schemas/ExperimentCreate"
+                -
+                  "$ref": "#/components/schemas/RecordWrite"
       responses:
         "201":
-          $ref: "#/components/responses/Experiment"
-        "400":
-          $ref: "#/components/responses/ValidationError"
-  /experiments/{experiment_key}:
+          "$ref": "#/components/responses/Experiment"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/experiments/{experimentKey}":
     parameters:
-      - $ref: "#/components/parameters/ExperimentKey"
+      -
+        "$ref": "#/components/parameters/ExperimentKey"
     get:
-      tags: [Experiments]
-      summary: 获取实验与 ELN 详情
+      operationId: "getExperiment"
+      tags: ["Experiments"]
+      summary: "按实验编号获取详情及版本"
+      description: "要求 experiment.read 权限及实验可见性；当前不支持以 UUID 替代实验编号。"
       responses:
         "200":
-          $ref: "#/components/responses/Experiment"
+          "$ref": "#/components/responses/Experiment"
+        default:
+          "$ref": "#/components/responses/ApiError"
     patch:
-      tags: [Experiments]
-      summary: 更新实验或 ELN
-      description: 已完成实验仍可进行带版本校验和操作记录的修订。
+      operationId: "updateExperiment"
+      tags: ["Experiments"]
+      summary: "按版本保存实验及电子记录"
+      description: |-
+        要求 experiment.update、experiment.read 且 can_edit=true；已完成实验返回 403，不允许修订。
+        普通用户具备 experiment.create 权限时仍须满足实验写入范围；无此权限时仅负责人或参与人可写，并且不能变更 project_id、owner_id。普通用户变更项目另需新项目管理范围。
+        所有用户变更 project_id 时均先校验目标项目属于当前组织；超级管理员仅跳过项目管理成员检查。
+        name、project_id、owner_id、experiment_type、phase、purpose 缺省时沿用现值。
+        estimated_start/estimated_end 缺省时沿用现值，空串或 null 清空；未带偏移量时按 Asia/Shanghai 解释。
+        ELN 和 participant_ids 均按字段增量更新：省略或 null 保留，数组传 []、文本传空串可显式清空。ELN 字段在请求顶层，不是嵌套 record。
       security:
-        - cookieAuth: []
+        -
+          cookieAuth: []
+          csrfCookie: []
+          csrfHeader: []
+        -
+          basicAuth: []
+          csrfCookie: []
           csrfHeader: []
       parameters:
-        - $ref: "#/components/parameters/IfMatch"
+        -
+          "$ref": "#/components/parameters/IfMatch"
       requestBody:
         required: true
         content:
-          application/json:
+          "application/json":
             schema:
-              $ref: "#/components/schemas/ExperimentUpdate"
+              allOf:
+                -
+                  "$ref": "#/components/schemas/ExperimentPatch"
+                -
+                  "$ref": "#/components/schemas/RecordWrite"
       responses:
         "200":
-          $ref: "#/components/responses/Experiment"
-        "400":
-          $ref: "#/components/responses/ValidationError"
+          "$ref": "#/components/responses/Experiment"
         "412":
-          $ref: "#/components/responses/PreconditionFailed"
-  /experiments/{experiment_key}/copy:
+          "$ref": "#/components/responses/ApiError"
+        "428":
+          "$ref": "#/components/responses/ApiError"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/experiments/{experimentKey}/copy":
     parameters:
-      - $ref: "#/components/parameters/ExperimentKey"
+      -
+        "$ref": "#/components/parameters/ExperimentKey"
     post:
-      tags: [Experiments]
-      summary: 复制实验计划与 ELN 结构
-      security:
-        - cookieAuth: []
-          csrfHeader: []
+      operationId: "copyExperiment"
+      tags: ["Experiments"]
+      summary: "复制实验计划"
+      description: "要求 experiment.create、experiment.read 及源项目创建范围；复制基础信息、计划时间、参与人、配方和过程，状态重置为 not_started，结果正文及附件不复制。"
       responses:
         "201":
-          $ref: "#/components/responses/Experiment"
-  /experiments/{experiment_key}/transition:
+          "$ref": "#/components/responses/Experiment"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/experiments/{experimentKey}/attachments":
     parameters:
-      - $ref: "#/components/parameters/ExperimentKey"
-      - $ref: "#/components/parameters/IfMatch"
+      -
+        "$ref": "#/components/parameters/ExperimentKey"
     post:
-      tags: [Experiments]
-      summary: 开始或完成实验
-      description: 只允许未开始→进行中→已完成；完成前必须填写实验结果。
-      security:
-        - cookieAuth: []
-          csrfHeader: []
+      operationId: "uploadExperimentAttachment"
+      tags: ["Experiments"]
+      summary: "上传实验附件"
+      description: "要求实验可编辑。服务端忽略 multipart MIME，按扩展名白名单和基础文件头校验正文；process_image 仅接受不超过 10 MiB 的 JPG/PNG，result_file 使用项目文档相同的格式白名单且不超过 25 MiB。正文保存到 PostgreSQL，成功后实验版本递增。"
       requestBody:
         required: true
         content:
-          application/json:
+          "multipart/form-data":
             schema:
-              type: object
-              required: [target_status]
+              type: "object"
+              required: ["file","kind"]
+              properties:
+                file:
+                  type: "string"
+                  format: "binary"
+                kind:
+                  type: "string"
+                  enum: ["process_image","result_file"]
+      responses:
+        "201":
+          "$ref": "#/components/responses/Experiment"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/experiments/{experimentKey}/attachments/{attachmentId}":
+    parameters:
+      -
+        "$ref": "#/components/parameters/ExperimentKey"
+      -
+        name: "attachmentId"
+        in: "path"
+        required: true
+        schema:
+          type: "string"
+          format: "uuid"
+    delete:
+      operationId: "deleteExperimentAttachment"
+      tags: ["Experiments"]
+      summary: "删除实验附件"
+      description: "要求实验可编辑；只删除指定实验下的附件及其数据库正文，成功后实验版本递增。"
+      responses:
+        "200":
+          "$ref": "#/components/responses/Experiment"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/experiments/{experimentKey}/attachments/{attachmentId}/content":
+    parameters:
+      -
+        "$ref": "#/components/parameters/ExperimentKey"
+      -
+        name: "attachmentId"
+        in: "path"
+        required: true
+        schema:
+          type: "string"
+          format: "uuid"
+    get:
+      operationId: "getExperimentAttachmentContent"
+      tags: ["Experiments"]
+      summary: "读取实验附件正文"
+      description: "要求 experiment.read 及实验可见性；响应为原始二进制正文。"
+      responses:
+        "200":
+          description: "附件原始正文"
+          content:
+            "application/octet-stream":
+              schema:
+                type: "string"
+                format: "binary"
+        default:
+          "$ref": "#/components/responses/ApiError"
+  "/experiments/{experimentKey}/transition":
+    parameters:
+      -
+        "$ref": "#/components/parameters/ExperimentKey"
+    post:
+      operationId: "transitionExperiment"
+      tags: ["Experiments"]
+      summary: "按顺序推进实验状态"
+      description: |-
+        要求 experiment.transition、experiment.read、experiment.update 及实验写入范围。
+        仅支持 not_started → in_progress → completed，禁止跳级或回退。
+        非法迁移返回 409，版本不匹配返回 412；已完成实验先被只读检查拒绝，返回 403。
+        状态迁移设置 started_at 或 completed_at，并递增版本。
+      security:
+        -
+          cookieAuth: []
+          csrfCookie: []
+          csrfHeader: []
+        -
+          basicAuth: []
+          csrfCookie: []
+          csrfHeader: []
+      parameters:
+        -
+          "$ref": "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              type: "object"
+              required: ["target_status"]
               properties:
                 target_status:
-                  type: string
-                  enum: [in_progress, completed]
+                  type: "string"
+                  enum: ["in_progress","completed"]
       responses:
         "200":
-          $ref: "#/components/responses/Experiment"
-        "400":
-          $ref: "#/components/responses/ValidationError"
+          "$ref": "#/components/responses/Experiment"
         "409":
-          $ref: "#/components/responses/Conflict"
+          "$ref": "#/components/responses/ApiError"
         "412":
-          $ref: "#/components/responses/PreconditionFailed"
-  /experiments/{experiment_key}/attachments:
-    parameters:
-      - $ref: "#/components/parameters/ExperimentKey"
-    post:
-      tags: [Experiments]
-      summary: 上传 ELN 真实附件
-      description: 过程图片最多 20 张、单张 10 MB 且限真实 JPG/PNG；结果附件最多 30 个、单个 25 MB。
-      security:
-        - cookieAuth: []
-          csrfHeader: []
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required: [kind, file]
-              properties:
-                kind:
-                  type: string
-                  enum: [process_image, result_file]
-                file:
-                  type: string
-                  format: binary
-      responses:
-        "201":
-          $ref: "#/components/responses/Experiment"
-        "400":
-          $ref: "#/components/responses/ValidationError"
-  /experiments/{experiment_key}/attachments/{attachment_id}:
-    parameters:
-      - $ref: "#/components/parameters/ExperimentKey"
-      - $ref: "#/components/parameters/AttachmentId"
-    delete:
-      tags: [Experiments]
-      summary: 删除 ELN 附件和存储文件
-      security:
-        - cookieAuth: []
-          csrfHeader: []
-      responses:
-        "200":
-          $ref: "#/components/responses/Experiment"
-        "404":
-          $ref: "#/components/responses/NotFound"
-  /experiments/{experiment_key}/attachments/{attachment_id}/content:
-    parameters:
-      - $ref: "#/components/parameters/ExperimentKey"
-      - $ref: "#/components/parameters/AttachmentId"
-    get:
-      tags: [Experiments]
-      summary: 读取或下载 ELN 附件
-      parameters:
-        - name: download
-          in: query
-          schema:
-            type: string
-            enum: ["0", "1"]
-      responses:
-        "200":
-          description: 真实附件文件流
-          content:
-            application/octet-stream:
-              schema:
-                type: string
-                format: binary
+          "$ref": "#/components/responses/ApiError"
+        "428":
+          "$ref": "#/components/responses/ApiError"
+        default:
+          "$ref": "#/components/responses/ApiError"
 components:
   securitySchemes:
     cookieAuth:
-      type: apiKey
-      in: cookie
-      name: sessionid
+      type: "apiKey"
+      in: "cookie"
+      name: "JSESSIONID"
+      description: "Servlet Session 默认 Cookie 名；服务器配置可覆盖"
+    basicAuth:
+      type: "http"
+      scheme: "basic"
+      description: "当前 SecurityConfig 启用的 HTTP Basic；写请求仍受 CSRF 约束"
+    csrfCookie:
+      type: "apiKey"
+      in: "cookie"
+      name: "csrftoken"
+      description: "先调用 GET /auth/csrf 获取并保留"
     csrfHeader:
-      type: apiKey
-      in: header
-      name: X-CSRFToken
+      type: "apiKey"
+      in: "header"
+      name: "X-CSRFToken"
+      description: "与当前 csrftoken Cookie 匹配的令牌"
   parameters:
     Page:
-      name: page
-      in: query
+      name: "page"
+      in: "query"
       schema:
-        type: integer
-        minimum: 1
+        type: "integer"
         default: 1
+      description: "页码从 1 开始，低于 1 按 1 处理"
     PageSize:
-      name: page_size
-      in: query
+      name: "page_size"
+      in: "query"
       schema:
-        type: integer
-        minimum: 1
-        maximum: 100
+        type: "integer"
         default: 20
+      description: "每页数量，服务端归一化到 1 至 100"
     Search:
-      name: search
-      in: query
+      name: "search"
+      in: "query"
       schema:
-        type: string
-    IdempotencyKey:
-      name: Idempotency-Key
-      in: header
-      required: true
-      schema:
-        type: string
-        minLength: 16
-        maxLength: 128
-    IfMatch:
-      name: If-Match
-      in: header
-      required: true
-      description: 当前资源版本，例如 `"3"`。
-      schema:
-        type: string
-        pattern: '^"[1-9][0-9]*"$'
-    ProjectKey:
-      name: project_key
-      in: path
-      required: true
-      description: 项目 UUID 或项目编号。
-      schema:
-        type: string
-    ExperimentKey:
-      name: experiment_key
-      in: path
-      required: true
-      description: 实验 UUID 或实验编号。
-      schema:
-        type: string
+        type: "string"
+      description: "关键字模糊筛选，具体搜索列以接口查询实现为准"
     UserId:
-      name: user_id
-      in: path
+      name: "userId"
+      in: "path"
       required: true
       schema:
-        type: string
-        format: uuid
+        type: "string"
+        format: "uuid"
+      description: "当前组织用户主键"
+    ProjectKey:
+      name: "projectKey"
+      in: "path"
+      required: true
+      schema:
+        type: "string"
+      description: "项目 UUID 字符串或 PRJ 业务编号"
     DocumentId:
-      name: document_id
-      in: path
+      name: "documentId"
+      in: "path"
       required: true
       schema:
-        type: string
-        format: uuid
-    AttachmentId:
-      name: attachment_id
-      in: path
+        type: "string"
+        format: "uuid"
+      description: "项目文档主键"
+    ExperimentKey:
+      name: "experimentKey"
+      in: "path"
       required: true
       schema:
-        type: string
-        format: uuid
+        type: "string"
+      description: "EXP 实验业务编号，不是 UUID"
+    IfMatch:
+      name: "If-Match"
+      in: "header"
+      required: true
+      schema:
+        type: "string"
+        example: "\"1\""
+      description: "使用最新 ETag 或带引号的 version 整数。整数解析失败返回 428，版本冲突返回 412；当前缺失请求头由通用异常处理兜底，不能承诺与格式错误同样返回 428。"
   responses:
+    ApiError:
+      description: "业务或参数错误为 Problem Details 兼容对象；安全过滤器返回 status/code/detail；未分类异常返回内部错误。通常 401 为未认证、403 为权限或 CSRF 失败、404 为资源不可见或不存在。当前媒体类型为 application/json，不能假定所有非法输入均为 400。"
+      content:
+        "application/json":
+          schema:
+            anyOf:
+              -
+                "$ref": "#/components/schemas/ProblemDetail"
+              -
+                "$ref": "#/components/schemas/SecurityError"
+              -
+                "$ref": "#/components/schemas/InternalError"
+    EmptySuccess:
+      description: "操作成功；当前 NON_NULL 配置省略空 data，仅返回 request_id"
+      content:
+        "application/json":
+          schema:
+            "$ref": "#/components/schemas/Envelope"
     Session:
-      description: 当前会话
+      description: "当前认证用户及权限"
       content:
-        application/json:
+        "application/json":
           schema:
-            type: object
-            required: [data]
-            properties:
-              data:
-                $ref: "#/components/schemas/SessionUser"
-    Project:
-      description: 项目对象
-      headers:
-        ETag:
-          schema:
-            type: string
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ProjectResponse"
-    Experiment:
-      description: 实验及 ELN
-      headers:
-        ETag:
-          schema:
-            type: string
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ExperimentResponse"
-    FollowState:
-      description: 关注状态
-      content:
-        application/json:
-          schema:
-            type: object
-            required: [data]
-            properties:
-              data:
-                type: object
-                required: [is_followed]
+            allOf:
+              -
+                "$ref": "#/components/schemas/Envelope"
+              -
+                type: "object"
+                required: ["data"]
                 properties:
-                  is_followed:
-                    type: boolean
-    Unauthorized:
-      description: 未登录或会话失效
-      content:
-        application/problem+json:
+                  data:
+                    "$ref": "#/components/schemas/SessionUser"
+    Project:
+      description: "项目详情及最新 ETag"
+      headers:
+        ETag:
+          description: "带双引号的版本整数"
           schema:
-            $ref: "#/components/schemas/Problem"
-    Forbidden:
-      description: 无操作权限
+            type: "string"
+            example: "\"1\""
       content:
-        application/problem+json:
+        "application/json":
           schema:
-            $ref: "#/components/schemas/Problem"
-    NotFound:
-      description: 对象不存在或不在可见范围
+            allOf:
+              -
+                "$ref": "#/components/schemas/Envelope"
+              -
+                type: "object"
+                required: ["data"]
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Project"
+    Follow:
+      description: "当前用户的项目关注状态"
       content:
-        application/problem+json:
+        "application/json":
           schema:
-            $ref: "#/components/schemas/Problem"
-    ValidationError:
-      description: 请求字段校验失败
+            allOf:
+              -
+                "$ref": "#/components/schemas/Envelope"
+              -
+                type: "object"
+                required: ["data"]
+                properties:
+                  data:
+                    type: "object"
+                    required: ["is_followed"]
+                    properties:
+                      is_followed:
+                        type: "boolean"
+    Experiment:
+      description: "实验详情、电子记录、编辑权限和最新 ETag"
+      headers:
+        ETag:
+          description: "带双引号的版本整数"
+          schema:
+            type: "string"
+            example: "\"1\""
       content:
-        application/problem+json:
+        "application/json":
           schema:
-            $ref: "#/components/schemas/Problem"
-    Conflict:
-      description: 业务状态或保护规则冲突
+            allOf:
+              -
+                "$ref": "#/components/schemas/Envelope"
+              -
+                type: "object"
+                required: ["data"]
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Experiment"
+    DocumentBinary:
+      description: "原始文件字节，无 JSON 信封。Content-Type 使用保存的上传 MIME 类型；无法解析时回退 application/octet-stream。包括 PDF、办公文档、image/webp 等实际上传类型，不保证转换或格式安全。"
+      headers:
+        Content-Disposition:
+          description: "inline 或 attachment，并携带文件名"
+          schema:
+            type: "string"
+        Content-Length:
+          description: "原始正文的字节数"
+          schema:
+            type: "integer"
+            format: "int64"
+            minimum: 0
       content:
-        application/problem+json:
+        "*/*":
           schema:
-            $ref: "#/components/schemas/Problem"
-    PreconditionFailed:
-      description: 乐观锁版本冲突
-      content:
-        application/problem+json:
-          schema:
-            $ref: "#/components/schemas/Problem"
-    ServiceUnavailable:
-      description: 依赖未就绪
-      content:
-        application/problem+json:
-          schema:
-            $ref: "#/components/schemas/Problem"
+            type: "string"
+            format: "binary"
   schemas:
-    HealthResponse:
-      type: object
-      required: [status]
+    Envelope:
+      type: "object"
+      required: ["request_id"]
       properties:
-        status:
-          type: string
-          enum: [ok, error]
-        checks:
-          type: object
-          additionalProperties:
-            type: string
-            enum: [ok, error]
-    Problem:
-      type: object
-      required: [type, title, status, code, request_id]
-      properties:
-        type:
-          type: string
-        title:
-          type: string
-        status:
-          type: integer
-        code:
-          type: string
-        detail:
-          type: string
-        instance:
-          type: string
         request_id:
-          type: string
-        field_errors:
-          type: object
-          additionalProperties:
-            type: array
-            items:
-              type: string
+          type: "string"
+          description: "当前响应生成的标识"
+          format: "uuid"
+      description: "非空业务数据通过 data 返回；空 data 按当前 NON_NULL 配置省略。"
+    PageEnvelope:
+      allOf:
+        -
+          "$ref": "#/components/schemas/Envelope"
+        -
+          type: "object"
+          required: ["meta"]
+          properties:
+            meta:
+              "$ref": "#/components/schemas/PageMeta"
     PageMeta:
-      type: object
-      required: [page, page_size, total, total_pages]
+      type: "object"
+      required: ["page","page_size","total","total_pages"]
       properties:
         page:
-          type: integer
+          type: "integer"
+          minimum: 1
         page_size:
-          type: integer
+          type: "integer"
+          minimum: 1
+          maximum: 100
         total:
-          type: integer
+          type: "integer"
+          format: "int64"
+          minimum: 0
         total_pages:
-          type: integer
-    UserStatus:
-      type: string
-      enum: [active, locked, disabled]
-    AssignableRoleCode:
-      type: string
-      enum: [system_admin, project_manager, researcher]
+          type: "integer"
+          format: "int64"
+          minimum: 1
+          description: "即使 total 为 0 也返回 1"
+    ProblemDetail:
+      type: "object"
+      required: ["type","title","status","code","detail","instance","request_id"]
+      properties:
+        type:
+          type: "string"
+          const: "about:blank"
+        title:
+          type: "string"
+          description: "HTTP 状态英文名称"
+        status:
+          type: "integer"
+        code:
+          type: "string"
+          description: "业务错误代码，例如 version_conflict"
+        detail:
+          type: "string"
+          description: "业务错误或校验说明"
+        instance:
+          type: "string"
+          description: "请求 URI"
+        request_id:
+          type: "string"
+          format: "uuid"
+    SecurityError:
+      type: "object"
+      required: ["status","code","detail"]
+      properties:
+        status:
+          type: "integer"
+          enum: [401,403]
+        code:
+          type: "string"
+          enum: ["authentication_required","permission_denied"]
+        detail:
+          type: "string"
+          const: "认证或权限校验失败"
+      description: "安全过滤器直接返回，不包含 request_id、type 或 instance。"
+    InternalError:
+      type: "object"
+      required: ["type","title","status","code","request_id"]
+      properties:
+        type:
+          type: "string"
+          const: "about:blank"
+        title:
+          type: "string"
+          const: "服务器内部错误"
+        status:
+          type: "integer"
+          const: 500
+        code:
+          type: "string"
+          const: "internal_error"
+        request_id:
+          type: "string"
+          format: "uuid"
+      description: "未分类异常的兜底响应，不包含 detail 或 instance。"
+    HealthResponse:
+      allOf:
+        -
+          "$ref": "#/components/schemas/Envelope"
+        -
+          type: "object"
+          required: ["data"]
+          properties:
+            data:
+              type: "object"
+              required: ["status"]
+              properties:
+                status:
+                  type: "string"
+                  enum: ["ok","error"]
+                database:
+                  type: "string"
+                  enum: ["ready","unavailable"]
+                  description: "仅 ready 接口返回"
+                application:
+                  type: "string"
+                  enum: ["not_ready"]
+                  description: "仅 ready 接口在应用未接受流量时返回，此时不探测数据库。"
     SessionUser:
-      type: object
-      required:
-        - id
-        - organization_id
-        - username
-        - display_name
-        - is_super_admin
-        - permissions
-        - role_codes
-        - role_names
+      type: "object"
+      required: ["id","username","display_name","organization_id","is_super_admin","is_platform_admin","permissions","role_codes","role_names"]
       properties:
         id:
-          type: string
-          format: uuid
-        organization_id:
-          type: string
-          format: uuid
+          type: "string"
+          format: "uuid"
         username:
-          type: string
+          type: "string"
         display_name:
-          type: string
+          type: "string"
+        organization_id:
+          type: "string"
+          format: "uuid"
         is_super_admin:
-          type: boolean
+          type: "boolean"
+        is_platform_admin:
+          type: "boolean"
+          description: "仅控制组织目录与开通权限；不扩大当前会话的业务数据范围"
         permissions:
-          type: array
+          type: "array"
           items:
-            type: string
+            type: "string"
+          description: "超级管理员返回单项 *，普通用户返回具体权限代码"
         role_codes:
-          type: array
+          type: "array"
           items:
-            $ref: "#/components/schemas/AssignableRoleCode"
+            type: "string"
         role_names:
-          type: array
+          type: "array"
           items:
-            type: string
-            enum: [超级管理员, 项目管理员, 实验员]
+            type: "string"
     UserOption:
-      type: object
-      required: [id, organization_id, organization_name, username, display_name]
+      type: "object"
+      required: ["id","username","display_name"]
       properties:
         id:
-          type: string
-          format: uuid
-        organization_id:
-          type: string
-          format: uuid
-        organization_name:
-          type: string
+          type: "string"
+          format: "uuid"
         username:
-          type: string
+          type: "string"
         display_name:
-          type: string
-    UserOptionListResponse:
-      type: object
-      required: [data]
-      properties:
-        data:
-          type: array
-          items:
-            $ref: "#/components/schemas/UserOption"
+          type: "string"
     RoleOption:
-      type: object
-      required: [role_code, name, description]
+      type: "object"
+      required: ["role_code","name"]
       properties:
         role_code:
-          $ref: "#/components/schemas/AssignableRoleCode"
+          type: "string"
         name:
-          type: string
+          type: "string"
         description:
-          type: string
-    ManagedUser:
-      type: object
-      required:
-        - id
-        - username
-        - display_name
-        - status
-        - is_active
-        - is_super_admin
-        - role_codes
-        - role_names
+          type: "string"
+    InvitationRegistration:
+      type: "object"
+      required: ["invitation_code", "username", "display_name", "password"]
       properties:
-        id:
-          type: string
-          format: uuid
+        invitation_code:
+          type: "string"
+          writeOnly: true
         username:
-          type: string
-        display_name:
-          type: string
-        email:
-          type: string
-          format: email
-        status:
-          $ref: "#/components/schemas/UserStatus"
-        is_active:
-          type: boolean
-        is_super_admin:
-          type: boolean
-        role_codes:
-          type: array
-          items:
-            $ref: "#/components/schemas/AssignableRoleCode"
-        role_names:
-          type: array
-          items:
-            type: string
-        last_login:
-          type: [string, "null"]
-          format: date-time
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-    ManagedUserCreate:
-      type: object
-      required: [username, display_name, password, role_codes]
-      properties:
-        username:
-          type: string
-          pattern: "^[A-Za-z0-9._-]{3,64}$"
-        display_name:
-          type: string
+          type: "string"
           minLength: 1
-          maxLength: 100
+        display_name:
+          type: "string"
+          minLength: 1
         email:
-          type: string
-          format: email
+          type: "string"
         password:
-          type: string
-          format: password
+          type: "string"
           minLength: 8
-          maxLength: 128
-        role_codes:
-          type: array
-          minItems: 1
-          items:
-            $ref: "#/components/schemas/AssignableRoleCode"
-    ManagedUserUpdate:
-      type: object
-      minProperties: 1
+          description: "至少 8 个字符，最多 72 个 UTF-8 字节；包含字母和数字，不含空白或控制字符且不得与用户名相同。"
+          format: "password"
+          writeOnly: true
+    OwnPasswordChange:
+      type: "object"
+      required: ["current_password", "new_password"]
       properties:
-        username:
-          type: string
-          pattern: "^[A-Za-z0-9._-]{3,64}$"
-        display_name:
-          type: string
-          minLength: 1
-          maxLength: 100
-        email:
-          type: string
-          format: email
-        status:
-          $ref: "#/components/schemas/UserStatus"
-        role_codes:
-          type: array
-          minItems: 1
-          items:
-            $ref: "#/components/schemas/AssignableRoleCode"
-    ManagedUserResponse:
-      type: object
-      required: [data]
+        current_password:
+          type: "string"
+          format: "password"
+          writeOnly: true
+        new_password:
+          type: "string"
+          minLength: 8
+          description: "至少 8 个字符，最多 72 个 UTF-8 字节；包含字母和数字，不含空白或控制字符且不得与用户名相同。"
+          format: "password"
+          writeOnly: true
+    RegistrationInvitationCreate:
+      type: "object"
+      required: ["role_code"]
       properties:
-        data:
-          $ref: "#/components/schemas/ManagedUser"
-    ManagedUserListResponse:
-      type: object
-      required: [data, meta]
+        role_code:
+          type: "string"
+          description: "当前组织有效角色代码，不能为 super_admin"
+        valid_for_hours:
+          type: "integer"
+          minimum: 1
+          maximum: 720
+          default: 168
+    RegistrationInvitationIssue:
+      type: "object"
+      required: ["invitation_code", "role_code", "expires_at"]
       properties:
-        data:
-          type: array
-          items:
-            $ref: "#/components/schemas/ManagedUser"
-        meta:
-          $ref: "#/components/schemas/PageMeta"
-    ProjectStatus:
-      type: string
-      enum: [draft, not_started, active, at_risk, suspended, completed, archived]
-    ProjectType:
-      type: string
-      enum: [聚酰亚胺, 环氧树脂]
-    ProjectMilestone:
-      type: object
-      required: [name, date, state]
-      properties:
-        name:
-          type: string
-          minLength: 1
-          maxLength: 500
-        date:
-          type: string
-          format: date
-        state:
-          type: string
-          enum: [todo, current, done]
-    ProjectMember:
-      type: object
-      required: [user_id, display_name, member_role]
-      properties:
-        user_id:
-          type: string
-          format: uuid
-        display_name:
-          type: string
-        member_role:
-          type: string
-          enum: [owner, researcher, inspector, viewer]
-          description: inspector、viewer 为历史项目成员值；当前页面统一显示为项目成员。
-    Project:
-      type: object
-      required:
-        - id
-        - project_no
-        - name
-        - project_type_code
-        - status
-        - owner_id
-        - owner_display_name
-        - members
-        - objectives
-        - milestones
-        - version
+        invitation_code:
+          type: "string"
+          description: "仅本次签发响应包含；不得记录或再次查询"
+        role_code:
+          type: "string"
+        expires_at:
+          type: "string"
+          format: "date-time"
+    RegistrationInvitation:
+      type: "object"
+      required: ["id", "role_code", "role_name", "status", "expires_at", "created_at"]
       properties:
         id:
-          type: string
-          format: uuid
-        project_no:
-          type: string
+          type: "string"
+          format: "uuid"
+        role_code:
+          type: "string"
+        role_name:
+          type: "string"
+        status:
+          type: "string"
+          enum: ["active", "used", "revoked", "expired"]
+          description: "expired 为列表读取时依据过期时刻计算的展示状态，不写入数据库"
+        expires_at:
+          type: "string"
+          format: "date-time"
+        used_at:
+          type: "string"
+          format: "date-time"
+        created_at:
+          type: "string"
+          format: "date-time"
+    UserStatus:
+      type: "string"
+      enum: ["active","locked","disabled"]
+    UserWrite:
+      type: "object"
+      required: ["username","display_name","status","role_codes"]
+      properties:
+        username:
+          type: "string"
+          minLength: 1
+        display_name:
+          type: "string"
+          minLength: 1
+        email:
+          type: "string"
+          description: "省略时写入空串；当前未执行邮箱格式校验"
+        status:
+          "$ref": "#/components/schemas/UserStatus"
+        role_codes:
+          type: "array"
+          minItems: 1
+          items:
+            type: "string"
+          description: "当前组织有效角色代码，按整组替换"
+    UserCreate:
+      allOf:
+        -
+          "$ref": "#/components/schemas/UserWrite"
+        -
+          type: "object"
+          required: ["password"]
+          properties:
+            password:
+              type: "string"
+              minLength: 8
+              description: "至少 8 个字符，最多 72 个 UTF-8 字节；包含字母和数字，不含空白或控制字符且不得与用户名相同。"
+              format: "password"
+              writeOnly: true
+    ManagedUser:
+      type: "object"
+      required: ["id","username","display_name","status","active","super_admin","role_codes","role_names","created_at","updated_at"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        username:
+          type: "string"
+        display_name:
+          type: "string"
+        email:
+          type: "string"
+        status:
+          "$ref": "#/components/schemas/UserStatus"
+        active:
+          type: "boolean"
+        super_admin:
+          type: "boolean"
+          description: "用户列表字段名；会话中对应字段为 is_super_admin"
+        role_codes:
+          type: "array"
+          items:
+            type: "string"
+        role_names:
+          type: "array"
+          items:
+            type: "string"
+        last_login:
+          type: "string"
+          description: "无值时省略；当前登录服务未更新此字段"
+          format: "date-time"
+        created_at:
+          type: "string"
+          format: "date-time"
+        updated_at:
+          type: "string"
+          format: "date-time"
+    Organization:
+      type: "object"
+      required: ["id","organization_code","name","status"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        organization_code:
+          type: "string"
         name:
-          type: string
+          type: "string"
+        parent_id:
+          type: "string"
+          description: "根组织无值时省略"
+          format: "uuid"
+        status:
+          type: "string"
+    PlatformOrganization:
+      type: "object"
+      required: ["id","organization_code","name","status"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        organization_code:
+          type: "string"
+        name:
+          type: "string"
+        status:
+          type: "string"
+          enum: ["active", "disabled"]
+        created_at:
+          type: ["string", "null"]
+          format: "date-time"
+          description: "新建响应可为空；重新读取目录后返回数据库创建时刻"
+    PlatformOrganizationCreate:
+      type: "object"
+      required: ["organization_code","organization_name","admin_username","admin_display_name","admin_password"]
+      properties:
+        organization_code:
+          type: "string"
+          pattern: "^[A-Z0-9][A-Z0-9_-]{1,31}$"
+          description: "服务端会去除首尾空白并转换为大写"
+        organization_name:
+          type: "string"
+          minLength: 1
+          maxLength: 200
+        admin_username:
+          type: "string"
+          pattern: "^[A-Za-z0-9._-]{3,64}$"
+          description: "全平台唯一登录名"
+        admin_display_name:
+          type: "string"
+          minLength: 1
+          maxLength: 100
+        admin_email:
+          type: "string"
+          maxLength: 254
+        admin_password:
+          type: "string"
+          minLength: 8
+          maxLength: 72
+          format: "password"
+          writeOnly: true
+          description: "至少 8 个字符，包含字母和数字，不含空白或控制字符且不得与管理员用户名相同"
+    ProjectWrite:
+      type: "object"
+      required: []
+      properties:
+        name:
+          type: "string"
+          minLength: 1
         project_type_code:
-          $ref: "#/components/schemas/ProjectType"
+          type: "string"
+          description: "创建时默认 research"
         description:
-          type: string
+          type: "string"
+          description: "创建时默认空串"
         current_stage:
-          type: string
+          type: "string"
+          description: "创建时默认方案设计"
         progress_percent:
-          type: integer
+          type: "integer"
           minimum: 0
           maximum: 100
-        document_count:
-          type: integer
-        experiment_count:
-          type: integer
-        data_resource_count:
-          type: integer
-        objectives:
-          type: array
-          items:
-            type: string
-        milestones:
-          type: array
-          items:
-            $ref: "#/components/schemas/ProjectMilestone"
+          description: "创建时默认 0"
         status:
-          $ref: "#/components/schemas/ProjectStatus"
+          type: "string"
+          description: "创建时默认 not_started；当前服务层未限制枚举或校验项目状态迁移"
         owner_id:
-          type: string
-          format: uuid
-        owner_display_name:
-          type: string
-        members:
-          type: array
+          type: "string"
+          description: "创建时缺省为当前用户"
+          format: "uuid"
+        objectives:
+          type: ["array","null"]
           items:
-            $ref: "#/components/schemas/ProjectMember"
+            type: "string"
+          description: "整体替换；创建时缺省为空数组；null 写为空数组"
+        milestones:
+          type: ["array","null"]
+          items:
+            "$ref": "#/components/schemas/ProjectMilestone"
+          description: "整体替换；创建时缺省为空数组；null 写为空数组"
         planned_start_date:
-          type: [string, "null"]
-          format: date-time
+          type: ["string","null"]
+          description: "ISO 8601 日期时间；无偏移量时按 Asia/Shanghai 解释；省略或 null 保留现值"
+          examples: ["2026-09-07T09:00:00+08:00","2026-09-07T09:00:00"]
         planned_end_date:
-          type: [string, "null"]
-          format: date-time
+          type: ["string","null"]
+          description: "与 planned_start_date 相同格式及更新语义"
+      description: "当前服务读取的项目写字段；成员信息和响应统计不在写入范围。"
+    ProjectMember:
+      type: "object"
+      required: ["user_id","display_name","member_role"]
+      properties:
+        user_id:
+          type: "string"
+          format: "uuid"
+        display_name:
+          type: "string"
+        member_role:
+          type: "string"
+    ProjectMilestone:
+      type: "object"
+      required: ["date","name","state"]
+      properties:
+        date:
+          type: "string"
+          description: "页面约定 YYYY-MM-DD；当前服务未校验格式"
+        name:
+          type: "string"
+        state:
+          type: "string"
+          description: "页面状态值以实际前端为准；当前服务未限制枚举"
+    Project:
+      type: "object"
+      required: ["id","organization_id","project_no","name","project_type_code","description","current_stage","progress_percent","document_count","experiment_count","data_resource_count","objectives","milestones","status","owner_id","owner_display_name","members","version","created_at","updated_at"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        organization_id:
+          type: "string"
+          format: "uuid"
+        project_no:
+          type: "string"
+        name:
+          type: "string"
+        project_type_code:
+          type: "string"
+        description:
+          type: "string"
+        current_stage:
+          type: "string"
+        progress_percent:
+          type: "integer"
+        document_count:
+          type: "integer"
+        experiment_count:
+          type: "integer"
+          description: "项目表中的存储计数，不代表独立实时统计"
+        data_resource_count:
+          type: "integer"
+          description: "保留统计字段，不表示存在数据资产 API"
+        objectives:
+          type: "array"
+          items:
+            type: "string"
+        milestones:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/ProjectMilestone"
+        status:
+          type: "string"
+        owner_id:
+          type: "string"
+          format: "uuid"
+        owner_display_name:
+          type: "string"
+        members:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/ProjectMember"
+        planned_start_date:
+          type: "string"
+          format: "date-time"
+        planned_end_date:
+          type: "string"
+          format: "date-time"
         actual_end_at:
-          type: [string, "null"]
-          format: date-time
+          type: "string"
+          format: "date-time"
         archived_at:
-          type: [string, "null"]
-          format: date-time
+          type: "string"
+          format: "date-time"
         version:
-          type: integer
+          type: "integer"
           minimum: 1
         created_at:
-          type: string
-          format: date-time
+          type: "string"
+          format: "date-time"
         updated_at:
-          type: string
-          format: date-time
-    ProjectWrite:
-      type: object
-      properties:
-        name:
-          type: string
-          minLength: 1
-          maxLength: 200
-        project_type_code:
-          $ref: "#/components/schemas/ProjectType"
-        description:
-          type: string
-          maxLength: 10000
-        owner_id:
-          type: string
-          format: uuid
-        member_ids:
-          type: array
-          uniqueItems: true
-          items:
-            type: string
-            format: uuid
-        planned_start_date:
-          type: string
-          format: date-time
-        planned_end_date:
-          type: string
-          format: date-time
-        objectives:
-          type: array
-          minItems: 1
-          items:
-            type: string
-            minLength: 1
-            maxLength: 1000
-        milestones:
-          type: array
-          minItems: 1
-          items:
-            $ref: "#/components/schemas/ProjectMilestone"
-    ProjectCreate:
-      allOf:
-        - $ref: "#/components/schemas/ProjectWrite"
-        - type: object
-          required:
-            - name
-            - project_type_code
-            - owner_id
-            - planned_start_date
-            - planned_end_date
-            - objectives
-            - milestones
-    ProjectUpdate:
-      allOf:
-        - $ref: "#/components/schemas/ProjectWrite"
-        - type: object
-          minProperties: 1
-      description: 与创建字段相同，但全部字段可选且至少提供一项。
-    ProjectResponse:
-      type: object
-      required: [data]
-      properties:
-        data:
-          $ref: "#/components/schemas/Project"
-    ProjectListResponse:
-      type: object
-      required: [data, meta]
-      properties:
-        data:
-          type: array
-          items:
-            $ref: "#/components/schemas/Project"
-        meta:
-          $ref: "#/components/schemas/PageMeta"
-    OperationLog:
-      type: object
-      required: [id, action_type, description, changes, actor_display_name, created_at]
+          type: "string"
+          format: "date-time"
+      description: "未赋值的可空日期时间字段按当前配置省略。"
+    ProjectOperationLog:
+      type: "object"
+      required: ["id","action_type","description","changes","created_at"]
       properties:
         id:
-          type: string
-          format: uuid
+          type: "string"
+          format: "uuid"
         action_type:
-          type: string
+          type: "string"
         description:
-          type: string
-        changes:
-          type: object
+          type: "string"
         actor_display_name:
-          type: string
+          type: "string"
+        changes:
+          type: "object"
+          additionalProperties: true
         created_at:
-          type: string
-          format: date-time
+          type: "string"
+          format: "date-time"
+    DocumentCategory:
+      type: "string"
+      enum: ["project_plan","literature","experiment_plan","stage_report","meeting_minutes","other"]
     ProjectDocument:
-      type: object
-      required:
-        - id
-        - name
-        - extension
-        - file_size
-        - category
-        - category_label
-        - version_label
-        - uploaded_by_name
+      type: "object"
+      required: ["id","name","extension","mime_type","file_size","category","category_label","version_label","uploaded_by_id","uploaded_by_name","created_at","updated_at"]
       properties:
         id:
-          type: string
-          format: uuid
+          type: "string"
+          format: "uuid"
         name:
-          type: string
+          type: "string"
         extension:
-          type: string
+          type: "string"
+          description: "从文件名提取的小写扩展名，可能为空串"
         mime_type:
-          type: string
+          type: "string"
+          description: "上传时提供的 MIME 类型或服务默认值，不代表文件内容已鉴定"
         file_size:
-          type: integer
+          type: "integer"
+          format: "int64"
+          minimum: 0
+          description: "正文字节数"
         category:
-          $ref: "#/components/schemas/DocumentCategory"
+          "$ref": "#/components/schemas/DocumentCategory"
         category_label:
-          type: string
+          type: "string"
         version_label:
-          type: string
+          type: "string"
+        uploaded_by_id:
+          type: "string"
+          format: "uuid"
         uploaded_by_name:
-          type: string
+          type: "string"
         created_at:
-          type: string
-          format: date-time
+          type: "string"
+          format: "date-time"
         updated_at:
-          type: string
-          format: date-time
-    DocumentCategory:
-      type: string
-      enum: [project_plan, literature, experiment_plan, stage_report, meeting_minutes, other]
-    DocumentResponse:
-      type: object
-      required: [data]
-      properties:
-        data:
-          $ref: "#/components/schemas/ProjectDocument"
+          type: "string"
+          format: "date-time"
     DocumentListResponse:
-      type: object
-      required: [data, category_counts]
-      properties:
-        data:
-          type: array
-          items:
-            $ref: "#/components/schemas/ProjectDocument"
-        category_counts:
-          type: object
-          additionalProperties:
-            type: integer
-    DashboardResponse:
-      type: object
-      required: [data]
-      properties:
-        data:
-          type: object
-          required:
-            - project_metrics
-            - experiment_metrics
-            - type_distribution
-            - trend
-            - active_projects
+      allOf:
+        -
+          "$ref": "#/components/schemas/Envelope"
+        -
+          type: "object"
+          required: ["data","meta"]
           properties:
-            project_metrics:
-              type: object
-              required: [total, active, archived, at_risk]
-              properties:
-                total:
-                  type: integer
-                active:
-                  type: integer
-                archived:
-                  type: integer
-                at_risk:
-                  type: integer
-            experiment_metrics:
-              type: object
-              required: [total, in_progress, completed]
-              properties:
-                total:
-                  type: integer
-                in_progress:
-                  type: integer
-                completed:
-                  type: integer
-            type_distribution:
-              type: array
+            data:
+              type: "array"
               items:
-                type: object
-                required: [name, project_count, experiment_count]
+                "$ref": "#/components/schemas/ProjectDocument"
+            meta:
+              type: "object"
+              required: ["total","filtered_total","category_counts"]
+              properties:
+                total:
+                  type: "integer"
+                  format: "int64"
+                  minimum: 0
+                  description: "项目全部文档数"
+                filtered_total:
+                  type: "integer"
+                  format: "int64"
+                  minimum: 0
+                  description: "满足当前筛选的文档数"
+                category_counts:
+                  type: "object"
+                  required: ["project_plan","literature","experiment_plan","stage_report","meeting_minutes","other"]
+                  additionalProperties:
+                    type: "integer"
+                    format: "int64"
+                    minimum: 0
+                  description: "项目全部文档按分类统计，零项也返回 0；不受本次筛选影响"
+    ExperimentCreate:
+      type: "object"
+      required: ["project_id","name"]
+      properties:
+        project_id:
+          type: "string"
+          description: "所属项目主键"
+          format: "uuid"
+        name:
+          type: "string"
+          minLength: 1
+        experiment_type:
+          type: "string"
+          description: "缺省为 research"
+        phase:
+          type: "string"
+          description: "缺省为方案设计"
+        purpose:
+          type: "string"
+          description: "缺省为空串"
+        owner_id:
+          type: "string"
+          description: "缺省为当前用户"
+          format: "uuid"
+        estimated_start:
+          type: ["string","null"]
+          description: "ISO 8601 日期时间；未带偏移量时按 Asia/Shanghai 解释"
+        estimated_end:
+          type: ["string","null"]
+          description: "格式同 estimated_start，不能早于 estimated_start"
+        participant_ids:
+          type: "array"
+          items:
+            type: "string"
+            format: "uuid"
+    ExperimentPatch:
+      type: "object"
+      required: []
+      properties:
+        project_id:
+          type: "string"
+          format: "uuid"
+        name:
+          type: "string"
+        experiment_type:
+          type: "string"
+        phase:
+          type: "string"
+        purpose:
+          type: "string"
+        owner_id:
+          type: "string"
+          format: "uuid"
+        participant_ids:
+          type: ["array","null"]
+          items:
+            type: "string"
+            format: "uuid"
+          description: "省略或 null 保留现值；[] 清空；用户须为当前组织有效用户"
+        estimated_start:
+          type: ["string","null"]
+          description: "ISO 8601 日期时间；未带偏移量时按 Asia/Shanghai 解释；省略保留，空串或 null 清空"
+        estimated_end:
+          type: ["string","null"]
+          description: "与 estimated_start 相同格式及清空语义，不能早于 estimated_start"
+    RecordWrite:
+      type: "object"
+      required: []
+      properties:
+        formula_columns:
+          type: ["array","null"]
+          items: {}
+          description: "配方列配置；创建时省略或 null 写入 []，PATCH 时省略或 null 保留"
+        formula_rows:
+          type: ["array","null"]
+          items: {}
+          description: "配方行数据；创建时省略或 null 写入 []，PATCH 时省略或 null 保留"
+        extra_tables:
+          type: ["array","null"]
+          items: {}
+          description: "额外表格；创建时省略或 null 写入 []，PATCH 时省略或 null 保留"
+        process_text:
+          type: ["string","null"]
+          description: "实验过程正文；创建时省略或 null 写入空串，PATCH 时省略或 null 保留"
+        extra_processes:
+          type: ["array","null"]
+          items: {}
+          description: "额外过程；创建时省略或 null 写入 []，PATCH 时省略或 null 保留"
+        result_text:
+          type: ["string","null"]
+          description: "实验结果正文；创建时省略或 null 写入空串，PATCH 时省略或 null 保留"
+      description: "请求顶层 ELN 字段；每个已提交字段整体替换，未提交字段保留。JSON 字段当前未校验元素结构，本契约按前端正常请求数组形态描述。"
+    ExperimentRecord:
+      type: "object"
+      required: ["formula_columns","formula_rows","extra_tables","process_text","extra_processes","process_images","result_text","result_files"]
+      properties:
+        formula_columns:
+          description: "已存储配方列 JSON；正常页面数据为数组"
+        formula_rows:
+          description: "已存储配方行 JSON；正常页面数据为数组"
+        extra_tables:
+          description: "已存储额外表格 JSON；正常页面数据为数组"
+        process_text:
+          type: "string"
+        extra_processes:
+          description: "已存储额外过程 JSON；正常页面数据为数组"
+        process_images:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/ExperimentAttachment"
+          readOnly: true
+        result_text:
+          type: "string"
+        result_files:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/ExperimentAttachment"
+          readOnly: true
+    ExperimentAttachment:
+      type: "object"
+      required: ["id","name","url","size"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        name:
+          type: "string"
+        url:
+          type: "string"
+          description: "已授权的后端附件正文 URL"
+        size:
+          type: "string"
+          description: "展示文本，当前以 B 或 KB 表示"
+      description: "附件元数据投影；正文保存在 PostgreSQL 并通过授权接口读取。"
+    Experiment:
+      type: "object"
+      required: ["id","experiment_no","name","project_id","project_no","project_name","experiment_type","phase","status","purpose","owner_id","owner_display_name","participant_ids","participant_names","record","can_edit","version","created_at","updated_at"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        experiment_no:
+          type: "string"
+        name:
+          type: "string"
+        project_id:
+          type: "string"
+          format: "uuid"
+        project_no:
+          type: "string"
+        project_name:
+          type: "string"
+        experiment_type:
+          type: "string"
+        phase:
+          type: "string"
+        status:
+          type: "string"
+          enum: ["not_started","in_progress","completed"]
+        purpose:
+          type: "string"
+        estimated_start:
+          type: "string"
+          format: "date-time"
+        estimated_end:
+          type: "string"
+          format: "date-time"
+        started_at:
+          type: "string"
+          format: "date-time"
+        completed_at:
+          type: "string"
+          format: "date-time"
+        owner_id:
+          type: "string"
+          format: "uuid"
+        owner_display_name:
+          type: "string"
+        participant_ids:
+          type: "array"
+          items:
+            type: "string"
+            format: "uuid"
+          readOnly: true
+        participant_names:
+          type: "array"
+          items:
+            type: "string"
+          readOnly: true
+        record:
+          "$ref": "#/components/schemas/ExperimentRecord"
+        can_edit:
+          type: "boolean"
+          description: "服务端按状态、权限和用户范围计算；completed 始终为 false"
+          readOnly: true
+        version:
+          type: "integer"
+          minimum: 1
+        created_at:
+          type: "string"
+          format: "date-time"
+        updated_at:
+          type: "string"
+          format: "date-time"
+      description: "未赋值的可空日期时间字段按当前配置省略。"
+    DashboardMetrics:
+      type: "object"
+      required: ["total","active","archived","at_risk","in_progress","completed"]
+      properties:
+        total:
+          type: "integer"
+          format: "int64"
+        active:
+          type: "integer"
+          format: "int64"
+        archived:
+          type: "integer"
+          format: "int64"
+        at_risk:
+          type: "integer"
+          format: "int64"
+        in_progress:
+          type: "integer"
+          format: "int64"
+        completed:
+          type: "integer"
+          format: "int64"
+      description: "项目指标的 in_progress/completed、实验指标的 active/archived/at_risk 固定为 0。"
+    DashboardProject:
+      type: "object"
+      required: ["id","project_no","name","project_type","owner_name","objectives","progress_percent","is_followed","risk_level"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        project_no:
+          type: "string"
+        name:
+          type: "string"
+        project_type:
+          type: "string"
+        owner_name:
+          type: "string"
+        objectives:
+          type: "array"
+          items:
+            type: "string"
+        planned_start_date:
+          type: ["string","null"]
+          format: "date-time"
+        planned_end_date:
+          type: ["string","null"]
+          format: "date-time"
+        milestone:
+          anyOf:
+            -
+              "$ref": "#/components/schemas/ProjectMilestone"
+            -
+              type: "null"
+        progress_percent:
+          type: "integer"
+        is_followed:
+          type: "boolean"
+        risk_level:
+          type: "string"
+          enum: ["normal","countdown","overdue"]
+        risk_days:
+          type: ["integer","null"]
+          description: "按 Asia/Shanghai 当前日期到里程碑日期的天数；无有效日期时无值"
+    Dashboard:
+      type: "object"
+      required: ["project_metrics","experiment_metrics","type_distribution","trend","active_projects"]
+      properties:
+        project_metrics:
+          "$ref": "#/components/schemas/DashboardMetrics"
+        experiment_metrics:
+          "$ref": "#/components/schemas/DashboardMetrics"
+        type_distribution:
+          type: "array"
+          items:
+            type: "object"
+            required: ["name","project_count","experiment_count"]
+            properties:
+              name:
+                type: "string"
+              project_count:
+                type: "integer"
+                format: "int64"
+              experiment_count:
+                type: "integer"
+                format: "int64"
+        trend:
+          type: "object"
+          required: ["dates","series","selected_project_id","project_options"]
+          properties:
+            dates:
+              type: "array"
+              items:
+                type: "string"
+                format: "date"
+              minItems: 30
+              maxItems: 30
+            series:
+              type: "array"
+              items:
+                type: "object"
+                required: ["name","values"]
                 properties:
                   name:
-                    $ref: "#/components/schemas/ProjectType"
-                  project_count:
-                    type: integer
-                  experiment_count:
-                    type: integer
-            trend:
-              type: object
-              required: [dates, series, selected_project_id, project_options]
-              properties:
-                dates:
-                  type: array
-                  items:
-                    type: string
-                    format: date
-                series:
-                  type: array
-                  items:
-                    type: object
-                    required: [name, values]
-                    properties:
-                      name:
-                        type: string
-                      values:
-                        type: array
-                        items:
-                          type: integer
-                selected_project_id:
-                  type: string
-                project_options:
-                  type: array
-                  items:
-                    type: object
-                    required: [id, project_no, name]
-                    properties:
-                      id:
-                        type: string
-                        format: uuid
-                      project_no:
-                        type: string
-                      name:
-                        type: string
-            active_projects:
-              type: array
+                    type: "string"
+                  values:
+                    type: "array"
+                    items:
+                      type: "integer"
+                      format: "int64"
+                    minItems: 30
+                    maxItems: 30
+            selected_project_id:
+              type: "string"
+              description: "project_id 查询参数回显；未提供时为空串，当前不改变统计数据"
+            project_options:
+              type: "array"
               items:
-                type: object
-                additionalProperties: true
-    ExperimentStatus:
-      type: string
-      enum: [not_started, in_progress, completed]
-    ExperimentType:
-      type: string
-      enum: [单体, 聚合, 其他]
-    FormulaColumn:
-      type: object
-      required: [id, label]
-      properties:
-        id:
-          type: string
-          minLength: 1
-          maxLength: 64
-        label:
-          type: string
-          maxLength: 100
-    ExtraTable:
-      type: object
-      required: [id, name, columns, rows]
-      properties:
-        id:
-          type: string
-        name:
-          type: string
-          maxLength: 100
-        columns:
-          type: array
-          minItems: 1
+                type: "object"
+                required: ["id","project_no","name"]
+                properties:
+                  id:
+                    type: "string"
+                    format: "uuid"
+                  project_no:
+                    type: "string"
+                  name:
+                    type: "string"
+        active_projects:
+          type: "array"
           items:
-            $ref: "#/components/schemas/FormulaColumn"
-        rows:
-          type: array
-          items:
-            type: object
-    ExtraProcess:
-      type: object
-      required: [id, name, content]
-      properties:
-        id:
-          type: string
-        name:
-          type: string
-          maxLength: 100
-        content:
-          type: string
-          maxLength: 1000
-    AttachmentSummary:
-      type: object
-      required: [id, name, size, url]
-      properties:
-        id:
-          type: string
-          format: uuid
-        name:
-          type: string
-        size:
-          type: string
-        url:
-          type: string
-    ExperimentRecord:
-      type: object
-      required:
-        - formula_columns
-        - formula_rows
-        - extra_tables
-        - process_text
-        - extra_processes
-        - process_images
-        - result_text
-        - result_files
-      properties:
-        formula_columns:
-          type: array
-          items:
-            $ref: "#/components/schemas/FormulaColumn"
-        formula_rows:
-          type: array
-          items:
-            type: object
-        extra_tables:
-          type: array
-          items:
-            $ref: "#/components/schemas/ExtraTable"
-        process_text:
-          type: string
-        extra_processes:
-          type: array
-          items:
-            $ref: "#/components/schemas/ExtraProcess"
-        process_images:
-          type: array
-          description: 从 experiment_attachment 实时派生。
-          items:
-            $ref: "#/components/schemas/AttachmentSummary"
-        result_text:
-          type: string
-        result_files:
-          type: array
-          description: 从 experiment_attachment 实时派生。
-          items:
-            $ref: "#/components/schemas/AttachmentSummary"
-    Experiment:
-      type: object
-      required:
-        - id
-        - experiment_no
-        - name
-        - project_id
-        - project_no
-        - project_name
-        - experiment_type
-        - status
-        - purpose
-        - owner_id
-        - owner_display_name
-        - participant_ids
-        - participant_names
-        - record
-        - version
-      properties:
-        id:
-          type: string
-          format: uuid
-        experiment_no:
-          type: string
-        name:
-          type: string
-        project_id:
-          type: string
-          format: uuid
-        project_no:
-          type: string
-        project_name:
-          type: string
-        experiment_type:
-          $ref: "#/components/schemas/ExperimentType"
-        phase:
-          type: string
-        status:
-          $ref: "#/components/schemas/ExperimentStatus"
-        purpose:
-          type: string
-        estimated_start:
-          type: [string, "null"]
-          format: date-time
-        estimated_end:
-          type: [string, "null"]
-          format: date-time
-        started_at:
-          type: [string, "null"]
-          format: date-time
-        completed_at:
-          type: [string, "null"]
-          format: date-time
-        owner_id:
-          type: string
-          format: uuid
-        owner_display_name:
-          type: string
-        participant_ids:
-          type: array
-          items:
-            type: string
-            format: uuid
-        participant_names:
-          type: array
-          items:
-            type: string
-        record:
-          $ref: "#/components/schemas/ExperimentRecord"
-        version:
-          type: integer
-          minimum: 1
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-    ExperimentWrite:
-      type: object
-      properties:
-        project_id:
-          type: string
-          format: uuid
-        name:
-          type: string
-          minLength: 1
-          maxLength: 200
-        experiment_type:
-          $ref: "#/components/schemas/ExperimentType"
-        purpose:
-          type: string
-          maxLength: 10000
-        estimated_start:
-          type: [string, "null"]
-          format: date-time
-        estimated_end:
-          type: [string, "null"]
-          format: date-time
-        owner_id:
-          type: string
-          format: uuid
-        participant_ids:
-          type: array
-          uniqueItems: true
-          items:
-            type: string
-            format: uuid
-        formula_columns:
-          type: array
-          minItems: 1
-          items:
-            $ref: "#/components/schemas/FormulaColumn"
-        formula_rows:
-          type: array
-          items:
-            type: object
-        extra_tables:
-          type: array
-          items:
-            $ref: "#/components/schemas/ExtraTable"
-        process_text:
-          type: string
-          maxLength: 50000
-        extra_processes:
-          type: array
-          items:
-            $ref: "#/components/schemas/ExtraProcess"
-        result_text:
-          type: string
-          maxLength: 1000
-    ExperimentCreate:
-      allOf:
-        - $ref: "#/components/schemas/ExperimentWrite"
-        - type: object
-          required: [project_id, name, experiment_type, purpose]
-    ExperimentUpdate:
-      allOf:
-        - $ref: "#/components/schemas/ExperimentWrite"
-        - type: object
-          minProperties: 1
-    ExperimentResponse:
-      type: object
-      required: [data]
-      properties:
-        data:
-          $ref: "#/components/schemas/Experiment"
-    ExperimentListResponse:
-      type: object
-      required: [data, meta]
-      properties:
-        data:
-          type: array
-          items:
-            $ref: "#/components/schemas/Experiment"
-        meta:
-          $ref: "#/components/schemas/PageMeta"
+            "$ref": "#/components/schemas/DashboardProject"

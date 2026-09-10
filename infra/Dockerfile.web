@@ -1,0 +1,24 @@
+# syntax=docker/dockerfile:1
+# 官方多架构索引摘要于 2026-09-08 核验；版本标签保留可读性，摘要防止标签漂移。
+FROM node:24-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e AS build
+WORKDIR /workspace
+RUN npm install --global pnpm@11.17.0
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile
+COPY frontend/ ./
+RUN pnpm test && pnpm build
+
+# 官方稳定版于 2026-09-08 核验；不使用会跨稳定分支漂移的 latest/alpine 标签。
+# 来源：https://nginx.org/en/download.html 和 https://hub.docker.com/_/nginx
+FROM nginx:1.30.4-alpine@sha256:dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c AS runtime
+ENV TZ=Asia/Shanghai \
+    MATERIALS_LAB_PUBLIC_PORT=15105
+COPY infra/nginx/nginx.conf /etc/nginx/nginx.conf
+COPY infra/nginx/ /etc/nginx/materials-lab/
+COPY --from=build /workspace/dist/ /usr/share/nginx/html/
+USER 101:101
+EXPOSE 8080
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=5 \
+    CMD wget --quiet --spider http://127.0.0.1:8081/healthz || exit 1
+ENTRYPOINT ["/bin/sh", "/etc/nginx/materials-lab/entrypoint.sh"]
+CMD ["nginx", "-g", "daemon off;"]

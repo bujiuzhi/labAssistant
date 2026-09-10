@@ -4,11 +4,16 @@ import com.materialslab.api.common.model.ApiResponse;
 import com.materialslab.api.common.model.PageResponse;
 import com.materialslab.api.identity.domain.ManagedRoleOption;
 import com.materialslab.api.identity.domain.ManagedUser;
+import com.materialslab.api.identity.domain.RegistrationInvitation;
+import com.materialslab.api.identity.domain.RegistrationInvitationIssue;
 import com.materialslab.api.identity.security.UserPrincipal;
 import com.materialslab.api.identity.service.IdentityService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import java.util.List;
 import java.util.Map;
@@ -46,7 +51,13 @@ public class AuthController {
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(authentication);
         SecurityContextHolder.setContext(context);
-        httpRequest.getSession(true).setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, context);
+        HttpSession session = httpRequest.getSession(false);
+        if (session == null) {
+            session = httpRequest.getSession(true);
+        } else {
+            httpRequest.changeSessionId();
+        }
+        session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, context);
         return ResponseEntity.ok(ApiResponse.of(identityService.session((UserPrincipal) authentication.getPrincipal())));
     }
 
@@ -57,9 +68,27 @@ public class AuthController {
     /** 注销并失效服务器会话。 */
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(HttpServletRequest request, HttpServletResponse response) {
-        request.getSession(false).invalidate();
+        HttpSession session = request.getSession(false);
+        if (session != null) session.invalidate();
         SecurityContextHolder.clearContext();
         return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
+    }
+
+    /** 使用有效邀请码注册普通用户；不自动登录、不允许自行选择组织或超级管理员角色。 */
+    @PostMapping("/register")
+    public ResponseEntity<ApiResponse<Void>> register(@RequestBody tools.jackson.databind.JsonNode payload) {
+        identityService.registerByInvitation(payload);
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.of(null));
+    }
+
+    /** 修改当前登录用户密码，成功后立即失效当前会话。 */
+    @PostMapping("/password")
+    public ResponseEntity<Void> changePassword(@Valid @RequestBody ChangePasswordRequest request, HttpServletRequest httpRequest) {
+        identityService.changeOwnPassword(IdentityService.currentPrincipal(), request.currentPassword(), request.newPassword());
+        HttpSession session = httpRequest.getSession(false);
+        if (session != null) session.invalidate();
+        SecurityContextHolder.clearContext();
+        return ResponseEntity.noContent().build();
     }
 
     /** 查询当前组织的有效用户选项。 */
@@ -83,6 +112,26 @@ public class AuthController {
     @GetMapping("/roles/options")
     public ApiResponse<List<ManagedRoleOption>> roleOptions() {
         return ApiResponse.of(identityService.managedRoleOptions(IdentityService.currentPrincipal()));
+    }
+
+    /** 查询当前组织的邀请码元数据；邀请码明文只在签发响应中出现一次。 */
+    @GetMapping("/invitations")
+    public ApiResponse<List<RegistrationInvitation>> invitations() {
+        return ApiResponse.of(identityService.listRegistrationInvitations(IdentityService.currentPrincipal()));
+    }
+
+    /** 签发绑定角色和有效期的一次性邀请码，仅超级管理员可访问。 */
+    @PostMapping("/invitations")
+    public ResponseEntity<ApiResponse<RegistrationInvitationIssue>> createInvitation(@Valid @RequestBody CreateInvitationRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.of(identityService.createRegistrationInvitation(
+                IdentityService.currentPrincipal(), request.roleCode(), request.validForHours())));
+    }
+
+    /** 撤销当前组织尚未使用的邀请码，仅超级管理员可访问。 */
+    @PostMapping("/invitations/{invitationId}/revoke")
+    public ResponseEntity<Void> revokeInvitation(@PathVariable java.util.UUID invitationId) {
+        identityService.revokeRegistrationInvitation(IdentityService.currentPrincipal(), invitationId);
+        return ResponseEntity.noContent().build();
     }
 
     /** 创建组织用户，仅超级管理员可访问。 */
@@ -110,4 +159,8 @@ public class AuthController {
     public record LoginRequest(@NotBlank String username, @NotBlank String password) { }
     /** 密码重置请求。 */
     public record ResetPasswordRequest(@NotBlank String password) { }
+    /** 当前用户改密请求；组织和身份均来自现有会话。 */
+    public record ChangePasswordRequest(@NotBlank String currentPassword, @NotBlank String newPassword) { }
+    /** 管理员签发邀请码请求；未传有效期时默认为 168 小时。 */
+    public record CreateInvitationRequest(@NotBlank String roleCode, @Min(1) @Max(720) Integer validForHours) { }
 }

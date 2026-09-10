@@ -13,6 +13,9 @@ test-results/
 .env
 .env.*
 !.env.example
+!infra/.env.production.example
+# 本项目的部署密钥、持久化数据和隔离验收产物
+data/
 
 # 编辑器与系统
 .DS_Store

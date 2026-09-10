@@ -5,12 +5,14 @@ import com.materialslab.api.identity.security.UserPrincipal;
 import com.materialslab.api.identity.service.IdentityService;
 import com.materialslab.api.projects.domain.ProjectDocumentListResponse;
 import com.materialslab.api.projects.domain.ProjectDocumentResponse;
+import com.materialslab.api.projects.service.ProjectDocumentFilePolicy;
 import com.materialslab.api.projects.service.ProjectDocumentService;
 import com.materialslab.api.projects.service.ProjectDocumentService.DocumentContent;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -85,13 +87,15 @@ public class ProjectDocumentController {
     }
 
     private ResponseEntity<byte[]> fileResponse(DocumentContent source, boolean download) {
-        MediaType mediaType;
-        try { mediaType = MediaType.parseMediaType(source.document().mimeType()); }
-        catch (IllegalArgumentException error) { mediaType = MediaType.APPLICATION_OCTET_STREAM; }
-        ContentDisposition disposition = download
+        MediaType mediaType = ProjectDocumentFilePolicy.responseMediaType(source.document().mimeType());
+        boolean inline = !download && ProjectDocumentFilePolicy.isSafeInlinePreview(source.document().mimeType());
+        ContentDisposition disposition = !inline
                 ? ContentDisposition.attachment().filename(source.document().name(), StandardCharsets.UTF_8).build()
                 : ContentDisposition.inline().filename(source.document().name(), StandardCharsets.UTF_8).build();
         return ResponseEntity.ok().contentType(mediaType).contentLength(source.content().length)
-                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString()).body(source.content());
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .header("X-Content-Type-Options", "nosniff")
+                .header("Content-Security-Policy", "default-src 'none'; base-uri 'none'; frame-ancestors 'self'")
+                .cacheControl(CacheControl.noStore().cachePrivate()).body(source.content());
     }
 }

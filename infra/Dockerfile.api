@@ -1,0 +1,28 @@
+# syntax=docker/dockerfile:1
+# 官方多架构索引摘要于 2026-09-08 核验；版本标签保留可读性，摘要防止标签漂移。
+FROM maven:3.9.12-eclipse-temurin-25@sha256:4f82a03a7d6679281952d628131299b1be88d7030a49c6a2b7d2ba2642e44e3e AS build
+WORKDIR /workspace
+COPY backend/pom.xml ./pom.xml
+COPY backend/src ./src
+# 构建过程执行测试；不以跳过测试的包作为生产默认产物。
+RUN --mount=type=cache,target=/root/.m2 mvn --batch-mode --no-transfer-progress verify
+
+FROM eclipse-temurin:25-jre-noble@sha256:b4c93a50fc67612798db73d68ca3b0ee4ebdd51736e59cca370e689b9797037e AS runtime
+ENV TZ=Asia/Shanghai \
+    JAVA_TOOL_OPTIONS="-Duser.timezone=Asia/Shanghai" \
+    SERVER_ADDRESS=0.0.0.0 \
+    SERVER_PORT=8000 \
+    SPRING_PROFILES_ACTIVE=prod
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 materialslab \
+    && useradd --uid 10001 --gid materialslab --no-create-home --shell /usr/sbin/nologin materialslab
+WORKDIR /app
+COPY --from=build --chown=10001:10001 /workspace/target/materials-lab-api-*.jar /app/application.jar
+USER 10001:10001
+EXPOSE 8000
+HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=5 \
+    CMD curl --fail --silent --show-error --max-time 4 http://127.0.0.1:8000/api/v1/health/ready || exit 1
+# 保留可覆盖命令，供隔离的一次性生产账号初始化任务使用同一镜像。
+CMD ["java", "-jar", "/app/application.jar"]

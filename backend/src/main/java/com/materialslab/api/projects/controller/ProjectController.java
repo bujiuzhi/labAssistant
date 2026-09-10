@@ -59,14 +59,14 @@ public class ProjectController {
 
     /** 更新项目。 */
     @PatchMapping("/projects/{projectKey}")
-    public ResponseEntity<ApiResponse<ProjectResponse>> update(@PathVariable String projectKey, @RequestHeader(HttpHeaders.IF_MATCH) String ifMatch, @RequestBody JsonNode payload) {
+    public ResponseEntity<ApiResponse<ProjectResponse>> update(@PathVariable String projectKey, @RequestHeader(name=HttpHeaders.IF_MATCH, required=false) String ifMatch, @RequestBody JsonNode payload) {
         UserPrincipal principal = IdentityService.currentPrincipal(); Project project = projectService.update(principal, projectKey, version(ifMatch), payload);
         return ResponseEntity.ok().eTag(String.valueOf(project.version())).body(ApiResponse.of(projectService.response(project)));
     }
 
     /** 归档项目。 */
     @PostMapping("/projects/{projectKey}/archive")
-    public ResponseEntity<ApiResponse<ProjectResponse>> archive(@PathVariable String projectKey, @RequestHeader(HttpHeaders.IF_MATCH) String ifMatch) {
+    public ResponseEntity<ApiResponse<ProjectResponse>> archive(@PathVariable String projectKey, @RequestHeader(name=HttpHeaders.IF_MATCH, required=false) String ifMatch) {
         UserPrincipal principal = IdentityService.currentPrincipal(); Project project = projectService.archive(principal, projectKey, version(ifMatch));
         return ResponseEntity.ok().eTag(String.valueOf(project.version())).body(ApiResponse.of(projectService.response(project)));
     }

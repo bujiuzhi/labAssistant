@@ -17,9 +17,9 @@ import type {
   ManagedUserCreateInput,
   ManagedUserStatus,
   ManagedUserUpdateInput,
+  RegistrationInvitation,
+  RegistrationInvitationCreated,
 } from "@/types/api";
-
-const DEFAULT_PASSWORD = "00000000";
 
 const loading = ref(false);
 const submitting = ref(false);
@@ -28,8 +28,12 @@ const roleOptions = ref<ManagedRoleOption[]>([]);
 const total = ref(0);
 const userDialogVisible = ref(false);
 const passwordDialogVisible = ref(false);
+const invitationDialogVisible = ref(false);
+const invitationCodeDialogVisible = ref(false);
 const editingUser = ref<ManagedUser | null>(null);
 const passwordTarget = ref<ManagedUser | null>(null);
+const invitations = ref<RegistrationInvitation[]>([]);
+const createdInvitation = ref<RegistrationInvitationCreated | null>(null);
 const filters = reactive({
   page: 1,
   pageSize: 20,
@@ -41,18 +45,25 @@ const userForm = reactive<ManagedUserCreateInput & { passwordConfirm: string }>(
   username: "",
   display_name: "",
   email: "",
-  password: DEFAULT_PASSWORD,
-  passwordConfirm: DEFAULT_PASSWORD,
+  password: "",
+  passwordConfirm: "",
   status: "active",
   role_codes: ["researcher"],
 });
 const passwordForm = reactive({
-  password: DEFAULT_PASSWORD,
-  passwordConfirm: DEFAULT_PASSWORD,
+  password: "",
+  passwordConfirm: "",
+});
+const invitationForm = reactive({
+  role_code: "researcher",
+  valid_for_hours: 168,
 });
 
 const dialogTitle = computed(() =>
   editingUser.value ? "编辑用户" : "新建用户",
+);
+const registrationRoleOptions = computed(() =>
+  roleOptions.value.filter((role) => role.role_code !== "super_admin"),
 );
 
 const statusOptions: Array<{ label: string; value: ManagedUserStatus }> = [
@@ -138,6 +149,74 @@ async function loadRoleOptions(): Promise<void> {
   }
 }
 
+/** 读取当前组织的邀请码元数据；邀请码明文不可再次获取。 */
+async function loadInvitations(): Promise<void> {
+  try {
+    invitations.value = await userApi.listRegistrationInvitations();
+  } catch (error) {
+    const problem = getProblemDetail(error);
+    ElMessage.error(problem?.detail ?? "邀请码列表加载失败");
+  }
+}
+
+/** 打开邀请码管理窗口。 */
+async function openInvitationDialog(): Promise<void> {
+  invitationForm.role_code = "researcher";
+  invitationForm.valid_for_hours = 168;
+  invitationDialogVisible.value = true;
+  await loadInvitations();
+}
+
+/** 签发一个绑定角色和有效期的邀请码。 */
+async function submitInvitation(): Promise<void> {
+  if (submitting.value) return;
+  if (!invitationForm.role_code) {
+    ElMessage.warning("请选择注册后绑定的角色");
+    return;
+  }
+  if (!Number.isInteger(invitationForm.valid_for_hours) || invitationForm.valid_for_hours < 1 || invitationForm.valid_for_hours > 720) {
+    ElMessage.warning("邀请码有效期须为 1 至 720 小时");
+    return;
+  }
+  submitting.value = true;
+  try {
+    createdInvitation.value = await userApi.createRegistrationInvitation({ ...invitationForm });
+    invitationCodeDialogVisible.value = true;
+    await loadInvitations();
+  } catch (error) {
+    const problem = getProblemDetail(error);
+    ElMessage.error(problem?.detail ?? "邀请码签发失败");
+  } finally {
+    submitting.value = false;
+  }
+}
+
+/** 撤销尚未使用的邀请码。 */
+async function revokeInvitation(invitation: RegistrationInvitation): Promise<void> {
+  if (submitting.value) return;
+  submitting.value = true;
+  try {
+    await userApi.revokeRegistrationInvitation(invitation.id);
+    ElMessage.success("邀请码已撤销");
+    await loadInvitations();
+  } catch (error) {
+    const problem = getProblemDetail(error);
+    ElMessage.error(problem?.detail ?? "邀请码撤销失败");
+  } finally {
+    submitting.value = false;
+  }
+}
+
+/** 返回邀请码状态中文名称。 */
+function invitationStatusLabel(status: RegistrationInvitation["status"]): string {
+  return { active: "可使用", used: "已使用", revoked: "已撤销", expired: "已过期" }[status];
+}
+
+/** 返回邀请码状态的标签外观。 */
+function invitationStatusTagType(status: RegistrationInvitation["status"]): "success" | "info" | "danger" {
+  return status === "active" ? "success" : status === "used" ? "info" : "danger";
+}
+
 /**
  * 应用筛选条件
  */
@@ -165,8 +244,8 @@ function openCreateDialog(): void {
   userForm.username = "";
   userForm.display_name = "";
   userForm.email = "";
-  userForm.password = DEFAULT_PASSWORD;
-  userForm.passwordConfirm = DEFAULT_PASSWORD;
+  userForm.password = "";
+  userForm.passwordConfirm = "";
   userForm.status = "active";
   userForm.role_codes = ["researcher"];
   userDialogVisible.value = true;
@@ -212,8 +291,9 @@ function validateUserForm(): boolean {
     return false;
   }
   if (!editingUser.value) {
-    if (userForm.password.length < 8) {
-      ElMessage.warning("初始密码至少8位");
+    const passwordMessage = passwordValidationMessage(userForm.password, userForm.username);
+    if (passwordMessage) {
+      ElMessage.warning(passwordMessage);
       return false;
     }
     if (userForm.password !== userForm.passwordConfirm) {
@@ -272,8 +352,8 @@ function openPasswordDialog(user: ManagedUser): void {
     return;
   }
   passwordTarget.value = user;
-  passwordForm.password = DEFAULT_PASSWORD;
-  passwordForm.passwordConfirm = DEFAULT_PASSWORD;
+  passwordForm.password = "";
+  passwordForm.passwordConfirm = "";
   passwordDialogVisible.value = true;
 }
 
@@ -282,8 +362,9 @@ function openPasswordDialog(user: ManagedUser): void {
  */
 async function submitPasswordReset(): Promise<void> {
   if (!passwordTarget.value || submitting.value) return;
-  if (passwordForm.password.length < 8) {
-    ElMessage.warning("新密码至少8位");
+  const passwordMessage = passwordValidationMessage(passwordForm.password, passwordTarget.value.username);
+  if (passwordMessage) {
+    ElMessage.warning(passwordMessage);
     return;
   }
   if (passwordForm.password !== passwordForm.passwordConfirm) {
@@ -306,6 +387,20 @@ async function submitPasswordReset(): Promise<void> {
   }
 }
 
+/** 返回与服务端一致的密码策略提示；服务端仍是最终校验边界。 */
+function passwordValidationMessage(password: string, username: string): string | null {
+  if (
+    password.length < 8 ||
+    /\s/.test(password) ||
+    !/\p{L}/u.test(password) ||
+    !/\d/.test(password) ||
+    password.toLocaleLowerCase() === username.trim().toLocaleLowerCase()
+  ) {
+    return "密码须至少8位，包含字母和数字，不含空白且不得与用户名相同";
+  }
+  return null;
+}
+
 onMounted(async () => {
   await Promise.all([loadUsers(), loadRoleOptions()]);
 });
@@ -320,9 +415,10 @@ onMounted(async () => {
           创建组织用户，维护账号状态与系统角色。超级管理员账号受保护。
         </p>
       </div>
-      <el-button type="primary" :icon="Plus" @click="openCreateDialog">
-        新建用户
-      </el-button>
+      <div class="header-actions">
+        <el-button :icon="Key" @click="openInvitationDialog">邀请码</el-button>
+        <el-button type="primary" :icon="Plus" @click="openCreateDialog">新建用户</el-button>
+      </div>
     </header>
 
     <article class="content-panel user-panel">
@@ -507,7 +603,7 @@ onMounted(async () => {
                 show-password
                 maxlength="128"
               />
-              <span class="field-help">默认密码为8个0</span>
+              <span class="field-help">至少8位，包含字母和数字；不得含空白或与用户名相同</span>
             </el-form-item>
             <el-form-item label="确认初始密码" required>
               <el-input
@@ -546,7 +642,7 @@ onMounted(async () => {
             show-password
             maxlength="128"
           />
-          <span class="field-help">默认密码为8个0</span>
+          <span class="field-help">至少8位，包含字母和数字；不得含空白或与用户名相同</span>
         </el-form-item>
         <el-form-item label="确认新密码" required>
           <el-input
@@ -568,6 +664,69 @@ onMounted(async () => {
         </el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="invitationDialogVisible"
+      title="邀请码管理"
+      width="760px"
+      destroy-on-close
+      align-center
+    >
+      <p class="password-description">
+        邀请码仅显示一次，注册后自动绑定所选普通角色；不能用于创建超级管理员。
+      </p>
+      <el-form inline class="invitation-form">
+        <el-form-item label="注册角色" required>
+          <el-select v-model="invitationForm.role_code" class="invitation-role">
+            <el-option
+              v-for="role in registrationRoleOptions"
+              :key="role.role_code"
+              :label="role.name"
+              :value="role.role_code"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="有效期（小时）" required>
+          <el-input-number v-model="invitationForm.valid_for_hours" :min="1" :max="720" :step="24" />
+        </el-form-item>
+        <el-button type="primary" :loading="submitting" @click="submitInvitation">签发邀请码</el-button>
+      </el-form>
+      <el-table :data="invitations" max-height="320">
+        <el-table-column prop="role_name" label="注册角色" min-width="120" />
+        <el-table-column label="状态" width="96">
+          <template #default="{ row }">
+            <el-tag :type="invitationStatusTagType(row.status)" size="small">{{ invitationStatusLabel(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="过期时间" min-width="170">
+          <template #default="{ row }">{{ formatDateTime(row.expires_at) }}</template>
+        </el-table-column>
+        <el-table-column label="签发时间" min-width="170">
+          <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="88">
+          <template #default="{ row }">
+            <el-button v-if="row.status === 'active'" type="danger" link :loading="submitting" @click="revokeInvitation(row)">撤销</el-button>
+            <span v-else>—</span>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
+
+    <el-dialog
+      v-model="invitationCodeDialogVisible"
+      title="请立即保存邀请码"
+      width="520px"
+      append-to-body
+      align-center
+    >
+      <el-alert title="关闭此窗口后，系统不会再次显示邀请码明文。请通过受控渠道发给对应成员。" type="warning" :closable="false" show-icon />
+      <p class="invitation-code">{{ createdInvitation?.invitation_code }}</p>
+      <p class="password-description">角色：{{ createdInvitation?.role_code }}；过期：{{ createdInvitation ? formatDateTime(createdInvitation.expires_at) : "—" }}</p>
+      <template #footer>
+        <el-button type="primary" @click="invitationCodeDialogVisible = false">我已保存</el-button>
+      </template>
+    </el-dialog>
   </section>
 </template>
 
@@ -575,6 +734,8 @@ onMounted(async () => {
 .user-page {
   padding-top: 4px;
 }
+
+.header-actions { display: flex; gap: 10px; }
 
 .user-panel {
   display: flex;
@@ -602,6 +763,10 @@ onMounted(async () => {
 .role-select {
   width: 150px;
 }
+
+.invitation-form { display: flex; align-items: center; margin-bottom: 12px; }
+.invitation-role { width: 180px; }
+.invitation-code { padding: 14px; overflow-wrap: anywhere; color: #172033; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 16px; font-weight: 700; letter-spacing: 0.04em; background: #f4f7fb; border: 1px solid #dfe6f0; border-radius: 6px; }
 
 .filter-summary {
   margin-left: auto;

@@ -29,10 +29,6 @@ const VueOfficeExcel = defineAsyncComponent(async () => {
   const module = await import("@vue-office/excel");
   return module.default as unknown as Component;
 });
-const VueOfficePdf = defineAsyncComponent(async () => {
-  const module = await import("@vue-office/pdf");
-  return module.default as unknown as Component;
-});
 const VueOfficePptx = defineAsyncComponent(async () => {
   const module = await import("@vue-office/pptx");
   return module.default as unknown as Component;
@@ -70,7 +66,7 @@ const previewMethodLabel = computed(() => {
     docx: "Word 组件预览",
     spreadsheet: "Excel 组件预览",
     pptx: "PowerPoint 组件预览",
-    pdf: "PDF 组件预览",
+    pdf: "浏览器 PDF 预览",
     "native-pdf": "浏览器 PDF 预览",
     image: "图片预览",
     text: normalizedExtension.value === "csv" ? "CSV 表格预览" : "文本预览",
@@ -166,7 +162,7 @@ function handleRendererError(): void {
     void useServerPdfFallback();
     return;
   }
-  if (["pdf", "converted-pdf"].includes(previewMode.value)) {
+  if (previewMode.value === "converted-pdf") {
     previewMode.value = "native-pdf";
     loading.value = false;
     errorMessage.value = "";
@@ -258,19 +254,6 @@ onBeforeUnmount(() => {
       v-else-if="previewMode === 'pptx' && sourceData && !errorMessage"
       :key="viewerKey"
       class="office-viewer presentation-viewer"
-      :src="sourceData"
-      @rendered="handleRendered"
-      @error="handleRendererError"
-    />
-
-    <VueOfficePdf
-      v-else-if="
-        ['pdf', 'converted-pdf'].includes(previewMode) &&
-        sourceData &&
-        !errorMessage
-      "
-      :key="viewerKey"
-      class="office-viewer pdf-component-viewer"
       :src="sourceData"
       @rendered="handleRendered"
       @error="handleRendererError"

@@ -1,0 +1,219 @@
+name: ${MATERIALS_LAB_COMPOSE_PROJECT:?请设置独立生产项目名}
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-api-environment: &api-environment
+  SPRING_PROFILES_ACTIVE: prod
+  SPRING_CONFIG_IMPORT: configtree:/run/secrets/
+  JDBC_DATABASE_URL: jdbc:postgresql://postgres:5432/${MATERIALS_LAB_DB_NAME:?请设置生产库名}
+  POSTGRES_PROD_USER: ${MATERIALS_LAB_DB_USER:?请设置生产应用角色}
+  # 经明确授权的少量用户公网 IP:端口访问，入口为 HTTP；会话不带 Secure 属性。
+  SESSION_COOKIE_SECURE: "false"
+  SERVER_FORWARD_HEADERS_STRATEGY: framework
+  SERVER_ADDRESS: 0.0.0.0
+  SERVER_PORT: "8000"
+  TZ: Asia/Shanghai
+  JAVA_TOOL_OPTIONS: -Duser.timezone=Asia/Shanghai -XX:MaxRAMPercentage=70
+  DATABASE_MAX_POOL_SIZE: ${MATERIALS_LAB_DB_POOL_SIZE:-20}
+  OBJECT_STORAGE_ENABLED: "true"
+  OBJECT_STORAGE_ENDPOINT_URL: http://rustfs:9000
+  OBJECT_STORAGE_BUCKET_NAME: ${MATERIALS_LAB_OBJECT_STORAGE_BUCKET:?请设置对象存储桶名}
+  OBJECT_STORAGE_REGION: us-east-1
+
+services:
+  postgres:
+    # 标签便于审计，官方多架构索引摘要锁定实际内容，避免供应链标签漂移。
+    image: postgres:18.4-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+      MATERIALS_LAB_DB_NAME: ${MATERIALS_LAB_DB_NAME}
+      MATERIALS_LAB_DB_USER: ${MATERIALS_LAB_DB_USER}
+      MATERIALS_LAB_DB_PASSWORD_FILE: /run/secrets/database_password
+      TZ: Asia/Shanghai
+      PGTZ: Asia/Shanghai
+    command: ["postgres", "-c", "timezone=Asia/Shanghai", "-c", "log_timezone=Asia/Shanghai"]
+    secrets:
+      - postgres_password
+      - database_password
+    volumes:
+      - type: bind
+        source: ${MATERIALS_LAB_DATA_ROOT:?请设置独立持久目录}/postgres
+        target: /var/lib/postgresql
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./postgres/10-create-application-database.sh
+        target: /docker-entrypoint-initdb.d/10-create-application-database.sh
+        read_only: true
+    networks: [database]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d \"$$MATERIALS_LAB_DB_NAME\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    logging: *logging
+
+  api:
+    image: materials-lab-api:${MATERIALS_LAB_RELEASE:?请设置不可变发布标签}
+    # 运行时 Compose 只使用已验证的发布镜像，绝不在启动或升级时构建源码。
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs: ["/tmp:size=256m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment: *api-environment
+    secrets:
+      - source: database_password
+        target: spring.datasource.password
+      - source: object_storage_access_key
+        target: materials-lab.object-storage.access-key
+      - source: object_storage_secret_key
+        target: materials-lab.object-storage.secret-key
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rustfs:
+        condition: service_healthy
+    networks: [database, application, storage]
+    stop_grace_period: 45s
+    logging: *logging
+
+  web:
+    image: materials-lab-web:${MATERIALS_LAB_RELEASE}
+    # 运行时 Compose 只使用已验证的发布镜像，绝不在启动或升级时构建源码。
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp:size=128m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      MATERIALS_LAB_PUBLIC_HOST: ${MATERIALS_LAB_PUBLIC_HOST:?请设置访问 IP}
+      MATERIALS_LAB_PUBLIC_PORT: ${MATERIALS_LAB_PUBLIC_PORT:-15105}
+      TZ: Asia/Shanghai
+    # 仅此 Web 入口映射到公网；API、PostgreSQL 和 RustFS 无宿主端口。
+    ports:
+      - "${MATERIALS_LAB_HTTP_BIND_ADDRESS:-0.0.0.0}:${MATERIALS_LAB_HTTP_BIND_PORT:-15105}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [application]
+    logging: *logging
+
+  rustfs-permissions:
+    image: busybox:1.37.0
+    restart: "no"
+    user: "0:0"
+    command: ["sh", "-ec", "mkdir -p /rustfs/data /rustfs/logs && chown -R 10001:10001 /rustfs/data /rustfs/logs"]
+    volumes:
+      - type: bind
+        source: ${MATERIALS_LAB_DATA_ROOT:?请设置独立持久目录}/rustfs
+        target: /rustfs
+        bind:
+          create_host_path: false
+    networks: [storage]
+
+  rustfs:
+    # 官方 RustFS v1.0.0-rc.5 多架构索引摘要；更新需先完成隔离恢复演练。
+    image: rustfs/rustfs:v1.0.0-rc.5@sha256:b7014e0ce2bc703c1316b3ef760e29dfae61fe4a50d1a66fa89638e0f8ea211f
+    restart: unless-stopped
+    init: true
+    environment:
+      RUSTFS_ACCESS_KEY_FILE: /run/secrets/object_storage_access_key
+      RUSTFS_SECRET_KEY_FILE: /run/secrets/object_storage_secret_key
+      RUSTFS_REGION: us-east-1
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_CONSOLE_ENABLE: "false"
+      RUSTFS_OBS_LOG_DIRECTORY: /logs
+      RUST_LOG: error
+    secrets:
+      - object_storage_access_key
+      - object_storage_secret_key
+    depends_on:
+      rustfs-permissions:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent --show-error http://127.0.0.1:9000/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 20s
+    volumes:
+      - type: bind
+        source: ${MATERIALS_LAB_DATA_ROOT:?请设置独立持久目录}/rustfs/data
+        target: /data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MATERIALS_LAB_DATA_ROOT}/rustfs/logs
+        target: /logs
+        bind:
+          create_host_path: false
+    networks: [storage]
+    logging: *logging
+
+  bootstrap:
+    image: materials-lab-api:${MATERIALS_LAB_RELEASE}
+    profiles: [maintenance]
+    restart: "no"
+    read_only: true
+    tmpfs: ["/tmp:size=128m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    command:
+      - java
+      - -Dloader.main=com.materialslab.bootstrap.ProductionBootstrapApplication
+      - -cp
+      - /app/application.jar
+      - org.springframework.boot.loader.launch.PropertiesLauncher
+    environment:
+      <<: *api-environment
+      MATERIALS_LAB_BOOTSTRAP_ORGANIZATION_CODE: ${MATERIALS_LAB_BOOTSTRAP_ORGANIZATION_CODE:?请设置真实组织代码}
+      MATERIALS_LAB_BOOTSTRAP_ORGANIZATION_NAME: ${MATERIALS_LAB_BOOTSTRAP_ORGANIZATION_NAME:?请设置真实组织名称}
+      MATERIALS_LAB_BOOTSTRAP_ADMIN_USERNAME: ${MATERIALS_LAB_BOOTSTRAP_ADMIN_USERNAME:?请设置首个管理员用户名}
+      MATERIALS_LAB_BOOTSTRAP_ADMIN_DISPLAY_NAME: ${MATERIALS_LAB_BOOTSTRAP_ADMIN_DISPLAY_NAME:?请设置管理员显示名}
+      MATERIALS_LAB_BOOTSTRAP_ADMIN_PASSWORD_FILE: /run/secrets/bootstrap_admin_password
+    secrets:
+      - source: database_password
+        target: spring.datasource.password
+      - bootstrap_admin_password
+      - source: object_storage_access_key
+        target: materials-lab.object-storage.access-key
+      - source: object_storage_secret_key
+        target: materials-lab.object-storage.secret-key
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rustfs:
+        condition: service_healthy
+    networks: [database, storage]
+    logging: *logging
+
+networks:
+  database:
+    internal: true
+  application:
+  storage:
+    internal: true
+
+secrets:
+  postgres_password:
+    file: ${MATERIALS_LAB_SECRETS_DIR:?请设置私有密钥目录}/postgres_password
+  database_password:
+    file: ${MATERIALS_LAB_SECRETS_DIR}/database_password
+  bootstrap_admin_password:
+    file: ${MATERIALS_LAB_SECRETS_DIR}/bootstrap_admin_password
+  object_storage_access_key:
+    file: ${MATERIALS_LAB_SECRETS_DIR}/object_storage_access_key
+  object_storage_secret_key:
+    file: ${MATERIALS_LAB_SECRETS_DIR}/object_storage_secret_key

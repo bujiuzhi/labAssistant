@@ -15,7 +15,7 @@ test("常用格式优先选择对应预览组件", () => {
   assert.equal(resolveDocumentPreviewMode(".XLSX", 1024), "spreadsheet");
   assert.equal(resolveDocumentPreviewMode("xls", 1024), "spreadsheet");
   assert.equal(resolveDocumentPreviewMode("pptx", 1024), "pptx");
-  assert.equal(resolveDocumentPreviewMode("pdf", 1024), "pdf");
+  assert.equal(resolveDocumentPreviewMode("pdf", 1024), "native-pdf");
   assert.equal(resolveDocumentPreviewMode("gif", 1024), "image");
   assert.equal(resolveDocumentPreviewMode("csv", 1024), "text");
 });
@@ -28,10 +28,7 @@ test("旧版或大体积办公文档使用服务端 PDF 兜底", () => {
     resolveDocumentPreviewMode("docx", MAX_COMPONENT_PREVIEW_BYTES + 1),
     "converted-pdf",
   );
-  assert.equal(
-    resolveDocumentPreviewMode("pdf", MAX_COMPONENT_PREVIEW_BYTES + 1),
-    "native-pdf",
-  );
+  assert.equal(resolveDocumentPreviewMode("pdf", MAX_COMPONENT_PREVIEW_BYTES + 1), "native-pdf");
 });
 
 test("文本预览支持 UTF-8、UTF-16 和中文传统编码兜底", () => {

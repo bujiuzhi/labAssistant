@@ -1,110 +1,97 @@
 # 材料实验助手
 
-## 项目目标
+_面向材料研发团队的独立 Web 应用；本文是项目入口，当前实现以仓库源码为准。_
 
-材料实验助手是面向材料研发团队的独立 Web 系统，围绕“项目管理、实验计划、电子实验记录、检测结果、报告归档”形成可追溯业务闭环。
+---
 
-当前已完成组织内登录、超级管理员用户管理、工作台、项目管理、项目文档与电子实验记录本。
-项目详情已接通项目编辑、人员与里程碑维护、归档、操作记录，以及文档分类检索、真实文件上传、
-常用格式预览、下载和实验筛选、复制、状态流转、ELN 编辑与附件管理。数据资产和任务管理尚未
-上线，当前页面不展示对应入口，也不生成虚构业务数据。正式开发以 `docs/` 中批准的规范为依据。
+## 📋 项目范围
 
-文档预览支持 DOC/DOCX/ODT/RTF、PDF、XLS/XLSX/ODS/CSV、PPT/PPTX/ODP、TXT，
-以及 PNG/JPG/JPEG/WebP/GIF/BMP。DOCX、XLS/XLSX、PPTX、PDF 优先使用专用前端组件，
-旧格式、大文件或组件解析失败时自动回退到 LibreOffice 转 PDF。
+项目以组织、项目、实验和电子实验记录本（ELN）组织研发工作。当前后端为 Java，前端为 Vue；本仓库不包含 Electron 客户端。
 
-## 目录结构
+已接通登录与会话、组织用户管理、项目查询与基础信息维护、关注和归档、项目文档上传与读取、实验创建与顺序状态迁移、ELN 文本及表格保存。
+
+当前版本有以下边界，部署和验收必须据此确定范围：
+
+- PostgreSQL 保存业务元数据、ELN 与权限关系；项目文档和实验附件的新正文保存于私有 RustFS 桶，旧 BYTEA 正文仅保留兼容读取。
+- Redis 不接入当前 Java 业务链路；未实现 LibreOffice 转 PDF。
+- 实验复制、参与人维护以及过程图片/结果附件上传、读取、删除已接通；项目成员维护等字段仍存在前后端未闭合项。
+- `prod` 不运行开发种子初始化；一次性 `bootstrap` 显式建立首个组织、首个管理员和平台管理权限。该平台管理员可在界面开通后续独立组织及其首个管理员。
+- 开发和生产使用独立 Compose；生产不复用开发数据库、数据目录或默认账户。
+
+完整能力边界见[概要设计](docs/overview-design.md)，接口限制见[详细设计](docs/detailed-design.md)。
+
+## 📚 文档与目录
+
+| 入口 | 用途 |
+| --- | --- |
+| [正式文档索引](docs/README.md) | 文档职责、权威来源和维护规则 |
+| [概要设计](docs/overview-design.md) | 产品范围、角色、当前架构与验收边界 |
+| [详细设计](docs/detailed-design.md) | 数据、接口、权限、状态、页面及实现限制 |
+| [开发部署与运维指南](docs/development-operations-guide.md) | 新服务器开发部署、生产准备、验证、备份与恢复 |
+| [生产 Compose 部署](docs/production-deployment.md) | 公网 HTTP IP:15105、首次真实身份初始化、构建、发布、备份与空库恢复 |
+| [OpenAPI](contracts/openapi.yaml) | 当前后端已实现的 HTTP 接口 |
+| [审计入口](audit/README.md) | 来源、历史证据、变更记录与验证缺口 |
 
 ```text
-materials-lab-assistant/
-├── README.md                     # 项目入口
-├── docs/                         # 正式项目规范
-├── contracts/                    # API 与系统间接口协议
-├── audit/                        # 原型来源、证据和审计记录
-├── backend/                      # Spring Boot、MyBatis API 与 Flyway 迁移
-├── frontend/                     # Vue 3 工作台
-└── infra/                        # PostgreSQL、Redis、RustFS 开发环境
+labAssistant/
+├── backend/       # Spring Boot、MyBatis、Flyway、JUnit
+├── frontend/      # Vue、TypeScript、页面与前端测试
+├── infra/         # 独立开发/生产 Compose、Dockerfile、Nginx 与数据库初始化
+├── scripts/       # 生产运维入口与隔离验收
+├── contracts/     # OpenAPI 接口契约
+├── docs/          # 正式设计与运维文档
+├── audit/         # 来源、历史证据与变更审计
+└── .env.example   # 开发配置模板，不是生产配置
 ```
 
-未实现的目录不提前创建，避免形成空模板。
+工具版本沿用 [backend/pom.xml](backend/pom.xml)、[frontend/package.json](frontend/package.json)、
+[前端锁文件](frontend/pnpm-lock.yaml)及 [Compose](infra/docker-compose.yml)，不按文档中的版本副本升级依赖。
 
-## 文档入口
+## 🔧 开发环境启动
 
-项目文档索引见 [docs/README.md](docs/README.md)。
-
-正式规范仅保留三份：
-
-- [概要设计](docs/overview-design.md)
-- [详细设计](docs/detailed-design.md)
-- [开发部署与运维指南](docs/development-operations-guide.md)
-
-接口协议草案见 [contracts/openapi.yaml](contracts/openapi.yaml)。
-
-## 数据来源
-
-需求和设计来源保存在 `audit/sources/`：
-
-- `audit/sources/requirements/materials-lab-function-list-v1.2.xlsx`
-- `audit/sources/design/materials-lab-ui-spec-v1.2.md`
-
-原型截图证据保存在 `audit/evidence/prototype/`。来源文件只用于追溯，不作为实现规范；存在冲突时以 `docs/` 中已批准文档为准。
-
-## 启动方式
-
-远程开发服务器目录为 `/home/bujiu/work/code/labAssistant`。首次启动：
+以下命令在已经取得代码、准备好 Docker Compose 与项目指定 Node/pnpm 的服务器执行。
+先按[新服务器准备步骤](docs/development-operations-guide.md#development-deployment)创建服务器私有 `.env`，
+使用实际绝对数据目录，并将端口绑定为回环地址或明确获准的私网地址。
 
 ```bash
-cd ~/work/code/labAssistant
-cp .env.example .env
-corepack enable
+cd ~/work/server/labAssistant
 pnpm --dir frontend install --frozen-lockfile
+docker compose --env-file .env -f infra/docker-compose.yml config --quiet
 docker compose --env-file .env -f infra/docker-compose.yml up -d
 docker compose --env-file .env -f infra/docker-compose.yml ps
+curl --fail --silent --show-error http://127.0.0.1:8000/api/v1/health/live
+curl --fail --silent --show-error http://127.0.0.1:8000/api/v1/health/ready
 ```
 
-Compose 会启动前端、Java API、PostgreSQL、Redis 和 RustFS；Spring Boot 启动时自动执行 Flyway
-迁移。不要再并行运行宿主机上的 API 或 Vite，以免端口冲突。提交前的测试与构建命令见部署运维指南。
+前端默认地址为 `http://127.0.0.1:5173`，经 Vite 将 `/api` 转发至 API。
+远程访问方式、启动日志和端口限制见运维指南，不把旧服务器 IP 当作新部署参数。
 
-开发 `.env` 使用统一测试凭据：PostgreSQL 用户名/密码为 `dev` / `dev123456`，Redis 密码为
-`dev123456`，RustFS 访问密钥/密钥为 `dev` / `dev123456`。这些凭据仅用于开发测试环境；生产
-配置必须替换为独立的随机强凭据。Spring Boot 启动时由 Flyway 执行
-`backend/src/main/resources/db/migration/` 中的数据库迁移；切换现有历史数据库前必须先完成备份和只读验证。
+开发 Profile 每次启动会补齐测试组织、角色、用户和示例业务数据，并刷新实验数量统计。
+常用测试用户名为 `admin`、`manager`、`researcher`；密码由
+`MATERIALS_LAB_DEVELOPMENT_PASSWORD` 在创建账户时设置。修改该变量不会重置已有密码。
+测试账户及样例数据不得当作生产初始化方案。
 
-首次连接空的开发测试数据库时，应用会写入可追溯的 `DEV_TEST` 测试组织、项目和实验数据；页面仅通过接口读取这些数据库记录。开发账号如下，密码统一为 `00000000`：
+## 📦 生产环境部署
 
-| 用户名 | 姓名 | 角色 |
-|---|---|---|
-| `admin` | 测试管理员 | 超级管理员 |
-| `manager` | 测试项目管理员 | 项目管理员 |
-| `researcher` | 测试实验员 | 实验员 |
+以[生产 Compose 部署指南](docs/production-deployment.md)为单一操作入口。
+先准备 `.env.production` 与独立凭据，再按 `preflight → build → bootstrap → up → check` 执行。
+命令详见 `bash scripts/production.sh --help`；其中 `bootstrap` 仅用于空库，升级不重复建账。
+生产构建在容器内完成，宿主无需安装 Java/Node；当前明确采用无 TLS 的公网 HTTP `IP:15105` 入口，风险与验收要求见生产部署指南。
 
-默认密码只适用于开发环境，生产部署必须通过环境变量覆盖并强制首次登录修改。
+## ✅ 验证与交付
 
-开发服务仅由远程服务器运行。若局域网端口未直接放行，在本机建立 SSH 隧道：
+业务代码变更通常执行：
 
 ```bash
-ssh -f -N \
-  -o ExitOnForwardFailure=yes \
-  -o ServerAliveInterval=15 \
-  -o ServerAliveCountMax=6 \
-  -L 15173:127.0.0.1:5173 \
-  -L 18000:127.0.0.1:8000 \
-  bujiu@192.168.0.156
+mvn -f backend/pom.xml verify
+pnpm --dir frontend test
+pnpm --dir frontend run build
+git diff --check
 ```
 
-浏览器访问 `http://127.0.0.1:15173`，后端健康检查为
-`http://127.0.0.1:18000/api/v1/health/live`。若服务器已放行端口，也可直接访问
-`http://192.168.0.156:5173`。
+上述命令分别覆盖现有 Java 测试与打包、前端测试、类型检查与构建、差异格式；它们不替代运行验收。
+纯文档变更执行链接、结构、契约及相关图示检查即可。验收方法和已有自动化覆盖见运维指南。
 
-开发 Compose 默认将 Java API、PostgreSQL、Redis 和 RustFS 绑定到局域网地址，绑定地址分别由
-`API_BIND_ADDRESS`、`POSTGRES_BIND_ADDRESS`、`REDIS_BIND_ADDRESS`、`OBJECT_STORAGE_BIND_ADDRESS` 控制。Java API 在
-Compose 中使用 Java 25 Maven 镜像运行，Maven 缓存挂载在项目数据目录。DBX 连接开发测试库时使用
-`192.168.0.156:15432`、数据库 `materials_lab_dev`、账号 `dev`、密码 `dev123456`。生产环境应将全部
-绑定地址设置为 `127.0.0.1`，并使用独立的随机强凭据。
-
-## 审计入口
-
-审计资产说明见 [audit/README.md](audit/README.md)，来源文件摘要见
-[audit/source-manifest.md](audit/source-manifest.md)，首轮开发记录见
-[audit/logs/2026-07-24-development-bootstrap.md](audit/logs/2026-07-24-development-bootstrap.md)。
-文档范围、状态和维护规则见 [docs/README.md](docs/README.md)。
+生产部署前需完成配置、身份初始化、文件安全与目标功能缺口评估；具体门槛见
+[生产部署准备](docs/development-operations-guide.md#production-deployment)。
+本仓库文档不代表新服务器已部署或已通过业务验收。

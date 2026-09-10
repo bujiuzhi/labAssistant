@@ -1,9 +1,11 @@
 package com.materialslab.api.experiments.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 import com.materialslab.api.experiments.domain.Experiment;
 import com.materialslab.api.experiments.mapper.ExperimentMapper;
+import com.materialslab.api.common.storage.ObjectStorageService;
 import com.materialslab.api.identity.domain.UserAccount;
 import com.materialslab.api.identity.security.AccessControlService;
 import com.materialslab.api.identity.security.UserPrincipal;
@@ -28,9 +30,9 @@ class ExperimentServiceCompletedTest {
                     case "findRecord" -> null;
                     default -> throw new AssertionError("未预期的 Mapper 调用：" + method.getName());
                 });
-        ExperimentService service = new ExperimentService(mapper, new ObjectMapper(), new AccessControlService());
+        ExperimentService service = new ExperimentService(mapper, new ObjectMapper(), new AccessControlService(), mock(ObjectStorageService.class));
         UserPrincipal principal = new UserPrincipal(
-                new UserAccount(userId, organizationId, "admin", "", "测试管理员", "active", true), List.of());
+                new UserAccount(userId, organizationId, "admin", "", "测试管理员", "active", true, false, 0), List.of());
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         Experiment experiment = new Experiment(
                 experimentId, organizationId, UUID.randomUUID(), "PRJ-TEST-001", "测试项目", "EXP-TEST-001",

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Icon } from "@iconify/vue";
+import { Icon } from "@iconify/vue/offline";
 import { ElMessage } from "element-plus";
 import { onMounted, reactive, ref, watch } from "vue";
 
@@ -357,8 +357,8 @@ onMounted(loadDocuments);
             @change="selectUploadFile"
           />
           <small>
-            支持 Word、PDF、Excel、PowerPoint、OpenDocument、文本和常用图片，单个文件不超过
-            100 MB
+            支持 Word、PDF、Excel、PowerPoint、OpenDocument、文本和常用图片；文件内容会由服务端校验，单个文件不超过
+            20 MB
           </small>
         </label>
         <div>

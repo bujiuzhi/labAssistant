@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { DataAnalysis, Lock, User } from "@element-plus/icons-vue";
+import { DataAnalysis, Key, Lock, User } from "@element-plus/icons-vue";
 import { computed, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
+import { authApi } from "@/api/auth";
 import { getProblemDetail } from "@/api/http";
 import { useSessionStore } from "@/stores/session";
 
@@ -14,9 +15,26 @@ const form = reactive({
   username: "",
   password: "",
 });
+const registrationForm = reactive({
+  invitation_code: "",
+  username: "",
+  display_name: "",
+  email: "",
+  password: "",
+  passwordConfirm: "",
+});
+const mode = ref<"login" | "register">("login");
 const loading = ref(false);
 const errorMessage = ref("");
+const successMessage = ref("");
 const canSubmit = computed(() => form.username.trim() && form.password);
+const canRegister = computed(() =>
+  registrationForm.invitation_code.trim()
+  && registrationForm.username.trim()
+  && registrationForm.display_name.trim()
+  && registrationForm.password
+  && registrationForm.passwordConfirm,
+);
 
 async function submit(): Promise<void> {
   if (!canSubmit.value || loading.value) {
@@ -34,6 +52,69 @@ async function submit(): Promise<void> {
   } finally {
     loading.value = false;
   }
+}
+
+/** 使用管理员签发的邀请码创建普通组织用户。 */
+async function submitRegistration(): Promise<void> {
+  if (!canRegister.value || loading.value) return;
+  const passwordMessage = passwordValidationMessage(
+    registrationForm.password,
+    registrationForm.username,
+  );
+  if (passwordMessage) {
+    errorMessage.value = passwordMessage;
+    return;
+  }
+  if (registrationForm.password !== registrationForm.passwordConfirm) {
+    errorMessage.value = "两次输入的密码不一致";
+    return;
+  }
+  loading.value = true;
+  errorMessage.value = "";
+  successMessage.value = "";
+  try {
+    const csrfToken = await authApi.getCsrfToken();
+    await authApi.register({
+      invitation_code: registrationForm.invitation_code.trim(),
+      username: registrationForm.username.trim(),
+      display_name: registrationForm.display_name.trim(),
+      email: registrationForm.email.trim() || undefined,
+      password: registrationForm.password,
+    }, csrfToken);
+    form.username = registrationForm.username.trim();
+    form.password = "";
+    registrationForm.invitation_code = "";
+    registrationForm.password = "";
+    registrationForm.passwordConfirm = "";
+    mode.value = "login";
+    successMessage.value = "注册完成，请使用新密码登录。";
+  } catch (error) {
+    const problem = getProblemDetail(error);
+    errorMessage.value = problem?.detail ?? "注册失败，请检查邀请码和网络后重试";
+  } finally {
+    loading.value = false;
+  }
+}
+
+/** 切换登录与注册面板，并清除上一种操作的错误提示。 */
+function switchMode(nextMode: "login" | "register"): void {
+  mode.value = nextMode;
+  errorMessage.value = "";
+  successMessage.value = "";
+}
+
+/** 返回与服务端一致的密码策略提示；服务端仍是最终校验边界。 */
+function passwordValidationMessage(password: string, username: string): string | null {
+  if (
+    password.length < 8
+    || /\s/.test(password)
+    || !/\p{L}/u.test(password)
+    || !/\d/.test(password)
+    || password.toLocaleLowerCase() === username.trim().toLocaleLowerCase()
+  ) {
+    return "密码须至少8位，包含字母和数字，不含空白且不得与用户名相同";
+  }
+  return null;
 }
 </script>
 
@@ -63,7 +144,11 @@ async function submit(): Promise<void> {
     </section>
 
     <section class="login-panel">
-      <form class="login-form" @submit.prevent="submit">
+      <form
+        v-if="mode === 'login'"
+        class="login-form"
+        @submit.prevent="submit"
+      >
         <header>
           <h2>登录工作台</h2>
           <p>使用组织内账号进入材料实验管理系统</p>
@@ -73,6 +158,13 @@ async function submit(): Promise<void> {
           v-if="errorMessage"
           :title="errorMessage"
           type="error"
+          :closable="false"
+          show-icon
+        />
+        <el-alert
+          v-if="successMessage"
+          :title="successMessage"
+          type="success"
           :closable="false"
           show-icon
         />
@@ -111,16 +203,102 @@ async function submit(): Promise<void> {
           登录
         </el-button>
 
-        <div class="development-accounts">
-          <p>开发账号（统一密码：<code>00000000</code>）</p>
-          <div>
-            <code>admin</code>
-            <code>manager</code>
-            <code>researcher</code>
-          </div>
-        </div>
-
+        <el-button type="text" class="switch-mode" @click="switchMode('register')">
+          持有管理员邀请码？注册组织账号
+        </el-button>
         <p class="security-note">登录会话仅保存在受保护的浏览器 Cookie 中</p>
+      </form>
+
+      <form
+        v-else
+        class="login-form registration-form"
+        @submit.prevent="submitRegistration"
+      >
+        <header>
+          <h2>注册组织账号</h2>
+          <p>邀请码由组织超级管理员签发，注册后默认使用其指定角色。</p>
+        </header>
+
+        <el-alert
+          v-if="errorMessage"
+          :title="errorMessage"
+          type="error"
+          :closable="false"
+          show-icon
+        />
+
+        <label class="field-label" for="invitation-code">邀请码</label>
+        <el-input
+          id="invitation-code"
+          v-model="registrationForm.invitation_code"
+          :prefix-icon="Key"
+          autocomplete="one-time-code"
+          placeholder="请输入管理员提供的邀请码"
+        />
+
+        <label class="field-label" for="registration-username">用户名</label>
+        <el-input
+          id="registration-username"
+          v-model="registrationForm.username"
+          :prefix-icon="User"
+          autocomplete="username"
+          placeholder="3–64位字母、数字、点、下划线或短横线"
+        />
+
+        <label class="field-label" for="registration-display-name">显示名称</label>
+        <el-input
+          id="registration-display-name"
+          v-model="registrationForm.display_name"
+          :prefix-icon="User"
+          autocomplete="name"
+          placeholder="请输入姓名或显示名称"
+        />
+
+        <label class="field-label" for="registration-email">邮箱（选填）</label>
+        <el-input
+          id="registration-email"
+          v-model="registrationForm.email"
+          autocomplete="email"
+          placeholder="用于组织联系"
+        />
+
+        <label class="field-label" for="registration-password">密码</label>
+        <el-input
+          id="registration-password"
+          v-model="registrationForm.password"
+          :prefix-icon="Lock"
+          type="password"
+          show-password
+          autocomplete="new-password"
+          placeholder="至少8位，包含字母和数字"
+        />
+
+        <label class="field-label" for="registration-password-confirm">确认密码</label>
+        <el-input
+          id="registration-password-confirm"
+          v-model="registrationForm.passwordConfirm"
+          :prefix-icon="Lock"
+          type="password"
+          show-password
+          autocomplete="new-password"
+          placeholder="请再次输入密码"
+        />
+
+        <el-button
+          type="primary"
+          size="large"
+          native-type="submit"
+          :loading="loading"
+          :disabled="!canRegister"
+          class="submit-button"
+        >
+          注册并返回登录
+        </el-button>
+
+        <el-button type="text" class="switch-mode" @click="switchMode('login')">
+          返回登录
+        </el-button>
+        <p class="security-note">没有邀请码请联系组织超级管理员；邀请码仅可使用一次。</p>
       </form>
     </section>
   </main>
@@ -227,6 +405,7 @@ async function submit(): Promise<void> {
 
 .login-panel {
   display: grid;
+  overflow-y: auto;
   background: #fff;
   place-items: center;
 }
@@ -235,6 +414,15 @@ async function submit(): Promise<void> {
   display: flex;
   flex-direction: column;
   width: 360px;
+}
+
+.registration-form {
+  padding: 32px 0;
+}
+
+.switch-mode {
+  align-self: center;
+  margin-top: 14px;
 }
 
 .login-form header {
@@ -286,33 +474,6 @@ async function submit(): Promise<void> {
   margin-top: 5px;
   background: #3157c8;
   border-color: #3157c8;
-}
-
-.development-accounts {
-  margin-top: 18px;
-  padding: 11px 12px;
-  color: #667085;
-  font-size: 11px;
-  background: #f8fafc;
-  border: 1px solid #eaecf0;
-  border-radius: 6px;
-}
-
-.development-accounts p {
-  margin: 0 0 8px;
-}
-
-.development-accounts div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.development-accounts code {
-  padding: 2px 5px;
-  color: #344054;
-  background: #eef2ff;
-  border-radius: 4px;
 }
 
 .security-note {

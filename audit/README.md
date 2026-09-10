@@ -1,40 +1,50 @@
-# 审计资产说明
+# 审计资产与证据说明
 
-## 1. 目的
+_本目录保存来源、历史观察和变更记录；现行规范见 docs。_
 
-`audit/` 用于保存原型来源、评估证据和后续审计记录，确保正式规范能够追溯到原始材料。该目录不是需求或设计的正式来源。
+---
 
-## 2. 资产清单
+## 📋 资产职责
 
-文件来源、原始路径和 SHA-256 摘要见 [原型来源清单](source-manifest.md)。
+| 入口 | 内容 | 适用边界 |
+| --- | --- | --- |
+| [来源清单](source-manifest.md) | 原始材料路径与 SHA-256 | 保留原始来源及摘要，不以重写文档改变事实 |
+| [需求来源](sources/requirements/) | 功能清单 | 用于追溯，不等于全部已实现 |
+| [设计来源](sources/design/) | 原始视觉规范 | 参考材料不构成实施授权 |
+| [变更记录](logs/) | 决策、影响、验证、恢复要点 | 历史内容按原意保留 |
 
-### 原始来源
+正式文档入口为 [docs](../docs/README.md)。
+历史记录中出现过的技术栈、端口、服务器地址或“通过”，均不能自动作为当前部署依据。
 
-| 文件 | 来源 | 用途 |
-|---|---|---|
-| `sources/requirements/materials-lab-function-list-v1.2.xlsx` | 原型目录 `doc/2-功能清单v1.2.xlsx` | 需求追溯 |
-| `sources/design/materials-lab-ui-spec-v1.2.md` | 原型目录玄鉴桌面端设计规范 | 视觉基线参考 |
+## 🔍 证据使用
 
-### 原型证据
+源码说明当前实现路径；测试结果说明对应命令在对应版本和环境的结果；
+截图说明被捕获界面当时的状态。这三类证据不可相互替代。
 
-| 文件 | 页面 |
-|---|---|
-| `evidence/prototype/materials-lab-project-overview.png` | 项目总览 |
-| `evidence/prototype/materials-lab-project-list.png` | 项目列表 |
-| `evidence/prototype/materials-lab-project-detail.png` | 项目详情 |
-| `evidence/prototype/materials-lab-eln-record.png` | ELN 记录 |
-| `evidence/prototype/materials-lab-create-experiment.png` | 新建实验 |
+查阅证据时核对提交号、时间、环境、账户角色、动作、结果和原始文件是否仍可访问。
+无法确认原运行版本或只有摘要时，应标为“历史描述，未重新验证”，不能补写成一次新的成功验收。
 
-### 开发证据
+## ✍️ 新增审计记录
 
-| 目录 | 用途 |
-|---|---|
-| `evidence/development/` | 远程运行页面与验收截图 |
-| `logs/` | 开发批次、验证结果、数据边界与已知问题记录 |
+影响接口、数据、安全、兼容或部署的重要变更在 `logs/` 新增单份记录，至少包含：
 
-## 3. 资产边界
+- 操作时间及语义，格式 `YYYY-MM-DD HH:mm:ss`，注明 `Asia/Shanghai`
+- 仓库、分支、代码基线与本次对象
+- 决策、实际影响和不兼容风险
+- 验证命令、结果、未执行项及范围外问题
+- 备份/恢复引用、回滚或补偿要点
 
-- 原始来源只读保存，不直接修订。
-- 由来源推导的正式结论写入 `docs/`。
-- 后续自动化扫描、测试证据和报告应继续放在 `audit/evidence/`、`audit/logs/`、`audit/reports/`。
-- 不在 `audit/` 存放业务代码、生产数据、密钥或用户隐私数据。
+日志记录验证事实，不把未来计划写成完成。凭据、Cookie、令牌、个人信息和业务正文不进入 Git。
+版本通过 Git 保留，正式资产不以 `final-v2` 等副本并行维护。
+
+## 🔄 本次文档对齐
+
+[2026-09-07 文档重写记录](logs/2026-09-07-documentation-rewrite.md)
+记录本次源码与文档差异、接口契约调整和验证边界。
+原始需求与设计来源保留，未将历史验收转换为当前结论。
+
+[2026-09-08 生产 Compose 资产记录](logs/2026-09-08-production-compose-assets.md)
+记录独立生产部署资产、初始化防护、就绪门禁、审查修复及隔离验证；不代表已操作正式服务器。
+
+[2026-09-08 OCR 高风险问题修复记录](logs/2026-09-08-ocr-remediation.md)
+记录会话、组织隔离、实验增量写入、附件持久化、迁移和验证结果；不代表已执行生产发布。

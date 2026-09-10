@@ -4,6 +4,7 @@ export interface SessionUser {
   username: string;
   display_name: string;
   is_super_admin: boolean;
+  is_platform_admin: boolean;
   permissions: string[];
   role_codes: string[];
   role_names: string[];
@@ -126,6 +127,55 @@ export interface ManagedRoleOption {
   role_code: string;
   name: string;
   description: string;
+}
+
+/** 平台管理员可维护的组织目录条目，不包含组织业务数据。 */
+export interface PlatformOrganization {
+  id: string;
+  organization_code: string;
+  name: string;
+  status: "active" | "disabled";
+  created_at: string | null;
+}
+
+/** 开通新组织及其首个组织管理员的输入。 */
+export interface PlatformOrganizationCreateInput {
+  organization_code: string;
+  organization_name: string;
+  admin_username: string;
+  admin_display_name: string;
+  admin_email?: string;
+  admin_password: string;
+}
+
+/** 管理员签发的邀请码元数据；邀请码明文仅在创建响应中返回一次。 */
+export interface RegistrationInvitation {
+  id: string;
+  role_code: string;
+  role_name: string;
+  status: "active" | "used" | "revoked" | "expired";
+  expires_at: string;
+  used_at: string | null;
+  created_at: string;
+}
+
+export interface RegistrationInvitationCreated {
+  invitation_code: string;
+  role_code: string;
+  expires_at: string;
+}
+
+export interface RegistrationInvitationCreateInput {
+  role_code: string;
+  valid_for_hours?: number;
+}
+
+export interface RegistrationInput {
+  invitation_code: string;
+  username: string;
+  display_name: string;
+  email?: string;
+  password: string;
 }
 
 export interface ManagedUserFilters {

@@ -56,6 +56,12 @@ const router = createRouter({
           component: () => import("@/views/system/UserManagementView.vue"),
           meta: { title: "用户管理", requiresSuperAdmin: true },
         },
+        {
+          path: "system/organizations",
+          name: "system-organizations",
+          component: () => import("@/views/system/OrganizationManagementView.vue"),
+          meta: { title: "组织管理", requiresPlatformAdmin: true },
+        },
       ],
     },
   ],
@@ -70,6 +76,9 @@ router.beforeEach((to) => {
     return { name: "dashboard" };
   }
   if (to.meta.requiresSuperAdmin && !sessionStore.isSuperAdmin) {
+    return { name: "dashboard" };
+  }
+  if (to.meta.requiresPlatformAdmin && !sessionStore.isPlatformAdmin) {
     return { name: "dashboard" };
   }
   return true;

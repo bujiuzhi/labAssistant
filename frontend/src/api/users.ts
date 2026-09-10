@@ -8,6 +8,9 @@ import type {
   ManagedUserUpdateInput,
   OrganizationUserOption,
   PageResponse,
+  RegistrationInvitation,
+  RegistrationInvitationCreated,
+  RegistrationInvitationCreateInput,
 } from "@/types/api";
 
 interface UserOptionsResponse {
@@ -99,5 +102,29 @@ export const userApi = {
     password: string,
   ): Promise<void> {
     await http.post(`/auth/users/${userId}/reset-password`, { password });
+  },
+
+  /** 查询当前组织最近签发的邀请码元数据。 */
+  async listRegistrationInvitations(): Promise<RegistrationInvitation[]> {
+    const response = await http.get<DataResponse<RegistrationInvitation[]>>(
+      "/auth/invitations",
+    );
+    return response.data.data;
+  },
+
+  /** 签发邀请码，邀请码明文仅随该响应返回一次。 */
+  async createRegistrationInvitation(
+    payload: RegistrationInvitationCreateInput,
+  ): Promise<RegistrationInvitationCreated> {
+    const response = await http.post<DataResponse<RegistrationInvitationCreated>>(
+      "/auth/invitations",
+      payload,
+    );
+    return response.data.data;
+  },
+
+  /** 撤销尚未使用的邀请码。 */
+  async revokeRegistrationInvitation(invitationId: string): Promise<void> {
+    await http.post(`/auth/invitations/${invitationId}/revoke`);
   },
 };

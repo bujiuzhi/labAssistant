@@ -3,17 +3,29 @@ package com.materialslab.api.identity.service;
 import com.materialslab.api.common.exception.BusinessException;
 import com.materialslab.api.identity.domain.ManagedRoleOption;
 import com.materialslab.api.identity.domain.ManagedUser;
+import com.materialslab.api.identity.domain.RegistrationInvitation;
+import com.materialslab.api.identity.domain.RegistrationInvitationIssue;
 import com.materialslab.api.identity.domain.UserAccount;
 import com.materialslab.api.identity.mapper.IdentityMapper;
 import com.materialslab.api.identity.security.DatabaseUserDetailsService;
 import com.materialslab.api.identity.security.AccessControlService;
+import com.materialslab.api.identity.security.LoginAttemptGuard;
+import com.materialslab.api.identity.security.PasswordPolicy;
 import com.materialslab.api.identity.security.UserPrincipal;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import org.springframework.http.HttpStatus;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.core.Authentication;
@@ -26,25 +38,37 @@ import tools.jackson.databind.JsonNode;
 /** 处理登录、会话及账户选项的应用服务。 */
 @Service
 public class IdentityService {
+    private static final SecureRandom INVITATION_RANDOM = new SecureRandom();
+    private static final int DEFAULT_INVITATION_VALID_HOURS = 168;
+    private static final int MAX_INVITATION_VALID_HOURS = 720;
     private final DatabaseUserDetailsService userDetailsService;
     private final IdentityMapper identityMapper;
     private final PasswordEncoder passwordEncoder;
     private final AccessControlService accessControlService;
+    private final LoginAttemptGuard loginAttemptGuard;
 
     public IdentityService(DatabaseUserDetailsService userDetailsService, IdentityMapper identityMapper, PasswordEncoder passwordEncoder,
-                           AccessControlService accessControlService) {
+                           AccessControlService accessControlService, LoginAttemptGuard loginAttemptGuard) {
         this.userDetailsService = userDetailsService;
         this.identityMapper = identityMapper;
         this.passwordEncoder = passwordEncoder;
         this.accessControlService = accessControlService;
+        this.loginAttemptGuard = loginAttemptGuard;
     }
 
     /** 按用户名和密码建立认证主体。 */
     public Authentication authenticate(String username, String password) {
+        loginAttemptGuard.requireAllowed(username);
         DaoAuthenticationProvider provider = new DaoAuthenticationProvider(userDetailsService);
         provider.setPasswordEncoder(passwordEncoder);
-        try { return provider.authenticate(UsernamePasswordAuthenticationToken.unauthenticated(username, password)); }
-        catch (Exception error) { throw new BusinessException(HttpStatus.UNAUTHORIZED, "invalid_credentials", "用户名或密码错误"); }
+        try {
+            Authentication authentication = provider.authenticate(UsernamePasswordAuthenticationToken.unauthenticated(username, password));
+            loginAttemptGuard.recordSuccess(username);
+            return authentication;
+        } catch (AuthenticationException error) {
+            loginAttemptGuard.recordFailure(username);
+            throw new BusinessException(HttpStatus.UNAUTHORIZED, "invalid_credentials", "用户名或密码错误");
+        }
     }
 
     /** 序列化前端所需的当前会话。 */
@@ -53,6 +77,7 @@ public class IdentityService {
         user.put("id", principal.userId()); user.put("username", principal.getUsername());
         user.put("display_name", principal.account().displayName()); user.put("organization_id", principal.organizationId());
         user.put("is_super_admin", principal.isSuperAdmin());
+        user.put("is_platform_admin", principal.isPlatformAdmin());
         user.put("permissions", principal.isSuperAdmin() ? List.of("*") : identityMapper.listPermissionCodes(principal.userId()));
         user.put("role_codes", identityMapper.listRoleCodes(principal.userId()));
         user.put("role_names", identityMapper.listRoleNames(principal.userId()));
@@ -94,9 +119,16 @@ public class IdentityService {
     public void createManagedUser(UserPrincipal principal, JsonNode payload) {
         requireSuperAdmin(principal);
         String password = required(payload, "password");
-        if (password.length() < 8) throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "初始密码至少 8 位");
+        String username = required(payload, "username");
+        PasswordPolicy.validateManagedPassword(password, username);
         UUID userId = UUID.randomUUID();
-        identityMapper.insertManagedUser(command(userId, principal.organizationId(), passwordEncoder.encode(password), payload));
+        IdentityMapper.UserWriteCommand command = command(userId, principal.organizationId(), passwordEncoder.encode(password), payload);
+        requireAvailableUsername(command.username(), userId);
+        try {
+            identityMapper.insertManagedUser(command);
+        } catch (DuplicateKeyException error) {
+            throw usernameConflict();
+        }
         replaceRoles(principal, userId, payload);
     }
 
@@ -107,7 +139,13 @@ public class IdentityService {
         UserAccount existing = identityMapper.findById(userId);
         if (existing == null || !principal.organizationId().equals(existing.organizationId())) throw new BusinessException(HttpStatus.NOT_FOUND, "user_not_found", "用户不存在或不属于当前组织");
         if (existing.superAdmin()) throw new BusinessException(HttpStatus.FORBIDDEN, "super_admin_protected", "超级管理员账号受保护");
-        if (identityMapper.updateManagedUser(command(userId, principal.organizationId(), existing.password(), payload)) == 0) throw new BusinessException(HttpStatus.NOT_FOUND, "user_not_found", "用户不存在或不属于当前组织");
+        IdentityMapper.UserWriteCommand command = command(userId, principal.organizationId(), existing.password(), payload);
+        requireAvailableUsername(command.username(), userId);
+        try {
+            if (identityMapper.updateManagedUser(command) == 0) throw new BusinessException(HttpStatus.NOT_FOUND, "user_not_found", "用户不存在或不属于当前组织");
+        } catch (DuplicateKeyException error) {
+            throw usernameConflict();
+        }
         replaceRoles(principal, userId, payload);
     }
 
@@ -115,11 +153,89 @@ public class IdentityService {
     @Transactional
     public void resetManagedUserPassword(UserPrincipal principal, UUID userId, String password) {
         requireSuperAdmin(principal);
-        if (password == null || password.length() < 8) throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "新密码至少 8 位");
         UserAccount existing = identityMapper.findById(userId);
         if (existing == null || !principal.organizationId().equals(existing.organizationId())) throw new BusinessException(HttpStatus.NOT_FOUND, "user_not_found", "用户不存在或不属于当前组织");
         if (existing.superAdmin()) throw new BusinessException(HttpStatus.FORBIDDEN, "super_admin_protected", "超级管理员账号受保护");
+        PasswordPolicy.validateManagedPassword(password, existing.username());
         identityMapper.resetPassword(principal.organizationId(), userId, passwordEncoder.encode(password));
+    }
+
+    /** 签发一次性邀请码；只有哈希写入数据库，明文仅随本次响应返回。 */
+    @Transactional
+    public RegistrationInvitationIssue createRegistrationInvitation(UserPrincipal principal, String roleCode, Integer validForHours) {
+        requireSuperAdmin(principal);
+        if ("super_admin".equals(roleCode)) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "邀请码不能分配超级管理员角色");
+        }
+        UUID roleId = identityMapper.findRoleId(principal.organizationId(), roleCode);
+        if (roleId == null) throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "角色不存在或不可用");
+        int hours = validForHours == null ? DEFAULT_INVITATION_VALID_HOURS : validForHours;
+        if (hours < 1 || hours > MAX_INVITATION_VALID_HOURS) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "邀请码有效期须为 1 至 720 小时");
+        }
+        String invitationCode = generateInvitationCode();
+        OffsetDateTime expiresAt = OffsetDateTime.now(ZoneId.of("Asia/Shanghai")).plusHours(hours);
+        identityMapper.insertRegistrationInvitation(new IdentityMapper.RegistrationInvitationCommand(
+                UUID.randomUUID(), principal.organizationId(), roleId, principal.userId(), hashInvitationCode(invitationCode), expiresAt));
+        return new RegistrationInvitationIssue(invitationCode, roleCode, expiresAt);
+    }
+
+    /** 查询当前组织邀请码元数据，邀请码明文不可再次读取。 */
+    public List<RegistrationInvitation> listRegistrationInvitations(UserPrincipal principal) {
+        requireSuperAdmin(principal);
+        return identityMapper.listRegistrationInvitations(principal.organizationId());
+    }
+
+    /** 撤销尚未使用的邀请码；已使用或不存在的邀请不暴露额外状态。 */
+    @Transactional
+    public void revokeRegistrationInvitation(UserPrincipal principal, UUID invitationId) {
+        requireSuperAdmin(principal);
+        if (identityMapper.revokeRegistrationInvitation(principal.organizationId(), invitationId) == 0) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "invitation_not_found", "邀请码不存在、已使用或已撤销");
+        }
+    }
+
+    /** 使用邀请码注册普通用户；邀请码在同一事务内原子消费，不能注册超级管理员。 */
+    @Transactional
+    public void registerByInvitation(JsonNode payload) {
+        String invitationCode = required(payload, "invitation_code").trim();
+        if (invitationCode.length() > 128) throw invalidInvitation();
+        IdentityMapper.ActiveRegistrationInvitation invitation = identityMapper.findActiveRegistrationInvitation(hashInvitationCode(invitationCode));
+        if (invitation == null) throw invalidInvitation();
+        String password = required(payload, "password");
+        String username = required(payload, "username");
+        String displayName = required(payload, "display_name");
+        String email = payload.path("email").asText("");
+        validateRegistrationProfile(username, displayName, email);
+        PasswordPolicy.validateManagedPassword(password, username);
+        UUID userId = UUID.randomUUID();
+        IdentityMapper.UserWriteCommand command = new IdentityMapper.UserWriteCommand(userId, invitation.organizationId(),
+                passwordEncoder.encode(password), username, displayName, email, "active", true);
+        requireAvailableUsername(command.username(), userId);
+        try {
+            identityMapper.insertManagedUser(command);
+        } catch (DuplicateKeyException error) {
+            throw usernameConflict();
+        }
+        if (identityMapper.consumeRegistrationInvitation(invitation.id(), userId) == 0) throw invalidInvitation();
+        identityMapper.insertUserRole(UUID.randomUUID(), invitation.organizationId(), userId, invitation.roleId(), invitation.createdById());
+    }
+
+    /** 校验当前密码后更新当前用户；控制器负责使该会话失效并要求重新登录。 */
+    @Transactional
+    public void changeOwnPassword(UserPrincipal principal, String currentPassword, String newPassword) {
+        UserAccount current = identityMapper.findById(principal.userId());
+        if (current == null || !principal.organizationId().equals(current.organizationId()) || !"active".equals(current.status())) {
+            throw new BusinessException(HttpStatus.UNAUTHORIZED, "authentication_required", "登录状态已失效");
+        }
+        if (!passwordEncoder.matches(currentPassword, current.password())) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "invalid_current_password", "当前密码不正确");
+        }
+        PasswordPolicy.validateManagedPassword(newPassword, current.username());
+        if (passwordEncoder.matches(newPassword, current.password())) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "新密码不能与当前密码相同");
+        }
+        identityMapper.resetPassword(current.organizationId(), current.id(), passwordEncoder.encode(newPassword));
     }
 
     /** 取得经过类型校验的当前主体。 */
@@ -131,6 +247,44 @@ public class IdentityService {
 
     private void requireSuperAdmin(UserPrincipal principal) {
         if (!principal.isSuperAdmin()) throw new BusinessException(HttpStatus.FORBIDDEN, "permission_denied", "仅超级管理员可管理系统用户");
+    }
+
+    private void requireAvailableUsername(String username, UUID excludedUserId) {
+        if (identityMapper.existsUsernameExcluding(username, excludedUserId)) {
+            throw usernameConflict();
+        }
+    }
+
+    private BusinessException usernameConflict() {
+        return new BusinessException(HttpStatus.CONFLICT, "username_conflict", "用户名已存在");
+    }
+
+    private BusinessException invalidInvitation() {
+        return new BusinessException(HttpStatus.BAD_REQUEST, "invalid_invitation", "邀请码无效、已过期、已使用或已撤销");
+    }
+
+    private String generateInvitationCode() {
+        byte[] bytes = new byte[24];
+        INVITATION_RANDOM.nextBytes(bytes);
+        return "MLI-" + Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private void validateRegistrationProfile(String username, String displayName, String email) {
+        if (!username.matches("[A-Za-z0-9._-]{3,64}")) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "用户名须为 3 至 64 位字母、数字、点、下划线或短横线");
+        }
+        if (displayName.length() > 100 || email.length() > 254) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "显示名称或邮箱长度超出限制");
+        }
+    }
+
+    private String hashInvitationCode(String invitationCode) {
+        try {
+            return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(invitationCode.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException error) {
+            throw new IllegalStateException("运行环境不支持 SHA-256", error);
+        }
     }
 
     private List<String> split(String values) {

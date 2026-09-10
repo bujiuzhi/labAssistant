@@ -6,13 +6,17 @@ services:
     container_name: materials-lab-assistant-frontend
     restart: unless-stopped
     working_dir: /workspace
-    command: ["./node_modules/.bin/vite", "--host", "0.0.0.0", "--port", "5173"]
+    command:
+      - sh
+      - -c
+      - corepack pnpm install --frozen-lockfile && ./node_modules/.bin/vite --host 0.0.0.0 --port 5173
     environment:
       VITE_API_PROXY_TARGET: http://api:8000
     ports:
       - "${FRONTEND_BIND_ADDRESS:-0.0.0.0}:${FRONTEND_PORT:-5173}:5173"
     volumes:
       - "../frontend:/workspace"
+      - "materials_lab_frontend_node_modules:/workspace/node_modules"
     depends_on:
       api:
         condition: service_started
@@ -22,7 +26,8 @@ services:
     container_name: materials-lab-assistant-api
     restart: unless-stopped
     working_dir: /workspace
-    command: ["mvn", "spring-boot:run", "-Dspring-boot.run.profiles=dev"]
+    # 清除 bind mount 中遗留的 target/classes，避免已删除迁移再次被 Flyway 发现。
+    command: ["mvn", "clean", "spring-boot:run", "-Dspring-boot.run.profiles=dev"]
     environment:
       SERVER_ADDRESS: 0.0.0.0
       SERVER_PORT: ${SERVER_PORT:-8000}
@@ -65,21 +70,6 @@ services:
       timeout: 3s
       retries: 20
 
-  redis:
-    image: redis:8.4-alpine
-    container_name: materials-lab-assistant-redis
-    restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-dev123456}"]
-    ports:
-      - "${REDIS_BIND_ADDRESS:-0.0.0.0}:${REDIS_PORT:-16379}:6379"
-    volumes:
-      - "${MATERIALS_LAB_DATA_ROOT}/redis:/data"
-    healthcheck:
-      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD:-dev123456}", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
   rustfs-permissions:
     image: busybox:1.37.0
     container_name: materials-lab-assistant-rustfs-permissions
@@ -117,3 +107,6 @@ services:
     volumes:
       - "${MATERIALS_LAB_DATA_ROOT}/rustfs/data:/data"
       - "${MATERIALS_LAB_DATA_ROOT}/rustfs/logs:/logs"
+
+volumes:
+  materials_lab_frontend_node_modules:

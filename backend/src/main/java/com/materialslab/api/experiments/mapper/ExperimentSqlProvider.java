@@ -13,6 +13,9 @@ public class ExperimentSqlProvider {
                 FROM experiment e JOIN user_account owner ON owner.id = e.owner_id JOIN project ON project.id = e.project_id
                 WHERE e.organization_id = #{organizationId}
                   AND (#{readAll} = TRUE OR project.owner_id = #{userId}
+                    OR e.owner_id = #{userId}
+                    OR EXISTS (SELECT 1 FROM experiment_participant participant
+                               WHERE participant.experiment_id = e.id AND participant.user_id = #{userId})
                     OR EXISTS (SELECT 1 FROM project_member member WHERE member.project_id = project.id AND member.user_id = #{userId}))
                 """);
         if (parameters.get("projectId") != null) sql.append(" AND e.project_id = #{projectId}");
@@ -28,6 +31,9 @@ public class ExperimentSqlProvider {
                 SELECT COUNT(*) FROM experiment e JOIN project ON project.id = e.project_id
                 WHERE e.organization_id = #{organizationId}
                   AND (#{readAll} = TRUE OR project.owner_id = #{userId}
+                    OR e.owner_id = #{userId}
+                    OR EXISTS (SELECT 1 FROM experiment_participant participant
+                               WHERE participant.experiment_id = e.id AND participant.user_id = #{userId})
                     OR EXISTS (SELECT 1 FROM project_member member WHERE member.project_id = project.id AND member.user_id = #{userId}))
                 """);
         if (parameters.get("projectId") != null) sql.append(" AND e.project_id = #{projectId}");

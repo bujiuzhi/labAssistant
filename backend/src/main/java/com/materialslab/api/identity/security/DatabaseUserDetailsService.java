@@ -20,6 +20,19 @@ public class DatabaseUserDetailsService implements UserDetailsService {
     public UserDetails loadUserByUsername(String username) {
         UserAccount account = identityMapper.findActiveByUsername(username);
         if (account == null) throw new UsernameNotFoundException("用户名或密码错误");
+        return principal(account);
+    }
+
+    /** 按账户主键重新加载有效主体，用于每个已登录请求校验会话版本和最新授权。 */
+    public UserPrincipal loadActiveById(java.util.UUID userId) {
+        UserAccount account = identityMapper.findById(userId);
+        if (account == null || !"active".equals(account.status())) {
+            throw new UsernameNotFoundException("登录状态已失效");
+        }
+        return principal(account);
+    }
+
+    private UserPrincipal principal(UserAccount account) {
         List<SimpleGrantedAuthority> authorities = identityMapper.listPermissionCodes(account.id()).stream()
                 .map(permission -> new SimpleGrantedAuthority("PERM_" + permission)).toList();
         return new UserPrincipal(account, authorities);

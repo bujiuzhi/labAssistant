@@ -1,6 +1,10 @@
 allowBuilds:
   '@vue-office/docx': true
   '@vue-office/excel': true
-  '@vue-office/pdf': true
   '@vue-office/pptx': true
   vue-demi: true
+
+# 由 pnpm 官方工作区配置统一锁定经审计的传递依赖版本。
+overrides:
+  nanoid: 3.3.18
+  postcss: 8.5.23

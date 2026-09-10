@@ -13,10 +13,11 @@
   },
   "dependencies": {
     "@element-plus/icons-vue": "2.3.2",
+    "@iconify-json/ri": "1.2.10",
+    "@iconify-json/tabler": "1.2.38",
     "@iconify/vue": "5.0.1",
     "@vue-office/docx": "1.6.3",
     "@vue-office/excel": "1.7.14",
-    "@vue-office/pdf": "2.0.10",
     "@vue-office/pptx": "1.0.1",
     "axios": "1.18.1",
     "echarts": "6.1.0",

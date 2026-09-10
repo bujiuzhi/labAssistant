@@ -9,11 +9,17 @@ import com.materialslab.api.experiments.domain.ExperimentResponse;
 import com.materialslab.api.experiments.service.ExperimentService;
 import com.materialslab.api.identity.security.UserPrincipal;
 import com.materialslab.api.identity.service.IdentityService;
+import com.materialslab.api.projects.service.ProjectDocumentFilePolicy;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -23,6 +29,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 /** 实验计划和状态迁移接口，URL 为 /api/v1/experiments。 */
 @RestController
@@ -41,8 +48,55 @@ public class ExperimentController {
     /** 获取实验详情。 */
     @GetMapping("/{experimentKey}") public ResponseEntity<ApiResponse<ExperimentResponse>> get(@PathVariable String experimentKey) { UserPrincipal p=IdentityService.currentPrincipal(); Experiment result=experimentService.get(p, experimentKey); return ResponseEntity.ok().eTag(String.valueOf(result.version())).body(ApiResponse.of(experimentService.response(p, result))); }
     /** 更新实验及电子记录。 */
-    @PatchMapping("/{experimentKey}") public ResponseEntity<ApiResponse<ExperimentResponse>> update(@PathVariable String experimentKey, @RequestHeader(HttpHeaders.IF_MATCH) String ifMatch, @RequestBody JsonNode payload) { UserPrincipal p=IdentityService.currentPrincipal(); Experiment result=experimentService.update(p, experimentKey, version(ifMatch), payload); return ResponseEntity.ok().eTag(String.valueOf(result.version())).body(ApiResponse.of(experimentService.response(p, result))); }
+    @PatchMapping("/{experimentKey}") public ResponseEntity<ApiResponse<ExperimentResponse>> update(@PathVariable String experimentKey, @RequestHeader(name=HttpHeaders.IF_MATCH, required=false) String ifMatch, @RequestBody JsonNode payload) { UserPrincipal p=IdentityService.currentPrincipal(); Experiment result=experimentService.update(p, experimentKey, version(ifMatch), payload); return ResponseEntity.ok().eTag(String.valueOf(result.version())).body(ApiResponse.of(experimentService.response(p, result))); }
     /** 迁移实验状态。 */
-    @PostMapping("/{experimentKey}/transition") public ResponseEntity<ApiResponse<ExperimentResponse>> transition(@PathVariable String experimentKey,@RequestHeader(HttpHeaders.IF_MATCH) String ifMatch,@RequestBody JsonNode payload) { UserPrincipal p=IdentityService.currentPrincipal(); Experiment result=experimentService.transition(p, experimentKey, version(ifMatch),payload.path("target_status").asText()); return ResponseEntity.ok().eTag(String.valueOf(result.version())).body(ApiResponse.of(experimentService.response(p, result))); }
+    @PostMapping("/{experimentKey}/transition") public ResponseEntity<ApiResponse<ExperimentResponse>> transition(@PathVariable String experimentKey,@RequestHeader(name=HttpHeaders.IF_MATCH, required=false) String ifMatch,@RequestBody JsonNode payload) { UserPrincipal p=IdentityService.currentPrincipal(); Experiment result=experimentService.transition(p, experimentKey, version(ifMatch),payload.path("target_status").asText()); return ResponseEntity.ok().eTag(String.valueOf(result.version())).body(ApiResponse.of(experimentService.response(p, result))); }
+
+    /** 复制实验计划与电子记录过程内容。 */
+    @PostMapping("/{experimentKey}/copy")
+    public ResponseEntity<ApiResponse<ExperimentResponse>> copy(@PathVariable String experimentKey) {
+        UserPrincipal principal = IdentityService.currentPrincipal();
+        Experiment result = experimentService.copy(principal, experimentKey);
+        return ResponseEntity.status(HttpStatus.CREATED).eTag(String.valueOf(result.version()))
+                .body(ApiResponse.of(experimentService.response(principal, result)));
+    }
+
+    /** 上传过程图片或结果文件。 */
+    @PostMapping(value="/{experimentKey}/attachments", consumes=MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ApiResponse<ExperimentResponse>> uploadAttachment(@PathVariable String experimentKey,
+                                                                             @RequestParam MultipartFile file,
+                                                                             @RequestParam String kind) {
+        UserPrincipal principal = IdentityService.currentPrincipal();
+        Experiment result = experimentService.uploadAttachment(principal, experimentKey, file, kind);
+        return ResponseEntity.status(HttpStatus.CREATED).eTag(String.valueOf(result.version()))
+                .body(ApiResponse.of(experimentService.response(principal, result)));
+    }
+
+    /** 删除指定实验附件。 */
+    @DeleteMapping("/{experimentKey}/attachments/{attachmentId}")
+    public ResponseEntity<ApiResponse<ExperimentResponse>> deleteAttachment(@PathVariable String experimentKey,
+                                                                             @PathVariable UUID attachmentId) {
+        UserPrincipal principal = IdentityService.currentPrincipal();
+        Experiment result = experimentService.deleteAttachment(principal, experimentKey, attachmentId);
+        return ResponseEntity.ok().eTag(String.valueOf(result.version()))
+                .body(ApiResponse.of(experimentService.response(principal, result)));
+    }
+
+    /** 读取实验附件二进制正文。 */
+    @GetMapping("/{experimentKey}/attachments/{attachmentId}/content")
+    public ResponseEntity<byte[]> attachmentContent(@PathVariable String experimentKey, @PathVariable UUID attachmentId) {
+        ExperimentService.AttachmentContent source = experimentService.attachmentContent(
+                IdentityService.currentPrincipal(), experimentKey, attachmentId);
+        MediaType mediaType = ProjectDocumentFilePolicy.responseMediaType(source.mimeType());
+        boolean inline = "process_image".equals(source.kind()) && ProjectDocumentFilePolicy.isSafeInlinePreview(source.mimeType());
+        ContentDisposition disposition = inline
+                ? ContentDisposition.inline().filename(source.name(), StandardCharsets.UTF_8).build()
+                : ContentDisposition.attachment().filename(source.name(), StandardCharsets.UTF_8).build();
+        return ResponseEntity.ok().contentType(mediaType).contentLength(source.content().length)
+                .header("X-Content-Type-Options", "nosniff")
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .header("Content-Security-Policy", "default-src 'none'; base-uri 'none'; frame-ancestors 'self'")
+                .cacheControl(CacheControl.noStore().cachePrivate()).body(source.content());
+    }
     private int version(String header) { try{return Integer.parseInt(header.replace("\"", ""));}catch(Exception e){throw new BusinessException(HttpStatus.PRECONDITION_REQUIRED,"if_match_required","If-Match 必须携带资源版本号");} }
 }

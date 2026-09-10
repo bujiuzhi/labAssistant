@@ -1,0 +1,2 @@
+org.springframework.boot.EnvironmentPostProcessor=\
+com.materialslab.api.common.config.ProductionProfileGuard

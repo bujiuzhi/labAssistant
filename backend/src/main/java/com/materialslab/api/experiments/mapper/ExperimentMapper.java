@@ -6,6 +6,7 @@ import com.materialslab.api.experiments.domain.ExperimentParticipant;
 import java.util.List;
 import java.util.UUID;
 import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -33,6 +34,9 @@ public interface ExperimentMapper {
         e.started_at, e.completed_at, e.created_at, e.updated_at FROM experiment e JOIN user_account owner ON owner.id=e.owner_id JOIN project ON project.id=e.project_id
         WHERE e.organization_id=#{organizationId} AND e.experiment_no=#{experimentNo}
           AND (#{readAll} = TRUE OR project.owner_id = #{userId}
+            OR e.owner_id = #{userId}
+            OR EXISTS (SELECT 1 FROM experiment_participant participant
+                       WHERE participant.experiment_id = e.id AND participant.user_id = #{userId})
             OR EXISTS (SELECT 1 FROM project_member member WHERE member.project_id = project.id AND member.user_id = #{userId}))
         """)
     Experiment findByNo(@Param("organizationId") UUID organizationId, @Param("userId") UUID userId,
@@ -81,6 +85,10 @@ public interface ExperimentMapper {
     boolean hasProjectManageAccess(@Param("organizationId") UUID organizationId, @Param("projectId") UUID projectId,
                                    @Param("userId") UUID userId);
 
+    /** 判断项目是否属于当前组织。 */
+    @Select("SELECT EXISTS(SELECT 1 FROM project WHERE id = #{projectId} AND organization_id = #{organizationId})")
+    boolean isOrganizationProject(@Param("organizationId") UUID organizationId, @Param("projectId") UUID projectId);
+
     /** 校验实验负责人属于当前组织且处于启用状态。 */
     @Select("""
             SELECT EXISTS(SELECT 1 FROM user_account
@@ -111,17 +119,26 @@ public interface ExperimentMapper {
             ORDER BY created_at
             """)
     List<ExperimentAttachment> listAttachments(@Param("experimentId") UUID experimentId, @Param("kind") String kind);
+
+    /** 查询实验附件正文读取所需元数据。 */
+    @Select("""
+            SELECT attachment.id, attachment.name, attachment.kind, attachment.mime_type, attachment.file_size, attachment.file
+            FROM experiment_attachment attachment
+            WHERE attachment.experiment_id = #{experimentId} AND attachment.id = #{attachmentId}
+            """)
+    ExperimentAttachmentContentRow findAttachmentContent(@Param("experimentId") UUID experimentId,
+                                                         @Param("attachmentId") UUID attachmentId);
     /** 新建实验和默认 ELN。 */
     @Insert("""
-        INSERT INTO experiment (id, organization_id, project_id, experiment_no, name, experiment_type, phase, status, purpose, owner_id, version, created_by_id, updated_by_id, created_at, updated_at)
-        VALUES (#{id}, #{organizationId}, #{projectId}, #{experimentNo}, #{name}, #{experimentType}, #{phase}, #{status}, #{purpose}, #{ownerId}, 1, #{actorId}, #{actorId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        INSERT INTO experiment (id, organization_id, project_id, experiment_no, name, experiment_type, phase, status, purpose, estimated_start, estimated_end, owner_id, version, created_by_id, updated_by_id, created_at, updated_at)
+        VALUES (#{id}, #{organizationId}, #{projectId}, #{experimentNo}, #{name}, #{experimentType}, #{phase}, #{status}, #{purpose}, #{estimatedStart}, #{estimatedEnd}, #{ownerId}, 1, #{actorId}, #{actorId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         """)
     int insert(ExperimentCommand command);
 
     /** 更新实验基础信息并进行乐观锁校验。 */
     @Update("""
         UPDATE experiment SET project_id = #{projectId}, name = #{name}, experiment_type = #{experimentType}, phase = #{phase},
-        purpose = #{purpose}, estimated_start = CAST(#{estimatedStart} AS timestamptz), estimated_end = CAST(#{estimatedEnd} AS timestamptz),
+        purpose = #{purpose}, estimated_start = #{estimatedStart}, estimated_end = #{estimatedEnd},
         owner_id = #{ownerId}, updated_by_id = #{actorId}, version = version + 1, updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id} AND version = #{expectedVersion}
         """)
@@ -142,6 +159,43 @@ public interface ExperimentMapper {
         result_text = EXCLUDED.result_text, updated_at = CURRENT_TIMESTAMP
         """)
     int saveRecord(ExperimentRecordCommand command);
+
+    /** 删除实验现有参与人，以便在同一事务内整体替换。 */
+    @Delete("DELETE FROM experiment_participant WHERE experiment_id = #{experimentId} AND organization_id = #{organizationId}")
+    int deleteParticipants(@Param("organizationId") UUID organizationId, @Param("experimentId") UUID experimentId);
+
+    /** 新增实验参与人。 */
+    @Insert("""
+            INSERT INTO experiment_participant (id, organization_id, experiment_id, user_id, participant_role, joined_at, created_by_id)
+            VALUES (#{id}, #{organizationId}, #{experimentId}, #{userId}, 'participant', CURRENT_TIMESTAMP, #{actorId})
+            """)
+    int insertParticipant(ExperimentParticipantCommand command);
+
+    /** 保存附件元数据。 */
+    @Insert("""
+            INSERT INTO experiment_attachment (id, organization_id, experiment_id, kind, name, file, mime_type, file_size, uploaded_by_id, created_at, updated_at)
+            VALUES (#{id}, #{organizationId}, #{experimentId}, #{kind}, #{name}, #{file}, #{mimeType}, #{fileSize}, #{actorId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """)
+    int insertAttachment(ExperimentAttachmentCommand command);
+
+    /** 读取旧版本保存在数据库的附件正文。 */
+    @Select("SELECT content FROM experiment_attachment_content WHERE attachment_id = #{attachmentId}")
+    byte[] findLegacyAttachmentContent(@Param("attachmentId") UUID attachmentId);
+
+    /** 保存附件二进制正文，仅用于历史兼容迁移。 */
+    @Insert("INSERT INTO experiment_attachment_content (attachment_id, content) VALUES (#{attachmentId}, #{content})")
+    int insertAttachmentContent(@Param("attachmentId") UUID attachmentId, @Param("content") byte[] content);
+
+    /** 删除指定实验的附件；附件正文通过外键级联删除。 */
+    @Delete("DELETE FROM experiment_attachment WHERE id = #{attachmentId} AND experiment_id = #{experimentId}")
+    int deleteAttachment(@Param("experimentId") UUID experimentId, @Param("attachmentId") UUID attachmentId);
+
+    /** 附件变化后更新实验版本，使 ETag 能反映完整响应变化。 */
+    @Update("""
+            UPDATE experiment SET version = version + 1, updated_by_id = #{actorId}, updated_at = CURRENT_TIMESTAMP
+            WHERE id = #{experimentId}
+            """)
+    int touchExperiment(@Param("experimentId") UUID experimentId, @Param("actorId") UUID actorId);
     /** 状态顺序迁移。 */
     @Update("""
         UPDATE experiment SET status=#{status}, started_at=CASE WHEN #{status}='in_progress' THEN CURRENT_TIMESTAMP ELSE started_at END,
@@ -151,11 +205,21 @@ public interface ExperimentMapper {
     int transition(@Param("experimentId") UUID experimentId, @Param("status") String status, @Param("actorId") UUID actorId, @Param("expectedVersion") int expectedVersion);
     /** 实验写入参数。 */
     record ExperimentCommand(UUID id, UUID organizationId, UUID projectId, String experimentNo, String name,
-                             String experimentType, String phase, String status, String purpose, UUID ownerId, UUID actorId) { }
+                             String experimentType, String phase, String status, String purpose,
+                             java.time.OffsetDateTime estimatedStart, java.time.OffsetDateTime estimatedEnd,
+                             UUID ownerId, UUID actorId) { }
 
     /** 实验基础信息更新参数。 */
     record ExperimentUpdateCommand(UUID id, UUID projectId, String name, String experimentType, String phase, String purpose,
-                                   String estimatedStart, String estimatedEnd, UUID ownerId, UUID actorId, int expectedVersion) { }
+                                   java.time.OffsetDateTime estimatedStart, java.time.OffsetDateTime estimatedEnd,
+                                   UUID ownerId, UUID actorId, int expectedVersion) { }
+
+    /** 实验参与人写入参数。 */
+    record ExperimentParticipantCommand(UUID id, UUID organizationId, UUID experimentId, UUID userId, UUID actorId) { }
+
+    /** 实验附件元数据写入参数。 */
+    record ExperimentAttachmentCommand(UUID id, UUID organizationId, UUID experimentId, String kind, String name,
+                                       String file, String mimeType, long fileSize, UUID actorId) { }
 
     /** 实验电子记录写入参数。 */
     record ExperimentRecordCommand(UUID id, UUID experimentId, String formulaColumns, String formulaRows, String extraTables,
@@ -164,4 +228,7 @@ public interface ExperimentMapper {
     /** 实验记录数据库行。 */
     record ExperimentRecordRow(String formulaColumns, String formulaRows, String extraTables, String processText,
                               String extraProcesses, String resultText) { }
+
+    /** 实验附件正文数据库行。 */
+    record ExperimentAttachmentContentRow(UUID id, String name, String kind, String mimeType, long fileSize, String file) { }
 }

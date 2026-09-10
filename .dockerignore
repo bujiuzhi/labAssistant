@@ -1,0 +1,26 @@
+# 构建上下文仅包含源代码与非敏感构建配置。
+.git
+.agents
+.codex
+.idea
+.vscode
+**/.DS_Store
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules
+**/target
+**/dist
+**/.pnpm-store
+**/.m2
+**/coverage
+**/*.log
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/secrets
+**/backups
+data
+audit
+docs

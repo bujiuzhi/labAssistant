@@ -1,291 +1,125 @@
 # 材料实验助手概要设计
 
-## 1. 文档目的与基线
+_描述当前代码可证明的产品范围与架构；运行验收记录独立保存在 audit。_
 
-本文件是项目唯一的概要设计，面向评审、实施和交接。它描述已实现系统的范围、架构、关键约束、路线图与部署方式；字段级定义、接口参数和测试用例以《详细设计》和代码实现为准。
+---
 
-| 属性 | 值 |
-|---|---|
-| 文档状态 | 最新原型与 V1.0 需求对齐基线 |
-| 代码基线 | `dev` 分支工作区（提交前审查） |
-| 更新日期 | 2026-07-30 |
-| 适用范围 | 项目管理、项目文档、实验管理、电子实验记录本、用户管理 |
-| 正式细化来源 | [详细设计](detailed-design.md)、`backend/src/`、Flyway Migration、自动化测试 |
+## 🎯 目标与适用范围
 
-## 2. 建设目标与范围
+材料实验助手是面向材料研发团队的独立 Web 系统。组织承担数据隔离，项目组织研发协作，
+实验与 ELN 记录计划、过程和结果。技术实现为 Vue 前端和 Java API；当前仓库不包含桌面客户端或外部单点登录实现。
 
-材料实验助手是面向材料研发团队的独立 Web 系统，以组织为数据隔离边界，以项目为协作边界，以实验与电子实验记录本（ELN）为过程证据载体。
+本文与[详细设计](detailed-design.md)、[运维指南](development-operations-guide.md)共同维护现行规范，
+代码核验基线和本次验证见[文档重写记录](../audit/logs/2026-09-07-documentation-rewrite.md)。
 
-首期已实现能力如下：
+## 📋 能力范围
 
-- 项目创建、组合筛选、查询、编辑、成员与里程碑维护、关注、归档、操作记录和总览统计。
-- 项目文档上传、分类检索、原文件下载，以及 PDF、图片和常见办公文档的真实内容预览。
-- 实验创建、筛选、编辑、复制、开始/完成状态迁移和项目内实验视图。
-- ELN 的结构化配方、过程、结果、真实附件增删与版本并发控制。
-- 超级管理员用户管理、角色选项和密码重置；组织内 RBAC 与对象范围控制。
+“已接通”表示当前源码存在前后端调用及持久化路径，不表示已在目标服务器完成验收。
 
-首期不包含数据资产、任务管理、检测委托、报告生成、材料主数据、对象存储直传和完整审计查询。
-其中数据资产与任务管理当前不展示页面入口，不能被误认为已经上线。
+| 领域 | 已接通范围 | 限制 |
+| --- | --- | --- |
+| 身份与用户 | 本地密码登录、Session、CSRF、管理员签发一次性邀请码注册、普通用户创建/停用/密码重置、自助改密；独立生产首次身份初始化 | 邀请注册仅创建预绑定角色的普通用户；用户管理和邀请码管理限超级管理员；初始化拒绝非空库 |
+| 项目 | 查询、创建、基本字段/目标/里程碑更新、关注、归档 | 成员表读取已接通，成员列表写入未闭合；创建不具备后端幂等去重 |
+| 总览 | 可见项目与实验指标、项目卡片 | 趋势接口的 `project_id` 仅回显，未实际过滤查询 |
+| 项目文档 | 分类检索、真实上传、原件下载、前端支持格式预览 | 新正文存于 RustFS，历史 BYTEA 仅读取兼容；后端不转换办公文件 |
+| 实验与 ELN | 查询、创建、计划、参与人及正文增量更新、开始和完成 | 完成后不可编辑；记录数组按已提交字段整体替换 |
+| 复制与实验附件 | 页面本地复制及专用复制 API；附件上传、授权读取和删除 | 附件正文存于 RustFS；复制不继承结果正文与附件 |
+| 数据资产、任务、检测、报告 | 无完整业务链路 | 数据资产/任务入口未开放；保留组件和字段不是上线功能 |
 
-### 2.1 业务角色与使用边界
+功能字段和 API 的具体差异统一见[实现限制](detailed-design.md#implementation-limits)。
 
-系统同时使用“组织级角色”和“项目/实验内角色”。组织级角色决定能否进入某项能力；项目、实验内关系决定可见对象和协作身份。前端根据权限隐藏不适用操作，后端仍会逐次校验，不以页面按钮作为授权依据。
+## 👥 角色与数据边界
 
-| 使用者 | 组织级能力 | 项目或实验内职责 | 典型操作 |
-|---|---|---|---|
-| 超级管理员 | 管理组织用户、重置密码、查看和维护全部业务数据 | 可被加入项目，但不因超级管理员身份自动改变项目成员展示 | 创建用户、分配系统角色、处理账号停用 |
-| 项目管理员 | 具备项目、文档和实验的完整业务权限 | 可在具体项目中担任负责人或管理成员 | 创建、编辑和归档项目，上传文档，创建和维护实验及 ELN |
-| 实验员 | 具备项目和文档读取权限，以及实验更新和状态迁移权限 | 可在具体项目中担任负责人或成员，在实验中担任负责人或参与人 | 查看授权项目与文档，维护本人负责或参与的实验及 ELN；不能创建或管理项目、上传文档、创建实验 |
+组织角色决定功能权限，项目成员和实验参与关系进一步限制对象范围。
 
-### 2.2 范围判定原则
+| 角色 | 功能权限 | 对象范围 |
+| --- | --- | --- |
+| 平台管理员 | 查看组织目录、开通新组织及首个组织管理员 | 不读取或管理其他组织的业务数据；首版只由 bootstrap 首个管理员持有 |
+| 超级管理员 | 组织内用户管理及业务权限通配 | 读取当前组织数据；已完成实验仍受只读限制 |
+| 项目管理员 | 项目、文档、实验的读写及状态操作 | 非全组织放行；需满足项目或实验关系 |
+| 实验员 | 查看项目/文档/实验，更新实验与迁移状态 | 更新限直接实验关系；不可调整实验归属项目或负责人 |
 
-1. 页面不显示“数据资产”和“任务管理”入口，也不产生对应业务记录。
-2. 文档资料和 ELN 附件均保存真实上传文件；演示数据仅用于开发初始化，不能作为生产事实来源。
-3. 已完成或归档项目保持只读；已完成实验保持只读，不允许继续修改实验计划或 ELN。
-4. 外部系统没有直接写入数据库的接口；未来对接必须经过 API 契约、组织隔离、权限和审计评审。
+上表概括通常的数据读取规则；实验负责人和参与人可读取直接关联实验，实验关联项目写入
+对所有角色校验当前组织，超级管理员仅跳过项目管理成员资格检查。
+当前组织用户选项还要求 `project.create` 权限。权限码、关系角色及前后端限制详见详细设计。
+生产首次 bootstrap 创建首个组织、首个超级管理员和唯一初始平台管理员。平台管理员可开通后续独立组织，并为每个新组织原子创建首个超级管理员、三个内置角色及其权限；该组织管理员不继承平台权限。组织管理员可直接创建本组织普通用户，或签发绑定本组织角色和有效期的一次性邀请码；邀请码库仅保存 SHA-256 哈希，明文只在签发时返回一次。注册用户不能自行选择组织、角色或超级管理员身份。
 
-## 3. 技术选型
+当前一个登录账号只属于一个组织，用户名在全平台唯一；不支持同一账号跨组织成员身份、组织切换或平台管理员读取其他组织的业务数据。项目、实验、文件对象键、邀请码与普通用户管理均按当前会话组织隔离。
+用户管理接口不能修改或重置超级管理员，系统角色名称也不等于自动获得超级管理员标记。所有已登录用户均可验证旧密码后修改自己的密码，成功后当前 Session 立即失效并需重新登录。
 
-| 层级 | 已采用技术 | 选型原因 |
-|---|---|---|
-| 前端 | Vue 3、TypeScript、Vite、Pinia、Vue Router、Element Plus、ECharts | 适合单页业务系统、类型化接口和组件化交互 |
-| 后端 | Java 25、Spring Boot、MyBatis、Flyway | 提供 Session/CSRF、事务、SQL Mapper 和可追溯迁移能力 |
-| 数据库 | PostgreSQL | 关系约束、事务和 JSON 字段满足业务模型需求 |
-| 缓存/任务 | Redis（基础配置已预留） | 为后续异步报告、文件处理和通知提供边界 |
-| 文件预览 | Vue Office 组件、浏览器图片/文本能力、LibreOffice 无头转换 | 现代格式优先组件渲染，旧格式、超大文件或组件失败时转换为真实 PDF |
-| 对象存储 | RustFS、S3 SigV4、path-style 私有桶 | 文件与应用进程解耦，保留 S3 兼容迁移能力 |
-| 部署 | Java 25、Maven、Node.js/pnpm、Docker Compose（PostgreSQL/Redis/RustFS） | 明确应用运行时并隔离基础设施数据卷 |
+## 🌐 当前系统架构
 
-## 4. 总体架构
+下图展示开发部署的运行和读写关系。RustFS 由 API 通过 S3 兼容接口访问；项目不使用 Redis。
+该 Mermaid 是本架构图的正式编辑源，后续导出以它为源，不独立维护。
 
 ```mermaid
----
-title: 材料实验助手总体架构
----
-flowchart TB
-    Browser["浏览器<br/>Vue 单页应用"]:::process
-    Web["Vite 静态资源服务<br/>开发环境"]:::process
-    Api["Spring Boot API<br/>Session / CSRF / RBAC"]:::process
-    Project["项目域<br/>项目、成员、文档、关注"]:::process
-    Experiment["实验域<br/>实验、ELN、附件、状态迁移"]:::process
-    Identity["身份域<br/>组织、用户、角色、权限"]:::process
-    Db[("PostgreSQL<br/>业务数据与版本")]:::storage
-    Media[("RustFS 私有桶<br/>文档、实验附件、预览缓存")]:::storage
-    Preview["LibreOffice<br/>办公文档转 PDF"]:::process
-    Redis[("Redis<br/>后续异步边界")]:::storage
-
-    Browser -->|"HTTPS / HTTP"| Web
-    Browser -->|"/api/v1/*"| Api
-    Api --> Project
-    Api --> Experiment
-    Api --> Identity
-    Project --> Db
-    Experiment --> Db
-    Identity --> Db
-    Project --> Media
-    Experiment --> Media
-    Project --> Preview
-    Preview --> Media
-    Api -. "后续任务" .-> Redis
-
-    classDef process fill:#EAF3FF,stroke:#7AA7D9,stroke-width:1px,color:#1F2A44,rx:10,ry:10;
-    classDef storage fill:#FDECF2,stroke:#C989A1,stroke-width:1px,color:#5D273B,rx:10,ry:10;
-```
-
-## 5. 领域边界与职责
-
-| 领域 | 主要实体 | 对外职责 | 不承担的职责 |
-|---|---|---|---|
-| 身份与权限 | 组织、用户、角色、权限 | 登录、会话、超级管理员用户管理、权限码判定 | 不替代项目或实验对象范围判断 |
-| 项目管理 | 项目、成员、里程碑、关注 | 项目生命周期、成员协作、概览统计、业务编号 | 不保存 ELN 正文 |
-| 项目文档 | 项目文档、预览缓存 | 上传、分类、下载和真实在线预览 | 不伪造或解析虚构内容 |
-| 实验与 ELN | 实验、参与人、ELN、附件 | 实验计划、状态迁移、过程和结果留存 | 不实现检测或报告业务 |
-| 公共能力 | 幂等请求、业务操作日志、分页、错误响应、请求编号 | 创建去重、关键变更追踪、并发冲突、统一错误模型 | 不包含业务规则本身 |
-
-### 5.1 用例图（UML）
-
-下图以系统权限和对象范围为前提描述主要用例。系统角色决定功能权限，项目成员和实验参与
-关系进一步限制可见与可写对象；图中“管理”不等于绕过后端权限校验。
-
-```mermaid
----
-title: 材料实验助手主要用例图
----
 flowchart LR
-    Admin["超级管理员"]:::actor
-    Manager["项目管理员"]:::actor
-    Researcher["实验员"]:::actor
-
-    UserAdmin["管理组织用户<br/>创建、停用、重置密码"]:::usecase
-    ProjectAdmin["管理项目<br/>目标、成员、里程碑、计划"]:::usecase
-    ProjectRead["查看授权项目<br/>概览、成员、进度"]:::usecase
-    Document["查看或管理项目文档<br/>上传、下载、真实预览"]:::usecase
-    Experiment["查看或管理实验计划<br/>创建、筛选、迁移"]:::usecase
-    Eln["维护电子实验记录本<br/>配方、过程、结果、附件"]:::usecase
-
-    Admin --> UserAdmin
-    Admin --> ProjectAdmin
-    Admin --> Document
-    Admin --> Experiment
-    Manager --> ProjectAdmin
-    Manager --> ProjectRead
-    Manager --> Document
-    Manager --> Experiment
-    Manager --> Eln
-    Researcher --> ProjectRead
-    Researcher --> Document
-    Researcher --> Experiment
-    Researcher --> Eln
-    classDef actor fill:#0B2341,stroke:#0B2341,stroke-width:1px,color:#FFFFFF,rx:10,ry:10;
-    classDef usecase fill:#EAF3FF,stroke:#7AA7D9,stroke-width:1px,color:#1F2A44,rx:10,ry:10;
+    accTitle: 材料实验助手当前运行架构
+    accDescr: 浏览器经开发前端同源代理访问 Java API；API 将身份、项目、实验和 ELN 写入 PostgreSQL，将项目文档和实验附件正文写入 RustFS。
+    browser(["浏览器<br/>Vue 单页应用"])
+    frontend["开发前端 Vite<br/>资源与同源代理"]
+    api["Spring Boot API<br/>身份、项目、实验"]
+    database[("PostgreSQL<br/>业务数据、ELN、对象元数据")]
+    rustfs[("RustFS<br/>文档与附件正文")]
+    browser -->|"页面与请求"| frontend
+    frontend -->|"/api/v1"| api
+    api -->|"MyBatis / JDBC"| database
+    classDef terminal fill:#0B2341,stroke:#0B2341,color:#FFFFFF;
+    classDef process fill:#EAF3FF,stroke:#7AA7D9,color:#1F2A44;
+    classDef storage fill:#FDECF2,stroke:#C989A1,color:#5D273B;
+    class browser terminal;
+    class frontend,api process;
+    class database,rustfs storage;
 ```
 
-## 6. 关键流程
+| 组件 | 当前职责 | 实现入口 |
+| --- | --- | --- |
+| Vue/TypeScript | 路由、会话状态、表单与浏览器文档预览 | [frontend/src](../frontend/src/) |
+| Spring Boot/MyBatis | 认证、范围校验、事务、JSON 与二进制接口 | [backend/src/main/java](../backend/src/main/java/) |
+| PostgreSQL/Flyway | 业务表、JSONB ELN、对象元数据、历史 BYTEA 兼容正文及迁移 | [迁移目录](../backend/src/main/resources/db/migration/) |
+| RustFS | 新上传项目文档和实验附件正文 | [开发 Compose](../infra/docker-compose.yml) |
 
-### 6.1 项目到实验的业务闭环
+API Session 当前保存在应用进程中，没有 Redis Session 集成。不能据此声明已支持横向扩容和会话高可用。
 
-```mermaid
----
-title: 项目、实验与 ELN 主流程
----
-flowchart LR
-    CreateProject["创建项目<br/>生成 PRJ 编号"]:::process
-    Members["设置负责人和成员"]:::process
-    Milestones["维护里程碑与目标"]:::process
-    CreateExperiment["创建实验<br/>生成 EXP 编号"]:::process
-    Record["填写 ELN 与上传附件"]:::process
-    Transition{"状态迁移<br/>版本是否一致"}:::decision
-    Completed["完成实验<br/>允许留痕修订"]:::success
-    Conflict["返回 412 / 提示刷新"]:::failure
+## 📚 业务与数据流
 
-    CreateProject --> Members --> Milestones --> CreateExperiment --> Record --> Transition
-    Transition -->|"一致"| Completed
-    Transition -->|"版本冲突"| Conflict
+项目创建后可维护目标、里程碑和基础信息；在授权项目中创建实验并填写 ELN，
+通过版本校验依次开始、完成实验。项目文档独立上传并归入六类资料。
 
-    classDef process fill:#EAF3FF,stroke:#7AA7D9,stroke-width:1px,color:#1F2A44,rx:10,ry:10;
-    classDef decision fill:#FFFFFF,stroke:#D4A63A,stroke-width:1px,color:#1F2A44,rx:10,ry:10;
-    classDef success fill:#EEF8EC,stroke:#88B47E,stroke-width:1px,color:#1F2A44,rx:10,ry:10;
-    classDef failure fill:#FDECEC,stroke:#D98989,stroke-width:1px,color:#6A2525,rx:10,ry:10;
-```
+实验只允许 `not_started → in_progress → completed`。完成后禁止更新和继续迁移；
+当前没有完成后修订、审批或签名流程。项目归档不等于实验完成，也不能推导所有项目子资源自动只读。
 
-### 6.2 文档预览流程
+项目文档上传先写入 RustFS，再保存元数据与对象标识；历史 BYTEA 正文仅为兼容读取保留。
+DOCX、XLS/XLSX、PPTX、PDF、图片和文本的前端预览能力与服务端转换分开判定：
+`/preview` 当前返回原件，不能保证将旧格式或解析失败的文件转换为 PDF。
 
-1. 当前用户先通过 `document.view` 权限和项目可见范围校验，所有组件只读取同源授权接口。
-2. DOCX、XLS/XLSX、PPTX、PDF 分别由 Vue Office 专用组件解析；图片使用浏览器图片组件，
-   TXT/CSV 使用有界文本或表格组件，不执行文件中的脚本。
-3. DOC/PPT、ODT/ODS/ODP、RTF 等旧版或开放文档格式，以及超过组件体积边界的文件，
-   直接使用 LibreOffice 转换 PDF。
-4. DOCX、XLS/XLSX、PPTX 组件解析失败时自动请求服务端 PDF 兜底；PDF 组件失败时回退浏览器
-   原生 PDF 查看器。全部失败后明确提示下载原文件，不展示模拟内容。
-5. 办公文档从 RustFS 临时下载到受控临时目录转换，预览 PDF 回存
-   `project-document-previews/<document_id>/<更新时间>/preview.pdf`；原文件更新后自动使用新对象键。
+开发种子数据由 `dev` Profile 下的初始化器补齐，来源为项目内开发夹具和历史原型记录。
+页面从 API 获取数据不代表数据库里的样例是实际研发数据；生产数据不得通过开发初始化生成。
 
-## 7. 安全与一致性原则
+## 🔐 安全与一致性
 
-- 使用 Spring Security Session 与 CSRF，浏览器不保存认证令牌。
-- 超级管理员读取当前组织全部业务数据；普通用户仅读取当前组织内本人负责或作为成员关联的项目，实验与文件读取复用相同对象范围。
-- 项目和实验更新使用 `ETag` / `If-Match` 对应的 `version` 乐观锁；版本冲突返回 `412`。
-- 项目创建使用 `Idempotency-Key`，相同键只能重放相同请求。
-- 项目与实验附件采用服务端生成路径，原始文件名仅作为元数据保留。
-- 已完成、已归档项目不可编辑；实验状态只能顺序迁移，完成后实验计划和 ELN 均不可编辑。
+当前具备 Session/CSRF、组织及对象范围查询、密码哈希和部分版本并发校验。
+上传安全、会话安全、审计覆盖和跨资源关系仍需按实际实现评审，不能把目标控制写成已完成措施。
 
-## 8. 部署架构与运行边界
+项目与实验更新使用 `If-Match` 和 `version`；项目创建虽有前端幂等键，
+但后端不读取该键。用户管理、上传和关注等操作也不能一概套用项目版本控制。
 
-开发服务器当前采用前后端分离进程：前端 Vite 监听 `5173`，Spring Boot API 监听 `8000`。
-`infra/docker-compose.yml` 为 PostgreSQL、Redis 和 RustFS 提供独立数据目录映射；环境变量由
-未提交的 `.env` 文件提供。RustFS API 和控制台只绑定回环地址，文件访问继续经过 Java API
-Session、权限码、组织范围和对象范围校验。
+业务操作日志当前至少接通项目文档上传；数据库存在审计表不代表全部写操作均留痕。
+现有响应中的 `request_id` 也不代表已建立跨组件统一链路追踪。
 
-| 组件 | 运行方式 | 数据位置/依赖 | 运维要点 |
-|---|---|---|---|
-| 前端 | `pnpm --dir frontend dev -- --host 0.0.0.0` | API 同源代理或 `/api/v1` 路径 | 生产环境应构建为静态文件并由反向代理托管 |
-| API | `mvn -f backend/pom.xml spring-boot:run` | 数据库、RustFS 私有桶 | 生产环境应采用受控 Java 进程管理器 |
-| PostgreSQL | Docker Compose | 独立 Docker 数据卷 | 必须执行备份和恢复演练 |
-| Redis | Docker Compose | 独立 Docker 数据卷 | 后续异步任务启用前配置监控和重试策略 |
-| RustFS | Docker Compose，S3 API `19000`、控制台 `19001` | `${MATERIALS_LAB_DATA_ROOT}/rustfs` | 使用随机密钥、私有桶、备份和对象一致性校验 |
-| LibreOffice | 服务器系统依赖 | 临时转换目录、RustFS 预览缓存 | 转换失败不得降级为模拟预览 |
+## 📦 部署与验收范围
 
-### 8.1 生产部署拓扑（目标架构）
+现有 Compose 采用 Vite 与 Maven 开发运行方式，依赖前端已安装的 `node_modules`，
+并固定启动 `dev`。新服务器复现开发环境的步骤见运维指南。
 
-下图是生产环境推荐拓扑，不代表当前开发服务器已经部署 Nginx 或独立会话存储。当前开发环境仍按本章开头的 Vite `5173` 和 Spring Boot `8000` 双进程运行；生产上线前应按《开发部署与运维指南》完成替换与演练。
+独立[生产 Compose](production-deployment.md)由 Nginx 托管构建后的前端并反代 API，
+Java 以 `prod` 运行，PostgreSQL 仅在内部可达；空库真实身份通过一次性初始化任务建立。
+开发图中的 Vite 在生产由 Nginx 替代；生产 RustFS 仅加入 API 内部网络，Redis 不启动。
+生产资产与完整业务安全验收分别判定，不能通过启动开发 Compose 宣称生产上线。
 
-```mermaid
----
-title: 材料实验助手生产部署拓扑（目标）
----
-flowchart TB
-    Browser["研发人员浏览器"]:::client
-    Gateway["HTTPS 反向代理<br/>静态文件、TLS、访问日志"]:::gateway
-    Web["Vue 构建产物<br/>静态资源"]:::process
-    Api["Spring Boot 进程<br/>Session、CSRF、RBAC"]:::process
-    Worker["异步任务 Worker<br/>预览、通知等后续任务"]:::process
-    Database[("PostgreSQL<br/>业务数据、迁移记录")]:::storage
-    Cache[("Redis<br/>缓存、任务队列")]:::storage
-    Media[("RustFS / S3 兼容对象存储<br/>文档、附件、预览缓存")]:::storage
-    Office["LibreOffice 无头服务<br/>办公文件转 PDF"]:::process
-    Backup["备份库<br/>数据库转储 + 对象数据快照"]:::backup
+验收按实际功能验证登录、可见范围、项目字段保存、文档往返读取、ELN 保存与冲突、完成后只读。
+实验复制、附件写入与正文读取已经具备实现和单元测试，仍须在隔离数据库完成迁移及端到端业务验收后才能判定可上线。
+健康接口、构建、单测、业务验收和部署结论分别记录。
 
-    Browser -->|"HTTPS"| Gateway
-    Gateway --> Web
-    Gateway -->|"/api/v1"| Api
-    Api --> Database
-    Api --> Cache
-    Api --> Media
-    Api --> Office
-    Office --> Media
-    Cache -. "任务消息" .-> Worker
-    Worker --> Database
-    Worker --> Media
-    Database -. "定期备份" .-> Backup
-    Media -. "定期备份" .-> Backup
-
-    classDef client fill:#0B2341,stroke:#0B2341,stroke-width:1px,color:#FFFFFF,rx:10,ry:10;
-    classDef gateway fill:#FFF7D6,stroke:#D4A63A,stroke-width:1px,color:#1F2A44,rx:10,ry:10;
-    classDef process fill:#EAF3FF,stroke:#7AA7D9,stroke-width:1px,color:#1F2A44,rx:10,ry:10;
-    classDef storage fill:#FDECF2,stroke:#C989A1,stroke-width:1px,color:#5D273B,rx:10,ry:10;
-    classDef backup fill:#EEF8EC,stroke:#88B47E,stroke-width:1px,color:#1F2A44,rx:10,ry:10;
-```
-
-生产部署的网络边界为：浏览器只能访问反向代理公开的 HTTPS 入口；数据库、Redis 和 RustFS
-仅对应用进程、运维控制台隧道和备份任务开放；办公转换程序不直接对外暴露端口。代码、
-数据库备份和对象存储备份必须记录同一应用提交号，才能保证恢复后引用关系一致。
-
-## 9. 质量与风险
-
-当前后端核心测试覆盖认证、用户、组织范围、项目、文档、实验和附件链路；本次基线
-以 Maven/JUnit 核心路径测试为后端门禁。前端以 Node 单测、TypeScript 检查和 Vite
-生产构建作为基础门禁。
-
-| 风险 | 当前处理 | 后续措施 |
-|---|---|---|
-| 预览组件格式保真或兼容性不足 | 自动回退服务端 PDF，并始终保留原件下载 | 按真实业务模板维护兼容性样例，升级组件前执行浏览器回归 |
-| 办公文档转换失败 | 返回明确错误并保留下载原件 | 将 LibreOffice 转换隔离为异步沙箱服务，增加病毒扫描和缓存清理 |
-| RustFS 当前为预发布版本且开发环境为单节点 | 固定已验证镜像版本、保留 S3 兼容边界和本地迁移回滚副本 | 上线前完成压力、故障、升级与恢复演练，必要时平滑切换其他 S3 服务 |
-| ELN 动态结构查询能力有限 | 正文采用受约束 JSON 字段 | 高频统计字段规范化并建立索引 |
-| 开发服务器直接暴露 | 适用于局域网开发 | 生产部署统一接入 HTTPS、反向代理和进程守护 |
-| 文档、测试、报告等扩展域未实现 | 在专题规范中明确为规划 | 按领域迁移、契约和验收用例逐步实现 |
-
-## 10. 非功能性要求
-
-| 维度 | 当前设计要求 | 验证方式 |
-|---|---|---|
-| 数据隔离 | 任一业务查询必须从当前组织范围开始，跨组织对象不得通过编号、UUID 或文件地址访问 | 越权接口测试、代码评审与生产抽查 |
-| 一致性 | 项目和实验的关键写操作在数据库事务内完成；更新使用版本号检测并发冲突 | 并发更新测试、`412` 回归验证 |
-| 可追溯性 | 业务对象保留创建/更新时间、创建/更新用户，文件保留上传人、原文件名、大小和 MIME 类型 | 数据库字段检查、下载和预览链路验证 |
-| 可恢复性 | 数据库和 RustFS 原件必须作为同一恢复单元备份；预览缓存可重新生成 | 桶清单、SHA-256 抽检与定期恢复演练 |
-| 可维护性 | 数据库结构只通过 Migration 演进；接口、权限、测试和规范同步变更 | 提交检查与发布清单 |
-| 性能边界 | 默认分页 20 条、最大 100 条；项目文档 100 MB；过程图片单张 10 MB；结果附件单个 25 MB | API 参数校验、真实签名与上传回归测试 |
-
-## 11. 交付与验收口径
-
-一项功能可交付的最低条件是：接口已完成权限和对象范围校验，前端不使用模拟业务数据兜底，数据库变化已生成 Migration，核心异常路径有自动化测试，且三份正式规范中相应章节已更新。验收以真实浏览器操作和真实数据库/媒体文件结果为准，不能仅以页面静态展示判断完成。
-
-针对本期系统，验收应至少覆盖：登录并恢复会话、超级管理员创建用户、创建并组合筛选项目、
-编辑人员和唯一当前里程碑、归档与操作记录、上传并预览 DOCX/XLSX/PPTX/PDF、创建实验、
-写入 ELN、上传/删除/读取实验附件、完成实验后留痕修订，以及组织层级和项目成员范围差异。
-
-## 12. 规范组成
-
-- [详细设计](detailed-design.md)：已实现的结构、字段、接口、权限和测试映射。
-- [开发部署与运维指南](development-operations-guide.md)：环境、测试、发布、备份、协作和文档维护。
-- [文档中心](README.md)：三份规范的阅读路径和当前代码基线。
+容量、并发和恢复时长尚无本次实测基线，不承诺未经测试的指标。
+历史截图和测试结论的适用范围见[审计说明](../audit/README.md)。

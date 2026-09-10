@@ -37,9 +37,8 @@ export function resolveDocumentPreviewMode(
 ): DocumentPreviewMode {
   const normalizedExtension = extension.trim().toLowerCase().replace(/^\./, "");
   if (imageExtensions.has(normalizedExtension)) return "image";
-  if (normalizedExtension === "pdf") {
-    return fileSize > MAX_COMPONENT_PREVIEW_BYTES ? "native-pdf" : "pdf";
-  }
+  // Vue Office PDF 默认配置会引用外部静态资源；生产环境统一使用同源原生预览。
+  if (normalizedExtension === "pdf") return "native-pdf";
   if (["txt", "csv"].includes(normalizedExtension)) {
     return fileSize > MAX_TEXT_PREVIEW_BYTES ? "converted-pdf" : "text";
   }

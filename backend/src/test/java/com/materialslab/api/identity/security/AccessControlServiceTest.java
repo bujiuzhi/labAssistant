@@ -35,6 +35,6 @@ class AccessControlServiceTest {
     }
 
     private UserPrincipal principal(boolean superAdmin, List<SimpleGrantedAuthority> authorities) {
-        return new UserPrincipal(new UserAccount(UUID.randomUUID(), UUID.randomUUID(), "tester", "", "测试用户", "active", superAdmin), authorities);
+        return new UserPrincipal(new UserAccount(UUID.randomUUID(), UUID.randomUUID(), "tester", "", "测试用户", "active", superAdmin, false, 0), authorities);
     }
 }

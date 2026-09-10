@@ -12,6 +12,7 @@ export const useSessionStore = defineStore("session", () => {
   const isAuthenticated = computed(() => user.value !== null);
   const displayName = computed(() => user.value?.display_name ?? "");
   const isSuperAdmin = computed(() => user.value?.is_super_admin ?? false);
+  const isPlatformAdmin = computed(() => user.value?.is_platform_admin ?? false);
 
   function hasPermission(permissionCode: string): boolean {
     return isSuperAdmin.value || (user.value?.permissions.includes(permissionCode) ?? false);
@@ -41,12 +42,17 @@ export const useSessionStore = defineStore("session", () => {
       csrfToken.value ||= await authApi.getCsrfToken();
       await authApi.logout(csrfToken.value);
     } finally {
-      user.value = null;
-      try {
-        csrfToken.value = await authApi.getCsrfToken();
-      } catch {
-        csrfToken.value = "";
-      }
+      await clearSession();
+    }
+  }
+
+  /** 清除本地会话缓存，并尽力刷新下一次匿名写请求需要的 CSRF 令牌。 */
+  async function clearSession(): Promise<void> {
+    user.value = null;
+    try {
+      csrfToken.value = await authApi.getCsrfToken();
+    } catch {
+      csrfToken.value = "";
     }
   }
 
@@ -56,9 +62,11 @@ export const useSessionStore = defineStore("session", () => {
     isAuthenticated,
     displayName,
     isSuperAdmin,
+    isPlatformAdmin,
     hasPermission,
     initialize,
     login,
     logout,
+    clearSession,
   };
 });

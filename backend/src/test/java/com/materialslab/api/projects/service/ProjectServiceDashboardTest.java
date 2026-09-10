@@ -36,7 +36,7 @@ class ProjectServiceDashboardTest {
                 getClass().getClassLoader(), new Class<?>[] {ProjectMapper.class}, (proxy, method, args) -> null);
         ProjectService service = new ProjectService(projectMapper, dashboardMapper, new ObjectMapper(), new AccessControlService());
         UserPrincipal principal = new UserPrincipal(
-                new UserAccount(userId, organizationId, "admin", "", "测试管理员", "active", true), List.of());
+                new UserAccount(userId, organizationId, "admin", "", "测试管理员", "active", true, false, 0), List.of());
         Map<String, Object> result = service.dashboard(principal, projectId);
 
         assertEquals(3L, ((Map<?, ?>) result.get("project_metrics")).get("total"));
