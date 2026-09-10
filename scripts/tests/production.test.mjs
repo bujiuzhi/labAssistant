@@ -461,6 +461,18 @@ test("预检仅执行引擎和 Compose 配置检查，显式使用所选项目�
   for (const password of passwords) assert.ok(!result.output.includes(password));
 });
 
+test("prepare 创建 PostgreSQL、RustFS 子目录、备份和发布清单目录", () => {
+  const f = fixture();
+
+  const result = command(f, "prepare");
+
+  assert.equal(result.status, 0, result.output);
+  for (const directory of ["postgres", "rustfs/data", "rustfs/logs", "backups", "releases"]) {
+    assert.ok(existsSync(join(f.values.MATERIALS_LAB_DATA_ROOT, directory)), `prepare 必须创建 ${directory}`);
+  }
+  assert.deepEqual(calls(f), [], "准备目录不得调用 Docker");
+});
+
 test("预检保留引擎失败和配置失败，不触发启动", () => {
   for (const mode of ["engine-fails", "config-fails"]) {
     const f = fixture();

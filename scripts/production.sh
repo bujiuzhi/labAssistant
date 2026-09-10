@@ -230,7 +230,8 @@ preflight() {
   docker image inspect 'rustfs/rustfs:v1.0.0-rc.5@sha256:b7014e0ce2bc703c1316b3ef760e29dfae61fe4a50d1a66fa89638e0f8ea211f' >/dev/null \
     || fail '目标 Docker 引擎缺少可按锁定摘要解析的 RustFS 镜像；离线部署前必须验证完整 tag@digest 引用'
   check_secrets
-  [[ -d $MATERIALS_LAB_DATA_ROOT/postgres && -d $MATERIALS_LAB_DATA_ROOT/backups && -d $MATERIALS_LAB_DATA_ROOT/rustfs ]] || fail '持久目录未准备，请先 prepare'
+  [[ -d $MATERIALS_LAB_DATA_ROOT/postgres && -d $MATERIALS_LAB_DATA_ROOT/backups && -d $MATERIALS_LAB_DATA_ROOT/rustfs/data && -d $MATERIALS_LAB_DATA_ROOT/rustfs/logs ]] \
+    || fail '持久目录未准备，请先 prepare'
   dc config --quiet
 }
 db_start() { dc up -d --wait --wait-timeout 120 postgres; }
@@ -332,7 +333,7 @@ case "$lab_action" in
     info '已生成独立随机凭据；不会打印密码。请通过受控渠道读取并保管管理员密码。' ;;
   prepare)
     [[ $# == 0 ]] || fail 'prepare 不接受额外参数'
-    mkdir -p -- "$MATERIALS_LAB_DATA_ROOT/postgres" "$MATERIALS_LAB_DATA_ROOT/rustfs" "$MATERIALS_LAB_DATA_ROOT/backups" "$MATERIALS_LAB_DATA_ROOT/releases"
+    mkdir -p -- "$MATERIALS_LAB_DATA_ROOT/postgres" "$MATERIALS_LAB_DATA_ROOT/rustfs/data" "$MATERIALS_LAB_DATA_ROOT/rustfs/logs" "$MATERIALS_LAB_DATA_ROOT/backups" "$MATERIALS_LAB_DATA_ROOT/releases"
     info '持久目录已准备；未修改已有数据所有者。首次启动 PostgreSQL 会设置其自身目录权限。' ;;
   preflight)
     [[ $# == 0 ]] || fail 'preflight 不接受额外参数'
