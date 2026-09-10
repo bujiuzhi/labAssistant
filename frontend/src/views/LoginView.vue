@@ -206,7 +206,6 @@ function passwordValidationMessage(password: string, username: string): string |
         <el-button type="text" class="switch-mode" @click="switchMode('register')">
           持有管理员邀请码？注册组织账号
         </el-button>
-        <p class="security-note">登录会话仅保存在受保护的浏览器 Cookie 中</p>
       </form>
 
       <form
