@@ -183,10 +183,14 @@ services:
       MATERIALS_LAB_BOOTSTRAP_ADMIN_USERNAME: ${MATERIALS_LAB_BOOTSTRAP_ADMIN_USERNAME:?请设置首个管理员用户名}
       MATERIALS_LAB_BOOTSTRAP_ADMIN_DISPLAY_NAME: ${MATERIALS_LAB_BOOTSTRAP_ADMIN_DISPLAY_NAME:?请设置管理员显示名}
       MATERIALS_LAB_BOOTSTRAP_ADMIN_PASSWORD_FILE: /run/secrets/bootstrap_admin_password
+      MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME: ${MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME:?请设置平台管理员用户名}
+      MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_DISPLAY_NAME: ${MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_DISPLAY_NAME:?请设置平台管理员显示名}
+      MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD_FILE: /run/secrets/bootstrap_platform_admin_password
     secrets:
       - source: database_password
         target: spring.datasource.password
       - bootstrap_admin_password
+      - bootstrap_platform_admin_password
       - source: object_storage_access_key
         target: materials-lab.object-storage.access-key
       - source: object_storage_secret_key
@@ -197,6 +201,39 @@ services:
       rustfs:
         condition: service_healthy
     networks: [database, storage]
+    logging: *logging
+
+  identity-upgrade:
+    image: materials-lab-api:${MATERIALS_LAB_RELEASE}
+    profiles: [maintenance]
+    restart: "no"
+    read_only: true
+    tmpfs: ["/tmp:size=128m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    command:
+      - java
+      - -Dloader.main=com.materialslab.bootstrap.ProductionIdentityBoundaryUpgradeApplication
+      - -cp
+      - /app/application.jar
+      - org.springframework.boot.loader.launch.PropertiesLauncher
+    environment:
+      <<: *api-environment
+      MATERIALS_LAB_BOOTSTRAP_ORGANIZATION_CODE: ${MATERIALS_LAB_BOOTSTRAP_ORGANIZATION_CODE:?请设置真实组织代码}
+      MATERIALS_LAB_BOOTSTRAP_ORGANIZATION_NAME: ${MATERIALS_LAB_BOOTSTRAP_ORGANIZATION_NAME:?请设置真实组织名称}
+      MATERIALS_LAB_BOOTSTRAP_ADMIN_USERNAME: ${MATERIALS_LAB_BOOTSTRAP_ADMIN_USERNAME:?请设置首个管理员用户名}
+      MATERIALS_LAB_BOOTSTRAP_ADMIN_DISPLAY_NAME: ${MATERIALS_LAB_BOOTSTRAP_ADMIN_DISPLAY_NAME:?请设置管理员显示名}
+      MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME: ${MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME:?请设置平台管理员用户名}
+      MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_DISPLAY_NAME: ${MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_DISPLAY_NAME:?请设置平台管理员显示名}
+      MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD_FILE: /run/secrets/bootstrap_platform_admin_password
+    secrets:
+      - source: database_password
+        target: spring.datasource.password
+      - bootstrap_platform_admin_password
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [database]
     logging: *logging
 
 networks:
@@ -213,6 +250,8 @@ secrets:
     file: ${MATERIALS_LAB_SECRETS_DIR}/database_password
   bootstrap_admin_password:
     file: ${MATERIALS_LAB_SECRETS_DIR}/bootstrap_admin_password
+  bootstrap_platform_admin_password:
+    file: ${MATERIALS_LAB_SECRETS_DIR}/bootstrap_platform_admin_password
   object_storage_access_key:
     file: ${MATERIALS_LAB_SECRETS_DIR}/object_storage_access_key
   object_storage_secret_key:

@@ -7,28 +7,40 @@ import java.nio.file.Path;
 import org.springframework.core.env.Environment;
 
 /** 一次性初始化的真实身份参数；密码只从 Secret 文件读取，不保留在配置对象中。 */
-record BootstrapSettings(String organizationCode, String organizationName, String username, String displayName) {
+record BootstrapSettings(String organizationCode, String organizationName, String organizationAdminUsername,
+                         String organizationAdminDisplayName, String platformAdminUsername, String platformAdminDisplayName) {
     static BootstrapSettings from(Environment environment) {
         String code = required(environment, "ORGANIZATION_CODE", 32);
-        String username = required(environment, "ADMIN_USERNAME", 64);
+        String organizationAdminUsername = required(environment, "ADMIN_USERNAME", 64);
+        String platformAdminUsername = required(environment, "PLATFORM_ADMIN_USERNAME", 64);
         if (code.equalsIgnoreCase("DEV_TEST")) {
             throw new IllegalArgumentException("DEV_TEST 为开发环境保留组织编码，禁止用于生产首次初始化");
         }
-        if (!code.matches("[A-Za-z0-9][A-Za-z0-9_-]*") || !username.matches("[A-Za-z0-9][A-Za-z0-9_.@-]*")) {
+        if (!code.matches("[A-Za-z0-9][A-Za-z0-9_-]*") || !organizationAdminUsername.matches("[A-Za-z0-9][A-Za-z0-9_.@-]*")
+                || !platformAdminUsername.matches("[A-Za-z0-9][A-Za-z0-9_.@-]*")) {
             throw new IllegalArgumentException("组织编码与管理员用户名含不支持的字符");
         }
-        return new BootstrapSettings(code, required(environment, "ORGANIZATION_NAME", 200), username,
-                required(environment, "ADMIN_DISPLAY_NAME", 100));
+        if (organizationAdminUsername.equalsIgnoreCase(platformAdminUsername)) {
+            throw new IllegalArgumentException("平台管理员与组织管理员必须使用不同用户名");
+        }
+        return new BootstrapSettings(code, required(environment, "ORGANIZATION_NAME", 200), organizationAdminUsername,
+                required(environment, "ADMIN_DISPLAY_NAME", 100), platformAdminUsername,
+                required(environment, "PLATFORM_ADMIN_DISPLAY_NAME", 100));
     }
 
     /** 读取最多 72 个 UTF-8 字节的首次管理员密码；允许 Secret 文件末尾有一个换行，不裁剪密码空格。 */
-    static String readPassword(Environment environment) {
-        return readPassword(environment, from(environment).username());
+    static String readOrganizationAdminPassword(Environment environment, BootstrapSettings settings) {
+        return readPassword(environment, "ADMIN_PASSWORD_FILE", settings.organizationAdminUsername());
     }
 
-    /** 读取首次管理员密码，并按首次管理员用户名校验口令。 */
-    static String readPassword(Environment environment, String username) {
-        String secretPath = required(environment, "ADMIN_PASSWORD_FILE", 4096);
+    /** 读取平台管理员密码；平台控制面与业务租户管理员必须使用独立凭据。 */
+    static String readPlatformAdminPassword(Environment environment, BootstrapSettings settings) {
+        return readPassword(environment, "PLATFORM_ADMIN_PASSWORD_FILE", settings.platformAdminUsername());
+    }
+
+    /** 读取管理员密码，并按对应管理员用户名校验口令。 */
+    private static String readPassword(Environment environment, String suffix, String username) {
+        String secretPath = required(environment, suffix, 4096);
         try {
             Path path = Path.of(secretPath);
             if (!Files.isRegularFile(path) || Files.size(path) > 74) {

@@ -15,6 +15,7 @@ import com.materialslab.api.identity.security.UserPrincipal;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -118,6 +119,7 @@ public class IdentityService {
     @Transactional
     public void createManagedUser(UserPrincipal principal, JsonNode payload) {
         requireSuperAdmin(principal);
+        List<String> roleCodes = requiredAssignableRoleCodes(payload);
         String password = required(payload, "password");
         String username = required(payload, "username");
         PasswordPolicy.validateManagedPassword(password, username);
@@ -129,7 +131,7 @@ public class IdentityService {
         } catch (DuplicateKeyException error) {
             throw usernameConflict();
         }
-        replaceRoles(principal, userId, payload);
+        replaceRoles(principal, userId, roleCodes);
     }
 
     /** 更新组织用户并重置角色关联。 */
@@ -139,6 +141,7 @@ public class IdentityService {
         UserAccount existing = identityMapper.findById(userId);
         if (existing == null || !principal.organizationId().equals(existing.organizationId())) throw new BusinessException(HttpStatus.NOT_FOUND, "user_not_found", "用户不存在或不属于当前组织");
         if (existing.superAdmin()) throw new BusinessException(HttpStatus.FORBIDDEN, "super_admin_protected", "超级管理员账号受保护");
+        List<String> roleCodes = requiredAssignableRoleCodes(payload);
         IdentityMapper.UserWriteCommand command = command(userId, principal.organizationId(), existing.password(), payload);
         requireAvailableUsername(command.username(), userId);
         try {
@@ -146,7 +149,7 @@ public class IdentityService {
         } catch (DuplicateKeyException error) {
             throw usernameConflict();
         }
-        replaceRoles(principal, userId, payload);
+        replaceRoles(principal, userId, roleCodes);
     }
 
     /** 重置普通用户密码。 */
@@ -246,7 +249,9 @@ public class IdentityService {
     }
 
     private void requireSuperAdmin(UserPrincipal principal) {
-        if (!principal.isSuperAdmin()) throw new BusinessException(HttpStatus.FORBIDDEN, "permission_denied", "仅超级管理员可管理系统用户");
+        if (!principal.isSuperAdmin() || principal.isPlatformAdmin()) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "permission_denied", "仅当前组织的超级管理员可管理系统用户");
+        }
     }
 
     private void requireAvailableUsername(String username, UUID excludedUserId) {
@@ -298,12 +303,31 @@ public class IdentityService {
                 payload.path("email").asText(""), status, "active".equals(status));
     }
 
-    private void replaceRoles(UserPrincipal principal, UUID userId, JsonNode payload) {
+    private List<String> requiredAssignableRoleCodes(JsonNode payload) {
         JsonNode roleCodes = payload.path("role_codes");
-        if (!roleCodes.isArray() || roleCodes.isEmpty()) throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "至少选择一个系统角色");
-        identityMapper.deleteUserRoles(principal.organizationId(), userId);
+        if (!roleCodes.isArray() || roleCodes.isEmpty()) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "至少选择一个普通系统角色");
+        }
+        LinkedHashSet<String> normalizedCodes = new LinkedHashSet<>();
         for (JsonNode roleCode : roleCodes) {
-            UUID roleId = identityMapper.findRoleId(principal.organizationId(), roleCode.asText());
+            String normalizedCode = roleCode.asText("").trim();
+            if (normalizedCode.isBlank()) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "角色编码不能为空");
+            }
+            if ("super_admin".equals(normalizedCode)) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "普通用户不可分配超级管理员角色");
+            }
+            if (!normalizedCodes.add(normalizedCode)) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "角色不可重复分配");
+            }
+        }
+        return List.copyOf(normalizedCodes);
+    }
+
+    private void replaceRoles(UserPrincipal principal, UUID userId, List<String> roleCodes) {
+        identityMapper.deleteUserRoles(principal.organizationId(), userId);
+        for (String roleCode : roleCodes) {
+            UUID roleId = identityMapper.findRoleId(principal.organizationId(), roleCode);
             if (roleId == null) throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "角色不存在或不可用");
             identityMapper.insertUserRole(UUID.randomUUID(), principal.organizationId(), userId, roleId, principal.userId());
         }

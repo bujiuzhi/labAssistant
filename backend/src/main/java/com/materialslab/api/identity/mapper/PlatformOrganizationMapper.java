@@ -14,7 +14,7 @@ public interface PlatformOrganizationMapper {
     /** 返回所有组织的基础元数据，供平台管理员维护租户目录。 */
     @Select("""
             SELECT id, organization_code, name, status, created_at
-            FROM organization ORDER BY created_at DESC, organization_code
+            FROM organization WHERE is_platform = FALSE ORDER BY created_at DESC, organization_code
             """)
     List<PlatformOrganization> listOrganizations();
 

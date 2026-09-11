@@ -14,6 +14,7 @@ usage() {
     '  build                           在受控构建机生成新标签 API/Web 镜像（含测试）' \
     '  bootstrap --confirm 项目名       启动隔离 PostgreSQL，初始化空库真实身份' \
     '  up --confirm 项目名              首次启动或恢复已初始化且已停止的服务' \
+    '  identity-upgrade --confirm 项目名  一次性拆分首版双身份管理员，再启动新版本' \
     '  upgrade --confirm 项目名         停写、备份，再启动已构建的新版本' \
     '  rollback 标签 --schema-compatible --confirm 项目名' \
     '                                  仅回退应用镜像；须已核实迁移兼容性' \
@@ -48,7 +49,7 @@ while IFS= read -r lab_line || [[ -n $lab_line ]]; do
   export "$lab_key=$lab_value"
 done < "$lab_env"
 
-for lab_key in MATERIALS_LAB_COMPOSE_PROJECT MATERIALS_LAB_RELEASE MATERIALS_LAB_DATA_ROOT MATERIALS_LAB_SECRETS_DIR MATERIALS_LAB_DB_NAME MATERIALS_LAB_DB_USER MATERIALS_LAB_OBJECT_STORAGE_BUCKET MATERIALS_LAB_PUBLIC_HOST MATERIALS_LAB_HTTP_BIND_ADDRESS MATERIALS_LAB_HTTP_BIND_PORT MATERIALS_LAB_BOOTSTRAP_ORGANIZATION_CODE MATERIALS_LAB_BOOTSTRAP_ORGANIZATION_NAME MATERIALS_LAB_BOOTSTRAP_ADMIN_USERNAME MATERIALS_LAB_BOOTSTRAP_ADMIN_DISPLAY_NAME; do
+for lab_key in MATERIALS_LAB_COMPOSE_PROJECT MATERIALS_LAB_RELEASE MATERIALS_LAB_DATA_ROOT MATERIALS_LAB_SECRETS_DIR MATERIALS_LAB_DB_NAME MATERIALS_LAB_DB_USER MATERIALS_LAB_OBJECT_STORAGE_BUCKET MATERIALS_LAB_PUBLIC_HOST MATERIALS_LAB_HTTP_BIND_ADDRESS MATERIALS_LAB_HTTP_BIND_PORT MATERIALS_LAB_BOOTSTRAP_ORGANIZATION_CODE MATERIALS_LAB_BOOTSTRAP_ORGANIZATION_NAME MATERIALS_LAB_BOOTSTRAP_ADMIN_USERNAME MATERIALS_LAB_BOOTSTRAP_ADMIN_DISPLAY_NAME MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_DISPLAY_NAME; do
   [[ -n ${!lab_key:-} && ${!lab_key} != *CHANGE_ME* ]] || fail "请填写 $lab_key"
 done
 [[ $MATERIALS_LAB_COMPOSE_PROJECT =~ ^materials-lab-[a-z0-9][a-z0-9_-]*$ && $MATERIALS_LAB_COMPOSE_PROJECT != materials-lab-assistant ]] || fail '必须使用独立 materials-lab- 项目名，不能复用开发项目'
@@ -109,7 +110,7 @@ dc() { "${lab_compose[@]}" "$@"; }
 confirm() { [[ $# == 2 && $1 == --confirm && $2 == "$MATERIALS_LAB_COMPOSE_PROJECT" ]] || fail "变更必须显式指定 --confirm $MATERIALS_LAB_COMPOSE_PROJECT"; }
 require_stopped() {
   local lab_id lab_state lab_ids
-  lab_ids=$(dc ps --all -q api web bootstrap) || fail '无法读取目标容器状态，拒绝继续'
+  lab_ids=$(dc ps --all -q api web bootstrap identity-upgrade) || fail '无法读取目标容器状态，拒绝继续'
   for lab_id in $lab_ids; do
     lab_state=$(docker inspect --format '{{.State.Status}}' "$lab_id")
     [[ $lab_state == exited || $lab_state == created ]] || fail '目标 API/Web/初始化任务未完全停止；不能执行此操作'
@@ -184,16 +185,16 @@ release_exit() {
   exit "$lab_status"
 }
 check_secrets() {
-  local lab_name lab_mode lab_file lab_raw_bytes lab_password lab_password_bytes lab_suffix_bytes lab_suffix_hex
+  local lab_name lab_mode lab_file lab_raw_bytes lab_password lab_password_bytes lab_suffix_bytes lab_suffix_hex lab_username
   [[ -d $MATERIALS_LAB_SECRETS_DIR ]] || fail '密钥目录不存在，请先 secrets'
   lab_mode=$(stat -c '%a' "$MATERIALS_LAB_SECRETS_DIR" 2>/dev/null || stat -f '%Lp' "$MATERIALS_LAB_SECRETS_DIR")
   [[ $lab_mode == 700 ]] || fail '密钥目录权限必须为 700'
-  for lab_name in postgres_password database_password bootstrap_admin_password object_storage_access_key object_storage_secret_key; do
+  for lab_name in postgres_password database_password bootstrap_admin_password bootstrap_platform_admin_password object_storage_access_key object_storage_secret_key; do
     lab_file=$MATERIALS_LAB_SECRETS_DIR/$lab_name
     [[ -f $lab_file && -s $lab_file && ! -L $lab_file ]] || fail "密钥文件缺失、不是普通文件或是软链接：$lab_name"
     lab_mode=$(stat -c '%a' "$lab_file" 2>/dev/null || stat -f '%Lp' "$lab_file")
     [[ $lab_mode == 444 ]] || fail "密钥文件 $lab_name 须为 444；父目录保持 700，以供非 root 容器只读挂载"
-    if [[ $lab_name != bootstrap_admin_password ]]; then
+    if [[ $lab_name != bootstrap_admin_password && $lab_name != bootstrap_platform_admin_password ]]; then
       [[ $(wc -c < "$lab_file") -ge 32 ]] || fail "密钥长度不足：$lab_name"
       continue
     fi
@@ -213,7 +214,8 @@ check_secrets() {
     [[ ${#lab_password} -ge 6 && $lab_password_bytes -le 72 ]] || fail '管理员密码长度不符合 6 字符至 72 字节要求'
     [[ ! $lab_password =~ [[:space:][:cntrl:]] ]] || fail '管理员密码不能包含空白或控制字符'
     [[ $lab_password =~ [A-Za-z] && $lab_password =~ [0-9] ]] || fail '管理员密码必须包含英文字母和数字'
-    [[ $(printf '%s' "$lab_password" | tr '[:upper:]' '[:lower:]') != $(printf '%s' "$MATERIALS_LAB_BOOTSTRAP_ADMIN_USERNAME" | tr '[:upper:]' '[:lower:]') ]] \
+    if [[ $lab_name == bootstrap_admin_password ]]; then lab_username=$MATERIALS_LAB_BOOTSTRAP_ADMIN_USERNAME; else lab_username=$MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME; fi
+    [[ $(printf '%s' "$lab_password" | tr '[:upper:]' '[:lower:]') != $(printf '%s' "$lab_username" | tr '[:upper:]' '[:lower:]') ]] \
       || fail '管理员密码不得与管理员用户名相同'
   done
   ! cmp -s "$MATERIALS_LAB_SECRETS_DIR/postgres_password" "$MATERIALS_LAB_SECRETS_DIR/database_password" || fail '数据库超级用户与应用密码必须不同'
@@ -241,11 +243,19 @@ db_query() {
 }
 check_data() {
   local lab_result lab_schema_signature
-  # 首版 V1 必须包含当前发布所依赖的完整结构；停写前只读核对，绝不自动修复或清库。
-  lab_schema_signature=$(db_query "SELECT (to_regclass('public.project_document_content') IS NOT NULL)::int || '|' || (to_regclass('public.experiment_attachment_content') IS NOT NULL)::int || '|' || EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'uk_user_account_username')::int;")
-  [[ $lab_schema_signature == '1|1|1' ]] || fail '数据库不符合首版 V1 完整结构签名；拒绝上线，请只读核查，不要自动清库'
-  lab_result=$(db_query "SELECT (SELECT count(*) FROM organization WHERE organization_code='DEV_TEST') || '|' || (SELECT count(*) FROM user_account WHERE is_super_admin AND is_active AND status='active') || '|' || (SELECT count(*) FROM flyway_schema_history WHERE success);")
-  [[ $lab_result =~ ^0\|[1-9][0-9]*\|[1-9][0-9]*$ ]] || fail '身份/迁移检查失败或发现 DEV_TEST；拒绝上线，请只读核查，不要自动清库'
+  # 当前发布必须具备完整 V1 业务结构与 V2 平台/租户身份边界；停写前只读核对，绝不自动修复或清库。
+  lab_schema_signature=$(db_query "SELECT (to_regclass('public.project_document_content') IS NOT NULL)::int || '|' || (to_regclass('public.experiment_attachment_content') IS NOT NULL)::int || '|' || EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'uk_user_account_username')::int || '|' || EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='organization' AND column_name='is_platform')::int || '|' || EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='uk_organization_single_platform')::int || '|' || EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.user_account'::regclass AND conname='ck_user_account_platform_not_super')::int;")
+  [[ $lab_schema_signature == '1|1|1|1|1|1' ]] || fail '数据库不符合当前发布结构签名；拒绝上线，请只读核查，不要自动清库'
+  lab_result=$(db_query "SELECT (SELECT count(*) FROM organization WHERE organization_code='DEV_TEST') || '|' || (SELECT count(*) FROM organization WHERE is_platform) || '|' || (SELECT count(*) FROM user_account WHERE is_platform_admin AND is_active AND status='active') || '|' || (SELECT count(*) FROM user_account WHERE is_platform_admin AND is_super_admin) || '|' || (SELECT count(*) FROM user_account WHERE is_super_admin AND is_active AND status='active') || '|' || (SELECT count(*) FROM flyway_schema_history WHERE success);")
+  [[ $lab_result =~ ^0\|1\|1\|0\|[1-9][0-9]*\|[1-9][0-9]*$ ]] || fail '身份/迁移检查失败、平台与租户管理员未分离，或发现 DEV_TEST；拒绝上线，请只读核查，不要自动清库'
+}
+check_legacy_identity_boundary() {
+  local lab_schema_signature lab_result
+  # 首版升级前只允许明确的 V1 单组织、单个双身份管理员形态；不猜测复杂历史数据。
+  lab_schema_signature=$(db_query "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='organization' AND column_name='is_platform')::int;")
+  [[ $lab_schema_signature == 0 ]] || fail '数据库已不是可自动拆分的首版身份结构；请执行当前版本检查或单独审查迁移'
+  lab_result=$(db_query "SELECT (SELECT count(*) FROM organization WHERE organization_code='DEV_TEST') || '|' || (SELECT count(*) FROM user_account WHERE is_super_admin AND is_platform_admin AND is_active AND status='active') || '|' || (SELECT count(*) FROM flyway_schema_history WHERE success);")
+  [[ $lab_result == '0|1|1' ]] || fail '旧身份数据不符合单一双身份管理员的受控拆分条件；拒绝自动迁移'
 }
 check_global_username_uniqueness() {
   local lab_duplicates
@@ -254,10 +264,10 @@ check_global_username_uniqueness() {
   [[ $lab_duplicates == 0 ]] || fail '发现跨组织重复用户名；全局登录名唯一约束不允许上线，已在停写前拒绝升级。请先完成受控账号重命名'
 }
 backup() {
-  local lab_base lab_backup lab_storage_backup lab_metadata lab_digest lab_service lab_container
+  local lab_schema_profile=${1:-materials-lab-production-v2} lab_base lab_backup lab_storage_backup lab_metadata lab_digest lab_service lab_container
   # 数据库元数据与对象文件只有在 API/Web 都停止时才构成同一恢复点。
   require_stopped
-  check_data
+  if [[ $lab_schema_profile == materials-lab-first-production-v1 ]]; then check_legacy_identity_boundary; else check_data; fi
   lab_base="$MATERIALS_LAB_DATA_ROOT/backups/$(TZ=Asia/Shanghai date +%Y%m%d-%H%M%S)-$$"
   lab_backup="$lab_base.dump"
   lab_storage_backup="$lab_base.rustfs-data.tar.gz"
@@ -266,7 +276,7 @@ backup() {
   # 记录实际源容器而不是配置中的目标发布标签，避免升级/回退时错误识别备份版本。
   {
     printf 'backup_started_at=%s\ntimezone=Asia/Shanghai\ncompose_project=%s\n' "$(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M:%S')" "$MATERIALS_LAB_COMPOSE_PROJECT"
-    printf 'recovery_unit=postgres_dump+rustfs_data\nschema_profile=materials-lab-first-production-v1\nrustfs_data_archive=%s\n' "$(basename -- "$lab_storage_backup")"
+    printf 'recovery_unit=postgres_dump+rustfs_data\nschema_profile=%s\nrustfs_data_archive=%s\n' "$lab_schema_profile" "$(basename -- "$lab_storage_backup")"
     for lab_service in api web postgres rustfs; do
       lab_container=$(dc ps --all -q "$lab_service") || fail '无法读取备份来源容器'
       if [[ -n $lab_container ]]; then
@@ -313,7 +323,7 @@ case "$lab_action" in
     chmod 700 "$lab_secrets_stage"
     if ! (
       set -Eeuo pipefail
-      for lab_name in postgres_password database_password bootstrap_admin_password; do
+      for lab_name in postgres_password database_password bootstrap_admin_password bootstrap_platform_admin_password; do
         lab_random=$(openssl rand -hex 24) || exit 1
         [[ $lab_random =~ ^[0-9a-f]{48}$ ]] || exit 1
         lab_password="Aa1!$lab_random"
@@ -355,7 +365,8 @@ case "$lab_action" in
     info '发布镜像构建完成；请连同发布清单经受控分发并在目标端校验后再执行部署。' ;;
   bootstrap)
     confirm "$@"; preflight; require_images; verify_release_manifest; require_stopped
-    [[ -s $MATERIALS_LAB_SECRETS_DIR/bootstrap_admin_password && ! -L $MATERIALS_LAB_SECRETS_DIR/bootstrap_admin_password ]] || fail '缺少初始化管理员密码文件'
+    [[ -s $MATERIALS_LAB_SECRETS_DIR/bootstrap_admin_password && ! -L $MATERIALS_LAB_SECRETS_DIR/bootstrap_admin_password ]] || fail '缺少初始化组织管理员密码文件'
+    [[ -s $MATERIALS_LAB_SECRETS_DIR/bootstrap_platform_admin_password && ! -L $MATERIALS_LAB_SECRETS_DIR/bootstrap_platform_admin_password ]] || fail '缺少初始化平台管理员密码文件'
     # bootstrap 使用 --no-deps 防止隐式创建其他服务，因此须显式等待两个持久依赖均健康。
     dc up -d --wait --wait-timeout 180 postgres rustfs
     # 保留一次性容器退出结果供审计；不自动清理。
@@ -370,6 +381,15 @@ case "$lab_action" in
     check_data
     trap - EXIT
     info '容器与健康检查通过；仍需通过公网 HTTP 地址完成登录和业务验收。' ;;
+  identity-upgrade)
+    confirm "$@"; preflight; require_images; verify_release_manifest; check_legacy_identity_boundary; check_global_username_uniqueness
+    trap 'release_exit $?' EXIT
+    dc stop web api
+    backup materials-lab-first-production-v1
+    dc run --no-deps -T identity-upgrade
+    check_data
+    trap - EXIT
+    info '首版双身份管理员已拆分，V2 身份边界检查通过；API/Web 保持停止，请执行 up 恢复写入。' ;;
   upgrade)
     confirm "$@"; preflight; require_images; verify_release_manifest
     check_data
@@ -422,7 +442,7 @@ case "$lab_action" in
     lab_storage_archive="${lab_archive%.dump}.rustfs-data.tar.gz"
     [[ $lab_archive == *.dump && -f $lab_storage_archive && ! -L $lab_storage_archive && -s $lab_storage_archive.sha256 ]] || fail '缺少同一恢复组的 RustFS 数据归档或校验文件'
     grep -Fx "recovery_unit=postgres_dump+rustfs_data" "$lab_archive.metadata.txt" >/dev/null || fail '备份元数据不属于完整恢复组'
-    grep -Fx "schema_profile=materials-lab-first-production-v1" "$lab_archive.metadata.txt" >/dev/null || fail '备份架构不兼容当前首版恢复流程；未写入目标，请使用对应版本的恢复工具'
+    grep -Eq '^schema_profile=materials-lab-(first-production-v1|production-v2)$' "$lab_archive.metadata.txt" || fail '备份架构不兼容当前恢复流程；未写入目标，请使用对应版本的恢复工具'
     grep -Fx "rustfs_data_archive=$(basename -- "$lab_storage_archive")" "$lab_archive.metadata.txt" >/dev/null || fail '备份元数据与 RustFS 数据归档不匹配'
     if command -v sha256sum >/dev/null; then lab_digest=$(sha256sum "$lab_archive"); else lab_digest=$(shasum -a 256 "$lab_archive"); fi
     [[ ${lab_digest%% *} == "$(< "$lab_archive.sha256")" ]] || fail '备份校验值不匹配'

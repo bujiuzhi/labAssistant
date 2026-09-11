@@ -9,11 +9,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
-/** 首次正式发布只打包单一空库 V1 基线，后续变更从 V2 开始。 */
+/** 首次正式发布保留完整 V1 基线，平台/租户权限分离以追加 V2 演进。 */
 class FirstProductionSchemaTest {
 
     @Test
-    void packagesSingleCompleteV1Baseline() throws IOException {
+    void packagesCompleteV1BaselineAndPlatformTenantBoundaryMigration() throws IOException {
         var resource = getClass().getResourceAsStream("/db/migration/V1__materials_lab_schema.sql");
         assertNotNull(resource, "必须打包首版 V1 迁移");
         String schema = new String(resource.readAllBytes(), StandardCharsets.UTF_8);
@@ -29,5 +29,8 @@ class FirstProductionSchemaTest {
         assertTrue(Files.notExists(migrationDirectory.resolve("V2__rustfs_object_storage.sql")));
         assertTrue(Files.notExists(migrationDirectory.resolve("V2__project_document_content.sql")));
         assertTrue(Files.notExists(migrationDirectory.resolve("V3__experiment_attachments_and_global_username.sql")));
+        Path platformBoundaryMigration = migrationDirectory.resolve("V2__platform_tenant_boundary.sql");
+        assertTrue(Files.isRegularFile(platformBoundaryMigration));
+        assertTrue(Files.readString(platformBoundaryMigration).contains("ck_user_account_platform_not_super"));
     }
 }

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -107,6 +108,40 @@ class IdentityServiceRegistrationTest {
         var session = service.session(platformAdmin);
 
         assertThat(session).containsEntry("is_platform_admin", true).containsEntry("is_super_admin", true);
+    }
+
+    /** 普通用户管理不能伪造超级管理员角色；该特权仅能由受控初始化流程建立。 */
+    @Test
+    void 创建普通用户时不得分配超级管理员角色() throws Exception {
+        IdentityMapper mapper = mock(IdentityMapper.class);
+        IdentityService service = service(mapper, mock(PasswordEncoder.class));
+
+        assertThatThrownBy(() -> service.createManagedUser(principal(true, "admin", "stored"), objectMapper.readTree("""
+                {"username":"member","display_name":"普通成员","password":"Member123",
+                 "status":"active","role_codes":["super_admin"]}
+                """)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(error -> ((BusinessException) error).code()).isEqualTo("validation_error");
+
+        verify(mapper, never()).insertManagedUser(any());
+    }
+
+    /** 兼容旧双身份数据时，平台控制面账号仍不得进入租户用户管理。 */
+    @Test
+    void 双身份旧账号不得创建租户成员() throws Exception {
+        IdentityMapper mapper = mock(IdentityMapper.class);
+        IdentityService service = service(mapper, mock(PasswordEncoder.class));
+        UserPrincipal legacyDualAdmin = new UserPrincipal(new UserAccount(UUID.randomUUID(), UUID.randomUUID(), "legacy-admin", "stored",
+                "旧双身份管理员", "active", true, true, 0), List.of());
+
+        assertThatThrownBy(() -> service.createManagedUser(legacyDualAdmin, objectMapper.readTree("""
+                {"username":"member","display_name":"普通成员","password":"Member123",
+                 "status":"active","role_codes":["researcher"]}
+                """)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(error -> ((BusinessException) error).code()).isEqualTo("permission_denied");
+
+        verify(mapper, never()).insertManagedUser(any());
     }
 
     private IdentityService service(IdentityMapper mapper, PasswordEncoder encoder) {

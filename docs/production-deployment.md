@@ -22,7 +22,7 @@ http://<公网 IPv4>:15105
 
 | 资产 | 用途 |
 | --- | --- |
-| [生产 Compose](../infra/compose.production.yml) | PostgreSQL、RustFS、API、Web、一次性 bootstrap 与内部网络 |
+| [生产 Compose](../infra/compose.production.yml) | PostgreSQL、RustFS、API、Web、一次性 bootstrap/身份边界升级与内部网络 |
 | [生产配置模板](../infra/.env.production.example) | 非敏感的 IP、端口、目录与身份参数 |
 | [生产脚本](../scripts/production.sh) | 预检、构建、初始化、启动、升级、备份、恢复 |
 | [API Dockerfile](../infra/Dockerfile.api) | Java 构建与运行镜像 |
@@ -108,7 +108,7 @@ bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" up --confirm materials
 bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" check
 ```
 
-`bootstrap` 仅接受空库，等待 PostgreSQL 与 RustFS 健康后执行 Flyway，创建首个真实组织、首个管理员、三个角色及权限；该首个管理员同时具有平台组织开通权限。不创建项目、实验、文档或开发用户。后续组织必须由该平台管理员在“组织管理”中开通，开通操作原子创建新组织、三个内置角色及该组织首个管理员，不重复执行 `bootstrap`。`up` 等待 API/Web 健康，失败时尝试停止 API/Web 写入口并保留数据与证据。
+`bootstrap` 仅接受空库，等待 PostgreSQL 与 RustFS 健康后执行 Flyway，创建内部平台组织及平台管理员、首个真实业务组织及其超级管理员、三个组织角色和权限。平台管理员不属于业务租户，不能创建租户成员或读取业务数据；后续组织必须由其在“组织管理”中开通，开通操作原子创建新组织、三个内置角色及该组织首个管理员，不重复执行 `bootstrap`。不创建项目、实验、文档或开发用户。`up` 等待 API/Web 健康，失败时尝试停止 API/Web 写入口并保留数据与证据。
 
 通过实际地址 `http://<公网 IPv4>:15105` 完成以下验收：
 
@@ -132,6 +132,15 @@ bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" upgrade --confirm mate
 ```
 
 升级先只读检查身份、结构和发布清单，停止 API/Web 写入，对 PostgreSQL 与 RustFS 创建同一恢复组，然后启动新版本。失败时保持写入口停止；不会自动回退数据库。
+
+当前身份模型的 V2 迁移会拒绝“同一账号同时是平台管理员和租户超级管理员”的旧部署继续上线。首版已运行且符合“单一活动双身份管理员、无平台组织、无开发数据”的受控形态，可使用一次性拆分任务：它先在停写状态创建标记为 V1 的完整恢复组，再执行 Flyway、创建独立平台组织和平台管理员，并把旧账号收敛为其原组织的超级管理员：
+
+```bash
+bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" identity-upgrade --confirm materials-lab-production
+bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" up --confirm materials-lab-production
+```
+
+该任务拒绝多名双身份管理员、已有平台组织、开发数据或重名平台账号；不得通过手工改库或复用旧账号绕过。复杂历史数据必须单独审查并演练恢复。
 
 首版仅有 `V1__materials_lab_schema.sql`。生产发布后不得修改 V1，所有后续结构变化只能新增 V2、V3 等迁移。若新旧 schema 已经人工确认兼容，可只回退应用镜像：
 

@@ -158,6 +158,8 @@ async function prepareTarget(label) {
     BOOTSTRAP_ORGANIZATION_CODE: `ACCEPTANCE_${runId.toUpperCase()}`,
     BOOTSTRAP_ORGANIZATION_NAME: '隔离部署验收组织', BOOTSTRAP_ADMIN_USERNAME: `acceptance_${runId}`,
     BOOTSTRAP_ADMIN_DISPLAY_NAME: '隔离部署验收管理员',
+    BOOTSTRAP_PLATFORM_ADMIN_USERNAME: `platform_${runId}`,
+    BOOTSTRAP_PLATFORM_ADMIN_DISPLAY_NAME: '隔离部署验收平台管理员',
   };
   await writeFile(target.environment, Object.entries(config).map(([key, value]) => `MATERIALS_LAB_${key}=${value}`).join('\n') + '\n', { flag: 'wx', mode: 0o600 });
   target.username = config.BOOTSTRAP_ADMIN_USERNAME;
@@ -244,7 +246,7 @@ try {
   command('docker', ['image', 'inspect', `materials-lab-api:${release}`, `materials-lab-web:${release}`], '确认同标签 API/Web 镜像');
   const source = await prepareTarget('source');
   operation(source, 'bootstrap');
-  const expectedEmpty = { organization: 1, users: 1, admins: 1, roles: 3, permissions: 11,
+  const expectedEmpty = { organization: 2, users: 2, admins: 1, roles: 3, permissions: 11,
     project: 0, experiment: 0, document: 0, content: 0, development_organization: 0 };
   assert.deepEqual(counts(source), expectedEmpty, '空库只能包含正式身份及系统权限');
   const before = identityFingerprint(source);

@@ -24,25 +24,25 @@ const router = createRouter({
           path: "dashboard",
           name: "dashboard",
           component: () => import("@/views/DashboardView.vue"),
-          meta: { title: "项目总览" },
+          meta: { title: "项目总览", requiresTenantAccess: true },
         },
         {
           path: "projects",
           name: "projects",
           component: () => import("@/views/projects/ProjectListView.vue"),
-          meta: { title: "项目数据" },
+          meta: { title: "项目数据", requiresTenantAccess: true },
         },
         {
           path: "eln",
           name: "eln",
           component: () => import("@/views/ElnView.vue"),
-          meta: { title: "电子实验记录本" },
+          meta: { title: "电子实验记录本", requiresTenantAccess: true },
         },
         {
           path: "projects/:projectId",
           name: "project-detail",
           component: () => import("@/views/projects/ProjectDetailView.vue"),
-          meta: { title: "项目详情" },
+          meta: { title: "项目详情", requiresTenantAccess: true },
         },
         {
           path: "system",
@@ -73,7 +73,10 @@ router.beforeEach((to) => {
     return { name: "login", query: { redirect: to.fullPath } };
   }
   if (to.name === "login" && sessionStore.isAuthenticated) {
-    return { name: "dashboard" };
+    return { name: sessionStore.isPlatformAdmin && !sessionStore.isSuperAdmin ? "system-organizations" : "dashboard" };
+  }
+  if (to.meta.requiresTenantAccess && sessionStore.isPlatformAdmin && !sessionStore.isSuperAdmin) {
+    return { name: "system-organizations" };
   }
   if (to.meta.requiresSuperAdmin && !sessionStore.isSuperAdmin) {
     return { name: "dashboard" };

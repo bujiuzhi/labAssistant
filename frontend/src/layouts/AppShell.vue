@@ -24,7 +24,7 @@ const baseProductNavigation = [
   { path: "/eln", label: "电子实验记录本" },
 ];
 const productNavigation = computed(() => [
-  ...baseProductNavigation,
+  ...(sessionStore.isPlatformAdmin && !sessionStore.isSuperAdmin ? [] : baseProductNavigation),
   ...(sessionStore.isSuperAdmin ? [{ path: "/system/users", label: "用户管理" }] : []),
   ...(sessionStore.isPlatformAdmin ? [{ path: "/system/organizations", label: "组织管理" }] : []),
 ]);
@@ -112,6 +112,10 @@ function passwordValidationMessage(password: string, username: string): string |
         >{{ item.label }}</RouterLink>
       </nav>
       <div class="account-actions">
+        <div v-if="sessionStore.user" class="account-identity" :title="`当前登录账户：${sessionStore.user.username}`">
+          <Icon icon="tabler:user-circle" />
+          <span>{{ sessionStore.user.display_name }}（{{ sessionStore.user.username }}）</span>
+        </div>
         <button class="logout-button" type="button" @click="openPasswordDialog">
           <Icon icon="tabler:key" />修改密码
         </button>
@@ -152,11 +156,14 @@ function passwordValidationMessage(password: string, username: string): string |
 .product-nav a:hover,.product-nav a.active { color:#172033; }
 .product-nav a.active::after { background:#087cf0; }
 .account-actions { display:flex; align-items:center; margin-left:auto; gap:18px; }
+.account-identity { display:inline-flex; max-width:280px; align-items:center; overflow:hidden; color:#334155; font-size:12px; font-weight:600; text-overflow:ellipsis; white-space:nowrap; gap:5px; }
+.account-identity span { overflow:hidden; text-overflow:ellipsis; }
+.account-identity svg { width:16px; height:16px; flex:0 0 auto; color:#087cf0; }
 .logout-button { display:inline-flex; align-items:center; padding:0 4px; color:#536174; font-size:12px; background:transparent; border:0; cursor:pointer; gap:5px; }
 .logout-button:hover { color:#172033; }
 .logout-button svg { width:15px; height:15px; }
 .route-content { min-width:0; min-height:0; flex:1; overflow:hidden; padding:0 18px; }
 .password-description { margin:0 0 18px; color:#66758a; font-size:13px; line-height:1.6; }
 .field-help { display:block; margin-top:6px; color:#7a8798; font-size:12px; line-height:1.5; }
-@media(max-width:760px){.assistant-header{padding:0 12px}.product-nav{overflow-x:auto;gap:22px}.account-actions{gap:8px}.logout-button{font-size:0}.route-content{padding:0 10px}}
+@media(max-width:760px){.assistant-header{padding:0 12px}.product-nav{overflow-x:auto;gap:22px}.account-actions{gap:8px}.account-identity{max-width:112px}.logout-button{font-size:0}.route-content{padding:0 10px}}
 </style>

@@ -48,3 +48,12 @@ _本目录保存来源、历史观察和变更记录；现行规范见 docs。_
 
 [2026-09-08 OCR 高风险问题修复记录](logs/2026-09-08-ocr-remediation.md)
 记录会话、组织隔离、实验增量写入、附件持久化、迁移和验证结果；不代表已执行生产发布。
+
+[2026-09-11 用户与授权模型术语对齐](logs/2026-09-11-access-control-model-documentation.md)
+记录“多租户 RBAC + 项目成员数据范围”的正式术语、特权边界和未实施的 ACL/ABAC/ReBAC 演进边界；本次仅变更文档。
+
+[2026-09-11 租户身份边界修复](logs/2026-09-11-tenant-identity-boundary-remediation.md)
+记录用户选项跨组织身份信息边界和普通用户角色提升边界的修复与验证；不代表已完成目标服务器验收。
+
+[2026-09-11 标准多租户 RBAC 平台与租户身份分离](logs/2026-09-11-standard-multitenant-rbac-separation.md)
+记录平台管理员与组织超级管理员拆分、Flyway V2 边界、部署参数变更和验证结论；不代表已部署到目标服务器。

@@ -37,15 +37,10 @@ public interface IdentityMapper {
     @Select("SELECT EXISTS(SELECT 1 FROM user_account WHERE username = #{username} AND id <> #{excludedUserId})")
     boolean existsUsernameExcluding(@Param("username") String username, @Param("excludedUserId") UUID excludedUserId);
 
-    /** 返回当前组织及下级组织的有效用户。 */
+    /** 返回当前组织的有效用户；用户选项不得跨越租户边界。 */
     @Select("""
-            WITH RECURSIVE visible_org AS (
-                SELECT id FROM organization WHERE id = #{organizationId}
-                UNION ALL
-                SELECT child.id FROM organization child JOIN visible_org parent ON child.parent_id = parent.id
-            )
             SELECT id, organization_id, username, password, display_name, status, is_super_admin, is_platform_admin, session_version
-            FROM user_account WHERE organization_id IN (SELECT id FROM visible_org) AND status = 'active'
+            FROM user_account WHERE organization_id = #{organizationId} AND status = 'active'
             ORDER BY display_name, username
             """)
     List<UserAccount> listVisibleActiveUsers(@Param("organizationId") UUID organizationId);
@@ -93,7 +88,7 @@ public interface IdentityMapper {
     /** 查询当前组织可分配的有效系统角色。 */
     @Select("""
             SELECT role_code, name, description FROM role
-            WHERE organization_id = #{organizationId} AND status = 'active'
+            WHERE organization_id = #{organizationId} AND status = 'active' AND role_code <> 'super_admin'
             ORDER BY is_system DESC, role_code
             """)
     List<ManagedRoleOption> listManagedRoleOptions(@Param("organizationId") UUID organizationId);

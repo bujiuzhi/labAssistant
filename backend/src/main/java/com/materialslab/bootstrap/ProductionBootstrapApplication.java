@@ -51,12 +51,13 @@ public class ProductionBootstrapApplication {
             throw new IllegalStateException("生产初始化只允许 prod Profile");
         }
         BootstrapSettings settings = BootstrapSettings.from(environment);
-        String encodedPassword = passwordEncoder.encode(BootstrapSettings.readPassword(environment, settings.username()));
+        String encodedPlatformPassword = passwordEncoder.encode(BootstrapSettings.readPlatformAdminPassword(environment, settings));
+        String encodedOrganizationPassword = passwordEncoder.encode(BootstrapSettings.readOrganizationAdminPassword(environment, settings));
         var initializer = new ProductionIdentityInitializer(new JdbcTemplate(dataSource),
                 new TransactionTemplate(new DataSourceTransactionManager(dataSource)));
         return args -> {
             objectStorageService.verifyReady();
-            initializer.initialize(dataSource, args, settings, encodedPassword);
+            initializer.initialize(dataSource, args, settings, encodedPlatformPassword, encodedOrganizationPassword);
         };
     }
 }
