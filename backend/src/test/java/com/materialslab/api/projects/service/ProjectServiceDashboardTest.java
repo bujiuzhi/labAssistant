@@ -6,7 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import com.materialslab.api.identity.domain.UserAccount;
 import com.materialslab.api.identity.security.AccessControlService;
 import com.materialslab.api.identity.security.UserPrincipal;
-import com.materialslab.api.projects.domain.DashboardRows.ActiveProject;
+import com.materialslab.api.projects.domain.DashboardRows.OverviewProject;
 import com.materialslab.api.projects.domain.DashboardRows.Metrics;
 import com.materialslab.api.projects.domain.DashboardRows.ProjectOption;
 import com.materialslab.api.projects.domain.DashboardRows.TrendEntry;
@@ -44,9 +44,10 @@ class ProjectServiceDashboardTest {
         assertEquals(1, ((List<?>) result.get("type_distribution")).size());
         Map<?, ?> trend = assertInstanceOf(Map.class, result.get("trend"));
         assertEquals(projectId.toString(), trend.get("selected_project_id"));
-        Map<?, ?> activeProject = assertInstanceOf(Map.class, ((List<?>) result.get("active_projects")).getFirst());
-        assertEquals("耐热薄膜验证", activeProject.get("name"));
-        assertEquals(true, activeProject.get("is_followed"));
+        Map<?, ?> overviewProject = assertInstanceOf(Map.class, ((List<?>) result.get("overview_projects")).getFirst());
+        assertEquals("耐热薄膜验证", overviewProject.get("name"));
+        assertEquals("not_started", overviewProject.get("status"));
+        assertEquals(true, overviewProject.get("is_followed"));
     }
 
     private DashboardMapper dashboardMapper(UUID projectId, UUID organizationId, UUID userId) {
@@ -56,10 +57,10 @@ class ProjectServiceDashboardTest {
                     case "experimentMetrics" -> new Metrics(6, 0, 0, 0, 2, 2);
                     case "typeDistribution" -> List.of(new TypeDistribution("聚酰亚胺", 1, 2));
                     case "trendEntries" -> List.of(new TrendEntry(LocalDate.now(), "聚酰亚胺", 2));
-                    case "activeProjects" -> List.of(new ActiveProject(
+                    case "overviewProjects" -> List.of(new OverviewProject(
                             projectId, "PRJ-TEST-001", "耐热薄膜验证", "聚酰亚胺", "测试项目管理员",
                             "[\"验证热稳定性\"]", "[{\"name\":\"中试\",\"date\":\"2026-08-18\",\"state\":\"current\"}]", 68,
-                            OffsetDateTime.now(ZoneOffset.UTC), OffsetDateTime.now(ZoneOffset.UTC).plusDays(7), true));
+                            OffsetDateTime.now(ZoneOffset.UTC), OffsetDateTime.now(ZoneOffset.UTC).plusDays(7), "not_started", true));
                     case "projectOptions" -> List.of(new ProjectOption(projectId, "PRJ-TEST-001", "耐热薄膜验证"));
                     default -> throw new AssertionError("未预期的 Mapper 调用：" + method.getName());
                 });

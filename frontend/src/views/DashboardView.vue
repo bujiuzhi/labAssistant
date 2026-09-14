@@ -8,60 +8,21 @@ import projectApprovalIcon from "@/assets/prototype/project-approval.svg";
 import laboratoryIcon from "@/assets/prototype/laboratory.svg";
 import { getProblemDetail } from "@/api/http";
 import { projectApi } from "@/api/projects";
-import type { DashboardSummary, Project } from "@/types/api";
+import type { DashboardSummary, ProjectStatus } from "@/types/api";
 
 const router = useRouter();
 const loading = ref(true);
 const summary = ref<DashboardSummary | null>(null);
-const projectRecords = ref<Project[]>([]);
-
-const projects = computed<DashboardSummary["active_projects"]>(() => {
-  const dashboardProjects = summary.value?.active_projects ?? [];
-  const includedIds = new Set(dashboardProjects.map((item) => item.id));
-  const additionalProjects = projectRecords.value
-    .filter((item) => (item.status === "active" || item.status === "at_risk") && !includedIds.has(item.id))
-    .map((item) => {
-      const milestone = item.milestones.find((entry) => entry.state === "current")
-        ?? item.milestones.find((entry) => entry.state === "todo")
-        ?? item.milestones[0]
-        ?? null;
-      const riskDays = milestone
-        ? Math.ceil((new Date(milestone.date).getTime() - Date.now()) / 86_400_000)
-        : null;
-      return {
-        id: item.id,
-        project_no: item.project_no,
-        name: item.name,
-        project_type: item.project_type_code,
-        owner_name: item.owner_display_name,
-        objectives: item.objectives,
-        planned_start_date: item.planned_start_date,
-        planned_end_date: item.planned_end_date,
-        milestone,
-        progress_percent: item.progress_percent,
-        is_followed: false,
-        risk_level: item.status === "at_risk" || (riskDays !== null && riskDays < 0)
-          ? "overdue" as const
-          : "normal" as const,
-        risk_days: riskDays,
-      };
-    });
-  return [...dashboardProjects, ...additionalProjects]
-    .sort((left, right) => Number(right.is_followed) - Number(left.is_followed))
-    .slice(0, 10);
-});
+const projects = computed<DashboardSummary["overview_projects"]>(
+  () => summary.value?.overview_projects ?? [],
+);
 const projectMetrics = computed(() => summary.value?.project_metrics);
 const experimentMetrics = computed(() => summary.value?.experiment_metrics);
 /** 加载当前用户可见范围内的实时汇总数据。 */
 async function loadDashboard(): Promise<void> {
   loading.value = true;
   try {
-    const [dashboardSummary, projectPage] = await Promise.all([
-      projectApi.dashboard(),
-      projectApi.list({ page: 1, page_size: 100 }),
-    ]);
-    summary.value = dashboardSummary;
-    projectRecords.value = projectPage.data;
+    summary.value = await projectApi.dashboard();
   } catch (error) {
     const problem = getProblemDetail(error);
     ElMessage.error(problem?.detail ?? "总览数据加载失败");
@@ -76,13 +37,26 @@ function formatDate(value: string | null): string {
 }
 
 /** 使用服务端统一计算的里程碑风险，避免客户端时区产生误判。 */
-function milestoneHint(project: DashboardSummary["active_projects"][number]): string {
+function milestoneHint(project: DashboardSummary["overview_projects"][number]): string {
   if (project.risk_level === "overdue") return `延期 ${Math.abs(project.risk_days ?? 0)} 天`;
   if (project.risk_level === "countdown") {
     return project.risk_days === 0 ? "今日到期" : `剩余 ${project.risk_days} 天`;
   }
   if (project.risk_days === null) return "未设置";
   return `剩余 ${project.risk_days} 天`;
+}
+
+/** 展示项目生命周期状态；计划日期不会隐式改变该状态。 */
+function projectStatusLabel(status: ProjectStatus): string {
+  return {
+    draft: "待开始",
+    not_started: "待开始",
+    active: "进行中",
+    at_risk: "有风险",
+    suspended: "已暂停",
+    completed: "已完成",
+    archived: "已归档",
+  }[status];
 }
 
 function openProject(projectId: string): void {
@@ -145,7 +119,7 @@ onMounted(loadDashboard);
 
     <section class="project-section">
       <header class="project-section-heading">
-        <h2>进行中项目</h2>
+        <h2>项目概览</h2>
         <button
           class="ui-button ui-button--light ui-button--icon"
           type="button"
@@ -183,6 +157,10 @@ onMounted(loadDashboard);
               <Icon :icon="project.is_followed ? 'ri:star-fill' : 'ri:star-line'" />
             </button>
           </header>
+
+          <span class="project-status" :class="project.status">
+            {{ projectStatusLabel(project.status) }}
+          </span>
 
           <p class="project-field project-dates">
             <Icon icon="ri:calendar-line" />
@@ -225,6 +203,16 @@ onMounted(loadDashboard);
             </div>
           </section>
         </article>
+        <el-empty
+          v-if="!projects.length"
+          class="project-empty"
+          description="暂无未结束项目"
+          :image-size="56"
+        >
+          <button class="ui-button ui-button--light" type="button" @click="router.push('/projects')">
+            前往项目数据
+          </button>
+        </el-empty>
       </div>
     </section>
   </section>
@@ -424,6 +412,35 @@ onMounted(loadDashboard);
 .project-card-heading button svg {
   width: 18px;
   height: 18px;
+}
+
+.project-status {
+  justify-self: start;
+  padding: 3px 8px;
+  color: #8a6500;
+  background: #fff7db;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.project-status.active {
+  color: #078545;
+  background: var(--color-success-soft);
+}
+
+.project-status.at_risk {
+  color: #a95200;
+  background: var(--color-warning-soft);
+}
+
+.project-status.suspended {
+  color: var(--color-muted);
+  background: var(--color-paper-3);
+}
+
+.project-empty {
+  grid-column: 1 / -1;
 }
 
 .project-field {

@@ -302,6 +302,7 @@ export interface DashboardActiveProject {
   objectives: string[];
   planned_start_date: string | null;
   planned_end_date: string | null;
+  status: ProjectStatus;
   milestone: ProjectMilestone | null;
   progress_percent: number;
   is_followed: boolean;
@@ -325,7 +326,7 @@ export interface DashboardSummary {
     selected_project_id: string;
     project_options: DashboardProjectOption[];
   };
-  active_projects: DashboardActiveProject[];
+  overview_projects: DashboardActiveProject[];
 }
 
 export type ExperimentStatus = "not_started" | "in_progress" | "completed";

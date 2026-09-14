@@ -5,7 +5,7 @@ import tools.jackson.databind.ObjectMapper;
 import com.materialslab.api.common.exception.BusinessException;
 import com.materialslab.api.identity.security.AccessControlService;
 import com.materialslab.api.identity.security.UserPrincipal;
-import com.materialslab.api.projects.domain.DashboardRows.ActiveProject;
+import com.materialslab.api.projects.domain.DashboardRows.OverviewProject;
 import com.materialslab.api.projects.domain.Project;
 import com.materialslab.api.projects.domain.ProjectMilestone;
 import com.materialslab.api.projects.domain.ProjectOperationLog;
@@ -165,7 +165,7 @@ public class ProjectService {
             series.add(Map.of("name", typeName, "values", values));
         }
 
-        List<Map<String, Object>> activeProjects = dashboardMapper.activeProjects(organizationId, userId, readAll).stream()
+        List<Map<String, Object>> overviewProjects = dashboardMapper.overviewProjects(organizationId, userId, readAll).stream()
                 .map(this::toDashboardProject)
                 .toList();
         List<Map<String, Object>> projectOptions = dashboardMapper.projectOptions(organizationId, userId, readAll).stream()
@@ -182,7 +182,7 @@ public class ProjectService {
         response.put("experiment_metrics", metrics(experimentMetrics.total(), 0L, 0L, 0L, experimentMetrics.inProgress(), experimentMetrics.completed()));
         response.put("type_distribution", typeDistribution);
         response.put("trend", trend);
-        response.put("active_projects", activeProjects);
+        response.put("overview_projects", overviewProjects);
         return response;
     }
 
@@ -205,7 +205,7 @@ public class ProjectService {
         }
     }
 
-    private Map<String, Object> toDashboardProject(ActiveProject project) {
+    private Map<String, Object> toDashboardProject(OverviewProject project) {
         List<ProjectMilestone> milestones = readMilestones(project.milestones());
         ProjectMilestone milestone = milestones.stream()
                 .filter(item -> "current".equals(item.state()))
@@ -223,6 +223,7 @@ public class ProjectService {
         response.put("objectives", readTextArray(project.objectives()));
         response.put("planned_start_date", project.plannedStartDate());
         response.put("planned_end_date", project.plannedEndDate());
+        response.put("status", project.status());
         response.put("milestone", milestone == null ? null : Map.of("name", milestone.name(), "date", milestone.date(), "state", milestone.state()));
         response.put("progress_percent", project.progressPercent());
         response.put("is_followed", project.followed());

@@ -1,6 +1,6 @@
 package com.materialslab.api.projects.mapper;
 
-import com.materialslab.api.projects.domain.DashboardRows.ActiveProject;
+import com.materialslab.api.projects.domain.DashboardRows.OverviewProject;
 import com.materialslab.api.projects.domain.DashboardRows.Metrics;
 import com.materialslab.api.projects.domain.DashboardRows.ProjectOption;
 import com.materialslab.api.projects.domain.DashboardRows.TrendEntry;
@@ -67,19 +67,22 @@ public interface DashboardMapper {
     List<TrendEntry> trendEntries(@Param("organizationId") UUID organizationId, @Param("userId") UUID userId,
                                   @Param("readAll") boolean readAll, @Param("startDate") LocalDate startDate);
 
-    /** 查询用户可见的进行中或风险项目。 */
+    /** 查询用户可见的未结束项目，供工作台项目概览展示。 */
     @Select("""
             SELECT p.id, p.project_no, p.name, p.project_type_code, owner.display_name owner_name, p.objectives::text,
-              p.milestones::text, p.progress_percent, p.planned_start_date, p.planned_end_date,
+              p.milestones::text, p.progress_percent, p.planned_start_date, p.planned_end_date, p.status,
               EXISTS(SELECT 1 FROM project_follow follow WHERE follow.project_id = p.id AND follow.user_id = #{userId}) followed
             FROM project p JOIN user_account owner ON owner.id = p.owner_id
-            WHERE p.organization_id = #{organizationId} AND p.status IN ('active', 'at_risk')
+            WHERE p.organization_id = #{organizationId} AND p.status NOT IN ('completed', 'archived')
               AND (#{readAll} = TRUE OR p.owner_id = #{userId}
                 OR EXISTS (SELECT 1 FROM project_member member WHERE member.project_id = p.id AND member.user_id = #{userId}))
-            ORDER BY followed DESC, p.updated_at DESC LIMIT 6
+            ORDER BY followed DESC,
+              CASE p.status WHEN 'at_risk' THEN 0 WHEN 'active' THEN 1 WHEN 'not_started' THEN 2
+                WHEN 'draft' THEN 2 WHEN 'suspended' THEN 3 ELSE 4 END,
+              p.updated_at DESC LIMIT 10
             """)
-    List<ActiveProject> activeProjects(@Param("organizationId") UUID organizationId, @Param("userId") UUID userId,
-                                       @Param("readAll") boolean readAll);
+    List<OverviewProject> overviewProjects(@Param("organizationId") UUID organizationId, @Param("userId") UUID userId,
+                                           @Param("readAll") boolean readAll);
 
     /** 查询当前用户可筛选的项目选项。 */
     @Select("""

@@ -17,10 +17,10 @@ public final class DashboardRows {
     /** 按日期和类型聚合的实验数量。 */
     public record TrendEntry(LocalDate date, String typeName, long experimentCount) { }
 
-    /** 工作台项目卡片所需字段。 */
-    public record ActiveProject(UUID id, String projectNo, String name, String projectTypeCode, String ownerName,
+    /** 工作台未结束项目概览卡片所需字段。 */
+    public record OverviewProject(UUID id, String projectNo, String name, String projectTypeCode, String ownerName,
                                 String objectives, String milestones, int progressPercent, OffsetDateTime plannedStartDate,
-                                OffsetDateTime plannedEndDate, boolean followed) { }
+                                OffsetDateTime plannedEndDate, String status, boolean followed) { }
 
     /** 总览趋势筛选的项目选项。 */
     public record ProjectOption(UUID id, String projectNo, String name) { }
