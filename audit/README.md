@@ -78,3 +78,6 @@ _本目录保存来源、历史观察和变更记录；现行规范见 docs。_
 
 [2026-09-14 项目文档列表与电子实验记录本附件修复](logs/2026-09-14-document-list-and-eln-attachment-upload-fix.md)
 记录文档列表 RustFS 对象引用映射修复、未保存实验草稿的附件上传边界与构建验证；不代表已完成生产环境验收。
+
+[2026-09-14 本机生产文档与实验附件修复升级](logs/2026-09-14-local-production-document-and-eln-upload-fix-upgrade.md)
+记录 `6e726fb` 的本机 Compose 备份、重启与健康验收；业务界面级上传验收仍待有权限用户确认。
