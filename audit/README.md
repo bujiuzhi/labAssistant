@@ -72,3 +72,6 @@ _本目录保存来源、历史观察和变更记录；现行规范见 docs。_
 
 [2026-09-14 普通用户逻辑删除](logs/2026-09-14-logical-user-deletion.md)
 记录普通用户逻辑删除、负责人交接保护、会话失效和匿名化边界；本记录不代表已部署至任何服务器。
+
+[2026-09-14 本机生产普通用户删除升级](logs/2026-09-14-local-production-logical-user-deletion-upgrade.md)
+记录本机生产 Compose 升级、恢复组、Flyway V3 与健康验收；仅适用于该本机环境。
