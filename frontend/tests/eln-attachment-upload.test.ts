@@ -13,19 +13,22 @@ const experimentApi = readFileSync(
   "utf8",
 );
 
-test("未保存的实验草稿不提供附件选择控件", () => {
+test("首次上传会自动暂存计划，再将附件关联到草稿", () => {
   assert.match(
     elnView,
-    /const canUploadAttachments = computed\([\s\S]*?canEdit\.value && selectedExperiment\.value !== null/,
+    /const canUploadAttachments = computed\(\(\) => canEdit\.value\)/,
   );
   assert.match(
     elnView,
-    /v-if="canUploadAttachments" class="inline-upload-action"[\s\S]*?保存实验计划后可上传图片/,
+    /async function ensureAttachmentExperiment\(\): Promise<Experiment \| null>[\s\S]*?experimentApi\.create\(payloadFromEditor\(\)\)/,
   );
-  assert.match(
-    elnView,
-    /v-if="canUploadAttachments" class="inline-upload-action"[\s\S]*?保存实验计划后可上传附件/,
+  assert.equal(
+    (elnView.match(/const current = await ensureAttachmentExperiment\(\);/g) ?? [])
+      .length,
+    2,
   );
+  assert.match(elnView, /已自动暂存实验计划，正在上传附件/);
+  assert.doesNotMatch(elnView, /保存实验计划后可上传/);
 });
 
 test("结果附件不限制格式并支持单文件 300 MB 上传时限", () => {

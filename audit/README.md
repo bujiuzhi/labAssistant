@@ -87,3 +87,6 @@ _本目录保存来源、历史观察和变更记录；现行规范见 docs。_
 
 [2026-09-14 本机生产 ELN 附件预览与大文件升级](logs/2026-09-14-local-production-eln-attachment-large-file-upgrade.md)
 记录 `f8a2161` 的本机 Compose 恢复组、服务健康与 Nginx 上传限制验收；真实业务界面验收仍待用户确认。
+
+[2026-09-14 ELN 首次附件上传自动暂存草稿](logs/2026-09-14-eln-auto-draft-attachment-upload.md)
+记录首次上传自动创建 `not_started` 草稿的用户体验调整、最小归属字段与构建验证；不代表已完成生产环境验收。

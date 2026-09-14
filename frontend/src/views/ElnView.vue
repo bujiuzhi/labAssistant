@@ -131,10 +131,8 @@ const canEdit = computed(
       selectedExperiment.value?.can_edit === true),
 );
 
-/** 附件只能关联已落库的实验记录，避免把文件上传到没有归属的草稿。 */
-const canUploadAttachments = computed(
-  () => canEdit.value && selectedExperiment.value !== null,
-);
+/** 新建计划在首次上传时自动落为草稿，附件始终关联可审计的实验记录。 */
+const canUploadAttachments = computed(() => canEdit.value);
 
 const filteredExperiments = computed(() => {
   return experiments.value.filter(
@@ -599,9 +597,8 @@ function addExtraProcess(): void {
 async function addProcessImages(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement;
   const files = Array.from(input.files ?? []);
-  const current = selectedExperiment.value;
+  const current = await ensureAttachmentExperiment();
   if (!current) {
-    ElMessage.warning("当前实验计划尚未保存，保存后可上传真实过程图片");
     input.value = "";
     return;
   }
@@ -632,9 +629,8 @@ async function addProcessImages(event: Event): Promise<void> {
 
 async function addResultFiles(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement;
-  const current = selectedExperiment.value;
+  const current = await ensureAttachmentExperiment();
   if (!current) {
-    ElMessage.warning("当前实验计划尚未保存，保存后可上传真实结果附件");
     input.value = "";
     return;
   }
@@ -736,6 +732,34 @@ function validateEditor(): boolean {
     return false;
   }
   return true;
+}
+
+/**
+ * 为第一次上传自动创建“未开始”草稿，使附件从创建时即具备项目、组织和权限归属。
+ *
+ * @returns 已存在或刚创建的实验；未满足计划必填项、保存失败时返回 null。
+ */
+async function ensureAttachmentExperiment(): Promise<Experiment | null> {
+  const current = selectedExperiment.value;
+  if (current) return current;
+  if (saving.value || !validateEditor()) return null;
+
+  saving.value = true;
+  try {
+    const created = await experimentApi.create(payloadFromEditor());
+    replaceExperiment(created);
+    selectedProjectId.value = created.project_id;
+    activeStatus.value = "not_started";
+    selectExperiment(created);
+    ElMessage.success("已自动暂存实验计划，正在上传附件");
+    return created;
+  } catch (error) {
+    const problem = getProblemDetail(error);
+    ElMessage.error(problem?.detail ?? "自动暂存实验计划失败，请稍后重试");
+    return null;
+  } finally {
+    saving.value = false;
+  }
 }
 
 function replaceExperiment(updated: Experiment): void {
@@ -1506,9 +1530,6 @@ onBeforeUnmount(() => {
                   <Icon icon="tabler:photo-plus" />
                   上传图片
                 </label>
-                <span v-else-if="canEdit" class="attachment-upload-hint">
-                  保存实验计划后可上传图片
-                </span>
               </div>
               <div class="image-grid">
                 <figure
@@ -1559,9 +1580,6 @@ onBeforeUnmount(() => {
                 <Icon icon="tabler:paperclip" />
                 上传附件
               </label>
-              <span v-else-if="canEdit" class="attachment-upload-hint">
-                保存实验计划后可上传附件
-              </span>
             </div>
             <div class="file-list">
               <div
@@ -2539,11 +2557,6 @@ onBeforeUnmount(() => {
 
 .inline-upload-action input {
   display: none;
-}
-
-.attachment-upload-hint {
-  color: var(--color-text-muted);
-  font-size: 13px;
 }
 
 .result-section {
