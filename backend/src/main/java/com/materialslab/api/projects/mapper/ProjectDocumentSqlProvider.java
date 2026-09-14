@@ -6,7 +6,7 @@ import java.util.Map;
 public class ProjectDocumentSqlProvider {
     /** 生成文档元数据查询。 */
     public String findByProject(Map<String, Object> parameters) {
-        return "SELECT d.id, d.organization_id, d.project_id, d.category, d.name, d.version_label, "
+        return "SELECT d.id, d.organization_id, d.project_id, d.category, d.name, d.version_label, d.file, "
                 + "d.mime_type, d.file_size, d.uploaded_by_id, uploader.display_name AS uploaded_by_name, "
                 + "d.created_at, d.updated_at FROM project_document d "
                 + "JOIN user_account uploader ON uploader.id = d.uploaded_by_id "

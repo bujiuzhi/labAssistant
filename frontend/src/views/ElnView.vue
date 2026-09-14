@@ -131,6 +131,11 @@ const canEdit = computed(
       selectedExperiment.value?.can_edit === true),
 );
 
+/** 附件只能关联已落库的实验记录，避免把文件上传到没有归属的草稿。 */
+const canUploadAttachments = computed(
+  () => canEdit.value && selectedExperiment.value !== null,
+);
+
 const filteredExperiments = computed(() => {
   return experiments.value.filter(
     (item) =>
@@ -596,7 +601,7 @@ async function addProcessImages(event: Event): Promise<void> {
   const files = Array.from(input.files ?? []);
   const current = selectedExperiment.value;
   if (!current) {
-    ElMessage.warning("请先创建实验计划后再上传真实过程图片");
+    ElMessage.warning("当前实验计划尚未保存，保存后可上传真实过程图片");
     input.value = "";
     return;
   }
@@ -629,7 +634,7 @@ async function addResultFiles(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement;
   const current = selectedExperiment.value;
   if (!current) {
-    ElMessage.warning("请先创建实验计划后再上传真实结果附件");
+    ElMessage.warning("当前实验计划尚未保存，保存后可上传真实结果附件");
     input.value = "";
     return;
   }
@@ -1491,7 +1496,7 @@ onBeforeUnmount(() => {
             <div>
               <div class="subheading">
                 <h3>过程图片 <span>{{ editor.process_images.length }}</span></h3>
-                <label v-if="canEdit" class="inline-upload-action">
+                <label v-if="canUploadAttachments" class="inline-upload-action">
                   <input
                     type="file"
                     accept="image/jpeg,image/png"
@@ -1501,6 +1506,9 @@ onBeforeUnmount(() => {
                   <Icon icon="tabler:photo-plus" />
                   上传图片
                 </label>
+                <span v-else-if="canEdit" class="attachment-upload-hint">
+                  保存实验计划后可上传图片
+                </span>
               </div>
               <div class="image-grid">
                 <figure
@@ -1546,11 +1554,14 @@ onBeforeUnmount(() => {
           <div class="result-attachments">
             <div class="attachment-heading">
               <h4>结果附件 <span>{{ editor.result_files.length }}</span></h4>
-              <label v-if="canEdit" class="inline-upload-action">
+              <label v-if="canUploadAttachments" class="inline-upload-action">
                 <input type="file" multiple @change="addResultFiles" />
                 <Icon icon="tabler:paperclip" />
                 上传附件
               </label>
+              <span v-else-if="canEdit" class="attachment-upload-hint">
+                保存实验计划后可上传附件
+              </span>
             </div>
             <div class="file-list">
               <div
@@ -2528,6 +2539,11 @@ onBeforeUnmount(() => {
 
 .inline-upload-action input {
   display: none;
+}
+
+.attachment-upload-hint {
+  color: var(--color-text-muted);
+  font-size: 13px;
 }
 
 .result-section {
