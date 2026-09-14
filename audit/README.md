@@ -84,3 +84,6 @@ _本目录保存来源、历史观察和变更记录；现行规范见 docs。_
 
 [2026-09-14 ELN 缩略图与大结果附件修复](logs/2026-09-14-eln-attachment-preview-and-large-file-fix.md)
 记录私有 RustFS 对象标识泄露导致的缩略图失败修复、任意格式 300 MiB 结果附件与流式传输边界；不代表已完成生产环境验收。
+
+[2026-09-14 本机生产 ELN 附件预览与大文件升级](logs/2026-09-14-local-production-eln-attachment-large-file-upgrade.md)
+记录 `f8a2161` 的本机 Compose 恢复组、服务健康与 Nginx 上传限制验收；真实业务界面验收仍待用户确认。
