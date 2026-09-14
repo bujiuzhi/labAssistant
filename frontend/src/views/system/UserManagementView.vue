@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import {
+  Delete,
   Edit,
   Key,
   Plus,
   Refresh,
   Search,
 } from "@element-plus/icons-vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { computed, onMounted, reactive, ref } from "vue";
 
 import { getProblemDetail } from "@/api/http";
@@ -387,6 +388,35 @@ async function submitPasswordReset(): Promise<void> {
   }
 }
 
+/**
+ * 逻辑删除普通用户；已删除账号不可恢复，历史业务与审计记录仍会保留。
+ *
+ * @param user 目标普通用户
+ */
+async function deleteUser(user: ManagedUser): Promise<void> {
+  if (user.is_super_admin || submitting.value) return;
+  try {
+    await ElMessageBox.confirm(
+      `将删除“${user.display_name}”的账号。账号会立即失效并匿名化，历史业务记录保留且不可恢复。`,
+      "确认删除用户",
+      { confirmButtonText: "删除", cancelButtonText: "取消", type: "warning" },
+    );
+  } catch {
+    return;
+  }
+  submitting.value = true;
+  try {
+    await userApi.deleteManagedUser(user.id);
+    ElMessage.success("用户已删除");
+    await loadUsers();
+  } catch (error) {
+    const problem = getProblemDetail(error);
+    ElMessage.error(problem?.detail ?? "用户删除失败");
+  } finally {
+    submitting.value = false;
+  }
+}
+
 /** 返回与服务端一致的密码策略提示；服务端仍是最终校验边界。 */
 function passwordValidationMessage(password: string, username: string): string | null {
   if (
@@ -504,7 +534,7 @@ onMounted(async () => {
               {{ formatDateTime(row.last_login) }}
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="240" fixed="right">
+          <el-table-column label="操作" width="312" fixed="right">
             <template #default="{ row }">
               <span v-if="row.is_super_admin" class="protected-copy">
                 受保护账号
@@ -521,6 +551,14 @@ onMounted(async () => {
                   @click="openPasswordDialog(row)"
                 >
                   重置密码
+                </el-button>
+                <el-button
+                  type="danger"
+                  plain
+                  :icon="Delete"
+                  @click="deleteUser(row)"
+                >
+                  删除
                 </el-button>
               </div>
             </template>

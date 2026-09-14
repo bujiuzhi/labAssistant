@@ -107,7 +107,7 @@ public interface ExperimentMapper {
     @Select("""
             SELECT participant.user_id, account.display_name
             FROM experiment_participant participant JOIN user_account account ON account.id = participant.user_id
-            WHERE participant.experiment_id = #{experimentId}
+            WHERE participant.experiment_id = #{experimentId} AND account.status <> 'deleted'
             ORDER BY participant.joined_at, account.display_name
             """)
     List<ExperimentParticipant> listParticipants(@Param("experimentId") UUID experimentId);

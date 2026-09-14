@@ -24,7 +24,7 @@ public class IdentitySqlProvider {
                 LEFT JOIN user_role ur ON ur.user_id = u.id
                 LEFT JOIN role r ON r.id = ur.role_id AND r.status = 'active'
                 """);
-        sql.append(" WHERE u.organization_id = #{organizationId}");
+        sql.append(" WHERE u.organization_id = #{organizationId} AND u.status <> 'deleted'");
         if (parameters.get("status") != null && !parameters.get("status").toString().isBlank()) sql.append(" AND u.status = #{status}");
         if (parameters.get("search") != null && !parameters.get("search").toString().isBlank()) {
             sql.append(" AND (u.username ILIKE '%' || #{search} || '%' OR u.display_name ILIKE '%' || #{search} || '%' OR u.email ILIKE '%' || #{search} || '%')");

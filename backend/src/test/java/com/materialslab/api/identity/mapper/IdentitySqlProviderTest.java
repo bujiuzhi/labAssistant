@@ -15,7 +15,7 @@ class IdentitySqlProviderTest {
         String listSql = new IdentitySqlProvider().listManagedUsers(parameters);
         String countSql = new IdentitySqlProvider().countManagedUsers(parameters);
 
-        assertThat(listSql).contains("string_agg", "u.status = #{status}", "u.display_name ILIKE", "filtered_r.role_code = #{roleCode}", "LIMIT #{limit}");
-        assertThat(countSql).contains("SELECT COUNT(*)", "u.status = #{status}", "u.display_name ILIKE", "filtered_r.role_code = #{roleCode}");
+        assertThat(listSql).contains("string_agg", "u.status <> 'deleted'", "u.status = #{status}", "u.display_name ILIKE", "filtered_r.role_code = #{roleCode}", "LIMIT #{limit}");
+        assertThat(countSql).contains("SELECT COUNT(*)", "u.status <> 'deleted'", "u.status = #{status}", "u.display_name ILIKE", "filtered_r.role_code = #{roleCode}");
     }
 }

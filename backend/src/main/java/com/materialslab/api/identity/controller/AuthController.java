@@ -25,6 +25,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -152,6 +153,13 @@ public class AuthController {
     @PostMapping("/users/{userId}/reset-password")
     public ResponseEntity<Void> resetPassword(@PathVariable java.util.UUID userId, @RequestBody ResetPasswordRequest request) {
         identityService.resetManagedUserPassword(IdentityService.currentPrincipal(), userId, request.password());
+        return ResponseEntity.noContent().build();
+    }
+
+    /** 逻辑删除当前组织普通用户；仍负责活动资源时服务端会拒绝并要求先交接。 */
+    @DeleteMapping("/users/{userId}")
+    public ResponseEntity<Void> deleteUser(@PathVariable java.util.UUID userId) {
+        identityService.deleteManagedUser(IdentityService.currentPrincipal(), userId);
         return ResponseEntity.noContent().build();
     }
 

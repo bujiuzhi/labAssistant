@@ -32,5 +32,10 @@ class FirstProductionSchemaTest {
         Path platformBoundaryMigration = migrationDirectory.resolve("V2__platform_tenant_boundary.sql");
         assertTrue(Files.isRegularFile(platformBoundaryMigration));
         assertTrue(Files.readString(platformBoundaryMigration).contains("ck_user_account_platform_not_super"));
+        Path userDeletionMigration = migrationDirectory.resolve("V3__logical_user_deletion.sql");
+        assertTrue(Files.isRegularFile(userDeletionMigration));
+        String userDeletionSchema = Files.readString(userDeletionMigration);
+        assertTrue(userDeletionSchema.contains("status IN ('active', 'locked', 'disabled', 'deleted')"));
+        assertTrue(userDeletionSchema.contains("deleted_by_id UUID REFERENCES user_account(id)"));
     }
 }

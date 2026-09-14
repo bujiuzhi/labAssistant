@@ -112,6 +112,37 @@ public interface IdentityMapper {
     @Update("UPDATE user_account SET password = #{password}, session_version = session_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = #{userId} AND organization_id = #{organizationId}")
     int resetPassword(@Param("organizationId") UUID organizationId, @Param("userId") UUID userId, @Param("password") String password);
 
+    /** 统计普通用户仍负责的未归档项目；此类资源必须先完成负责人交接。 */
+    @Select("SELECT COUNT(*) FROM project WHERE organization_id = #{organizationId} AND owner_id = #{userId} AND status <> 'archived'")
+    long countActiveOwnedProjects(@Param("organizationId") UUID organizationId, @Param("userId") UUID userId);
+
+    /** 统计普通用户仍负责的未完成实验；此类资源必须先完成负责人交接。 */
+    @Select("SELECT COUNT(*) FROM experiment WHERE organization_id = #{organizationId} AND owner_id = #{userId} AND status <> 'completed'")
+    long countIncompleteOwnedExperiments(@Param("organizationId") UUID organizationId, @Param("userId") UUID userId);
+
+    /** 撤销被删除用户签发但尚未使用的邀请码，防止其继续创建组织成员。 */
+    @Update("UPDATE registration_invitation SET status = 'revoked' WHERE organization_id = #{organizationId} AND created_by_id = #{userId} AND status = 'active'")
+    int revokeActiveRegistrationInvitationsByCreator(@Param("organizationId") UUID organizationId, @Param("userId") UUID userId);
+
+    /** 使普通用户失效并匿名化可识别资料；保留主键以维持历史业务与审计外键。 */
+    @Update("""
+            UPDATE user_account
+            SET username = #{anonymizedUsername}, password = #{password}, display_name = '已删除用户', email = '',
+                first_name = '', last_name = '', status = 'deleted', is_active = FALSE,
+                deleted_at = CURRENT_TIMESTAMP, deleted_by_id = #{deletedById},
+                session_version = session_version + 1, updated_at = CURRENT_TIMESTAMP
+            WHERE id = #{userId} AND organization_id = #{organizationId} AND status <> 'deleted'
+            """)
+    int anonymizeDeletedUser(UserDeletionCommand command);
+
+    /** 为账号删除保存最小必要审计，不记录原用户名、邮箱或密码资料。 */
+    @Insert("""
+            INSERT INTO business_operation_log (id, organization_id, actor_id, domain, object_id, action_type, description, changes, created_at)
+            VALUES (#{id}, #{organizationId}, #{actorId}, 'identity', #{userId}, 'user_deleted', '逻辑删除组织普通用户',
+                    CAST(#{changes} AS jsonb), CURRENT_TIMESTAMP)
+            """)
+    int insertUserDeletionOperationLog(UserDeletionAuditCommand command);
+
     /** 创建只保存哈希的一次性邀请码。 */
     @Insert("""
             INSERT INTO registration_invitation (id, organization_id, role_id, created_by_id, code_hash, expires_at)
@@ -176,6 +207,12 @@ public interface IdentityMapper {
     /** 用户管理写入参数。 */
     record UserWriteCommand(UUID id, UUID organizationId, String password, String username, String displayName, String email,
                             String status, boolean active) { }
+
+    /** 用户逻辑删除写入参数；匿名登录名不可复用，避免历史身份被新账号冒用。 */
+    record UserDeletionCommand(UUID organizationId, UUID userId, UUID deletedById, String anonymizedUsername, String password) { }
+
+    /** 用户删除审计参数；changes 只保存不可识别的删除结果。 */
+    record UserDeletionAuditCommand(UUID id, UUID organizationId, UUID actorId, UUID userId, String changes) { }
 
     /** 签发邀请码的持久化参数，明文邀请码绝不进入该对象。 */
     record RegistrationInvitationCommand(UUID id, UUID organizationId, UUID roleId, UUID createdById, String codeHash,

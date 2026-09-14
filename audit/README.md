@@ -63,3 +63,12 @@ _本目录保存来源、历史观察和变更记录；现行规范见 docs。_
 
 [2026-09-11 本机生产身份数据重置](logs/2026-09-11-local-production-identity-reset.md)
 记录经确认后保留平台控制面、清除本机生产业务组织与账号数据的备份、范围和验证；仅适用于该本机 Compose 环境。
+
+[2026-09-14 本机生产平台控制面升级](logs/2026-09-14-local-production-platform-bootstrap-upgrade.md)
+记录本机从旧发布镜像升级到零业务组织初始化版本的备份、运行版本和健康验证；仅适用于该本机 Compose 环境。
+
+[2026-09-14 本机平台管理员凭据轮换](logs/2026-09-14-local-production-platform-admin-credential-rotation.md)
+记录经确认后修改本机平台管理员登录名与部署专属 Secret 的备份、验证和恢复边界；不记录凭据明文。
+
+[2026-09-14 普通用户逻辑删除](logs/2026-09-14-logical-user-deletion.md)
+记录普通用户逻辑删除、负责人交接保护、会话失效和匿名化边界；本记录不代表已部署至任何服务器。

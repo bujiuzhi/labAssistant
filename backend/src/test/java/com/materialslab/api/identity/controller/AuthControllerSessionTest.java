@@ -65,6 +65,20 @@ class AuthControllerSessionTest {
         assertThat(response.getStatusCode().value()).isEqualTo(204);
     }
 
+    @Test
+    void 删除普通用户应委托身份服务并返回无内容() {
+        IdentityService identityService = mock(IdentityService.class);
+        UserPrincipal principal = principal();
+        UUID targetUserId = UUID.randomUUID();
+        SecurityContextHolder.getContext().setAuthentication(
+                UsernamePasswordAuthenticationToken.authenticated(principal, "", List.of()));
+
+        var response = new AuthController(identityService).deleteUser(targetUserId);
+
+        verify(identityService).deleteManagedUser(principal, targetUserId);
+        assertThat(response.getStatusCode().value()).isEqualTo(204);
+    }
+
     private UserPrincipal principal() {
         UUID userId = UUID.randomUUID();
         return new UserPrincipal(new UserAccount(userId, UUID.randomUUID(), "tester", "", "测试用户", "active", false, false, 0), List.of());

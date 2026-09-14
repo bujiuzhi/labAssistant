@@ -104,6 +104,15 @@ export const userApi = {
     await http.post(`/auth/users/${userId}/reset-password`, { password });
   },
 
+  /**
+   * 逻辑删除当前组织普通用户
+   *
+   * 账号会立即失效并匿名化；仍负责活动资源时服务端要求先交接负责人。
+   */
+  async deleteManagedUser(userId: string): Promise<void> {
+    await http.delete(`/auth/users/${userId}`);
+  },
+
   /** 查询当前组织最近签发的邀请码元数据。 */
   async listRegistrationInvitations(): Promise<RegistrationInvitation[]> {
     const response = await http.get<DataResponse<RegistrationInvitation[]>>(

@@ -139,8 +139,7 @@ public class IdentityService {
     public void updateManagedUser(UserPrincipal principal, UUID userId, JsonNode payload) {
         requireSuperAdmin(principal);
         UserAccount existing = identityMapper.findById(userId);
-        if (existing == null || !principal.organizationId().equals(existing.organizationId())) throw new BusinessException(HttpStatus.NOT_FOUND, "user_not_found", "用户不存在或不属于当前组织");
-        if (existing.superAdmin()) throw new BusinessException(HttpStatus.FORBIDDEN, "super_admin_protected", "超级管理员账号受保护");
+        requireManageableUser(principal, existing);
         List<String> roleCodes = requiredAssignableRoleCodes(payload);
         IdentityMapper.UserWriteCommand command = command(userId, principal.organizationId(), existing.password(), payload);
         requireAvailableUsername(command.username(), userId);
@@ -157,10 +156,38 @@ public class IdentityService {
     public void resetManagedUserPassword(UserPrincipal principal, UUID userId, String password) {
         requireSuperAdmin(principal);
         UserAccount existing = identityMapper.findById(userId);
-        if (existing == null || !principal.organizationId().equals(existing.organizationId())) throw new BusinessException(HttpStatus.NOT_FOUND, "user_not_found", "用户不存在或不属于当前组织");
-        if (existing.superAdmin()) throw new BusinessException(HttpStatus.FORBIDDEN, "super_admin_protected", "超级管理员账号受保护");
+        requireManageableUser(principal, existing);
         PasswordPolicy.validateManagedPassword(password, existing.username());
         identityMapper.resetPassword(principal.organizationId(), userId, passwordEncoder.encode(password));
+    }
+
+    /**
+     * 逻辑删除当前组织普通用户。
+     *
+     * 删除会撤销角色和未使用邀请码、轮换密码并匿名化资料；不物理删除行，以保留业务和审计外键。
+     * 仍负责活动项目或未完成实验的账号必须先交接负责人，避免形成无人负责的资源。
+     */
+    @Transactional
+    public void deleteManagedUser(UserPrincipal principal, UUID userId) {
+        requireSuperAdmin(principal);
+        UserAccount existing = identityMapper.findById(userId);
+        requireManageableUser(principal, existing);
+        long activeProjectCount = identityMapper.countActiveOwnedProjects(principal.organizationId(), userId);
+        long incompleteExperimentCount = identityMapper.countIncompleteOwnedExperiments(principal.organizationId(), userId);
+        if (activeProjectCount > 0 || incompleteExperimentCount > 0) {
+            throw new BusinessException(HttpStatus.CONFLICT, "user_resource_handover_required",
+                    "该用户仍负责未归档项目或未完成实验，请先交接负责人后再删除");
+        }
+        identityMapper.revokeActiveRegistrationInvitationsByCreator(principal.organizationId(), userId);
+        identityMapper.deleteUserRoles(principal.organizationId(), userId);
+        String anonymizedUsername = "deleted_" + userId.toString().replace("-", "");
+        int changed = identityMapper.anonymizeDeletedUser(new IdentityMapper.UserDeletionCommand(
+                principal.organizationId(), userId, principal.userId(), anonymizedUsername,
+                passwordEncoder.encode(UUID.randomUUID().toString())));
+        if (changed == 0) throw new BusinessException(HttpStatus.NOT_FOUND, "user_not_found", "用户不存在或已删除");
+        identityMapper.insertUserDeletionOperationLog(new IdentityMapper.UserDeletionAuditCommand(
+                UUID.randomUUID(), principal.organizationId(), principal.userId(), userId,
+                "{\"account_anonymized\":true,\"roles_revoked\":true}"));
     }
 
     /** 签发一次性邀请码；只有哈希写入数据库，明文仅随本次响应返回。 */
@@ -251,6 +278,15 @@ public class IdentityService {
     private void requireSuperAdmin(UserPrincipal principal) {
         if (!principal.isSuperAdmin() || principal.isPlatformAdmin()) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "permission_denied", "仅当前组织的超级管理员可管理系统用户");
+        }
+    }
+
+    private void requireManageableUser(UserPrincipal principal, UserAccount existing) {
+        if (existing == null || !principal.organizationId().equals(existing.organizationId()) || "deleted".equals(existing.status())) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "user_not_found", "用户不存在或不属于当前组织");
+        }
+        if (existing.superAdmin() || existing.platformAdmin()) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "super_admin_protected", "超级管理员账号受保护");
         }
     }
 

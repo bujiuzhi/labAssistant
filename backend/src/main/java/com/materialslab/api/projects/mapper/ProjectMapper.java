@@ -69,7 +69,7 @@ public interface ProjectMapper {
     @Select("""
             SELECT member.user_id, account.display_name, member.member_role
             FROM project_member member JOIN user_account account ON account.id = member.user_id
-            WHERE member.project_id = #{projectId}
+            WHERE member.project_id = #{projectId} AND account.status <> 'deleted'
             ORDER BY member.joined_at, account.display_name
             """)
     List<ProjectMember> listMembers(@Param("projectId") UUID projectId);

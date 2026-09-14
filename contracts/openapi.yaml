@@ -332,7 +332,7 @@ paths:
       operationId: "listUsers"
       tags: ["Auth"]
       summary: "分页查询当前组织用户"
-      description: "仅超级管理员可访问。"
+      description: "仅超级管理员可访问；逻辑删除账号不返回。"
       parameters:
         -
           "$ref": "#/components/parameters/Page"
@@ -426,6 +426,29 @@ paths:
       responses:
         "200":
           "$ref": "#/components/responses/EmptySuccess"
+        default:
+          "$ref": "#/components/responses/ApiError"
+    delete:
+      operationId: "deleteUser"
+      tags: ["Auth"]
+      summary: "逻辑删除当前组织普通用户"
+      description: |-
+        仅超级管理员，不能删除超级管理员或平台管理员。删除会使账号、角色和未使用邀请码立即失效并匿名化资料，保留历史业务和审计外键。
+        目标仍负责未归档项目或未完成实验时返回 409（user_resource_handover_required），须先交接负责人；删除不可从管理界面恢复。
+      security:
+        -
+          cookieAuth: []
+          csrfCookie: []
+          csrfHeader: []
+        -
+          basicAuth: []
+          csrfCookie: []
+          csrfHeader: []
+      responses:
+        "204":
+          description: "普通用户已逻辑删除"
+        "409":
+          "$ref": "#/components/responses/ApiError"
         default:
           "$ref": "#/components/responses/ApiError"
   "/auth/users/{userId}/reset-password":

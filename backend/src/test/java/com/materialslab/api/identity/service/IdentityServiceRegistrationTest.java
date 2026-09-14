@@ -144,6 +144,48 @@ class IdentityServiceRegistrationTest {
         verify(mapper, never()).insertManagedUser(any());
     }
 
+    /** 删除普通用户必须撤销可继续发放账号的能力、清除角色，并使原会话在下一请求失效。 */
+    @Test
+    void 删除普通用户应逻辑删除并留下最小审计() {
+        IdentityMapper mapper = mock(IdentityMapper.class);
+        PasswordEncoder encoder = mock(PasswordEncoder.class);
+        IdentityService service = service(mapper, encoder);
+        UserPrincipal admin = principal(true, "admin", "stored");
+        UUID userId = UUID.randomUUID();
+        UserAccount member = new UserAccount(userId, admin.organizationId(), "member", "old-password",
+                "普通成员", "active", false, false, 0);
+        when(mapper.findById(userId)).thenReturn(member);
+        when(encoder.encode(anyString())).thenReturn("unusable-password-hash");
+        when(mapper.anonymizeDeletedUser(any())).thenReturn(1);
+
+        service.deleteManagedUser(admin, userId);
+
+        verify(mapper).revokeActiveRegistrationInvitationsByCreator(admin.organizationId(), userId);
+        verify(mapper).deleteUserRoles(admin.organizationId(), userId);
+        ArgumentCaptor<IdentityMapper.UserDeletionCommand> deletion = ArgumentCaptor.forClass(IdentityMapper.UserDeletionCommand.class);
+        verify(mapper).anonymizeDeletedUser(deletion.capture());
+        assertThat(deletion.getValue().anonymizedUsername()).isEqualTo("deleted_" + userId.toString().replace("-", ""));
+        verify(mapper).insertUserDeletionOperationLog(any());
+    }
+
+    /** 活动项目或未完成实验的负责人不能被删除，以免制造没有负责人的业务资源。 */
+    @Test
+    void 删除仍负责活动资源的普通用户应要求先交接() {
+        IdentityMapper mapper = mock(IdentityMapper.class);
+        IdentityService service = service(mapper, mock(PasswordEncoder.class));
+        UserPrincipal admin = principal(true, "admin", "stored");
+        UUID userId = UUID.randomUUID();
+        when(mapper.findById(userId)).thenReturn(new UserAccount(userId, admin.organizationId(), "member", "old-password",
+                "普通成员", "active", false, false, 0));
+        when(mapper.countActiveOwnedProjects(admin.organizationId(), userId)).thenReturn(1L);
+
+        assertThatThrownBy(() -> service.deleteManagedUser(admin, userId))
+                .isInstanceOf(BusinessException.class)
+                .extracting(error -> ((BusinessException) error).code()).isEqualTo("user_resource_handover_required");
+
+        verify(mapper, never()).anonymizeDeletedUser(any());
+    }
+
     private IdentityService service(IdentityMapper mapper, PasswordEncoder encoder) {
         return new IdentityService(mock(DatabaseUserDetailsService.class), mapper, encoder,
                 new AccessControlService(), new LoginAttemptGuard());
