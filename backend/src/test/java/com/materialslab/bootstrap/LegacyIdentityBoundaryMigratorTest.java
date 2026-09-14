@@ -22,7 +22,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /** 验证旧首版身份只能按明确形态一次性拆分，不能猜测复杂历史数据。 */
 class LegacyIdentityBoundaryMigratorTest {
-    private final BootstrapSettings settings = new BootstrapSettings("REAL_LAB", "正式组织", "admin", "组织管理员", "platform_admin", "平台管理员");
+    private final BootstrapSettings settings = new BootstrapSettings("platform_admin", "平台管理员");
 
     @Test
     void splitsOnlyLegacyDualAdministratorIntoTwoSeparateAccounts() {

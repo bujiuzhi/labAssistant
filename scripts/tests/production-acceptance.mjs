@@ -155,14 +155,13 @@ async function prepareTarget(label) {
     SECRETS_DIR: target.secrets, DB_NAME: `materials_lab_acceptance_${runId}_${label}`,
     DB_USER: `materials_lab_acceptance_${runId}_${label}`, DB_POOL_SIZE: '5',
     PUBLIC_HOST: '127.0.0.1', PUBLIC_PORT: '15105', HTTP_BIND_ADDRESS: '127.0.0.1', HTTP_BIND_PORT: '0',
-    BOOTSTRAP_ORGANIZATION_CODE: `ACCEPTANCE_${runId.toUpperCase()}`,
-    BOOTSTRAP_ORGANIZATION_NAME: '隔离部署验收组织', BOOTSTRAP_ADMIN_USERNAME: `acceptance_${runId}`,
-    BOOTSTRAP_ADMIN_DISPLAY_NAME: '隔离部署验收管理员',
     BOOTSTRAP_PLATFORM_ADMIN_USERNAME: `platform_${runId}`,
     BOOTSTRAP_PLATFORM_ADMIN_DISPLAY_NAME: '隔离部署验收平台管理员',
   };
   await writeFile(target.environment, Object.entries(config).map(([key, value]) => `MATERIALS_LAB_${key}=${value}`).join('\n') + '\n', { flag: 'wx', mode: 0o600 });
-  target.username = config.BOOTSTRAP_ADMIN_USERNAME;
+  target.platformUsername = config.BOOTSTRAP_PLATFORM_ADMIN_USERNAME;
+  target.tenantUsername = `tenant_${runId}`;
+  target.username = target.platformUsername;
   target.summary = { name: target.project, data_directory: dataRoot, private_directory: privateRoot, environment: target.environment };
   summary.projects.push(target.summary);
   operation(target, 'secrets');
@@ -246,23 +245,45 @@ try {
   command('docker', ['image', 'inspect', `materials-lab-api:${release}`, `materials-lab-web:${release}`], '确认同标签 API/Web 镜像');
   const source = await prepareTarget('source');
   operation(source, 'bootstrap');
-  const expectedEmpty = { organization: 2, users: 2, admins: 1, roles: 3, permissions: 11,
+  const expectedEmpty = { organization: 1, users: 1, admins: 0, roles: 0, permissions: 11,
     project: 0, experiment: 0, document: 0, content: 0, development_organization: 0 };
-  assert.deepEqual(counts(source), expectedEmpty, '空库只能包含正式身份及系统权限');
+  assert.deepEqual(counts(source), expectedEmpty, '空库只能包含平台管理员和系统权限字典，不能预置业务组织');
   const before = identityFingerprint(source);
   operation(source, 'bootstrap', [], true);
   assert.deepEqual(counts(source), expectedEmpty, '重复初始化不得插入数据');
   assert.equal(identityFingerprint(source), before, '重复初始化不得修改账号、密码或角色');
-  summary.checks.push('空库无开发种子', '重复初始化安全拒绝且身份数据不变');
+  summary.checks.push('空库无开发种子和业务组织', '重复初始化安全拒绝且身份数据不变');
   operation(source, 'up');
   resolvePublishedPort(source);
   operation(source, 'check');
-  summary.current_stage = 'source HTTP 匿名权限与管理员登录';
+  summary.current_stage = 'source HTTP 匿名权限与平台管理员登录';
   const anonymous = await client(source).request('GET', '/api/v1/projects');
   assert.equal(anonymous.status, 401, '匿名业务请求应返回 401');
-  const password = await readFile(path.join(source.secrets, 'bootstrap_admin_password'), 'utf8');
+  const platformPassword = await readFile(path.join(source.secrets, 'bootstrap_platform_admin_password'), 'utf8');
+  const platformClient = client(source);
+  await platformClient.login(platformPassword);
+  const platformUserManagement = await platformClient.request('GET', '/api/v1/auth/users');
+  assert.equal(platformUserManagement.status, 403, '平台管理员不得读取租户用户管理接口');
+  summary.current_stage = 'source 平台开通首个业务组织及组织管理员';
+  const tenantPassword = 'Tenant123';
+  const createdOrganization = await platformClient.request('POST', '/api/v1/organizations', {
+    body: Buffer.from(JSON.stringify({
+      organization_code: `ACCEPTANCE_${runId.toUpperCase()}`,
+      organization_name: '隔离部署验收组织',
+      admin_username: source.tenantUsername,
+      admin_display_name: '隔离部署验收组织管理员',
+      admin_email: '',
+      admin_password: tenantPassword,
+    })),
+    headers: { 'Content-Type': 'application/json' },
+  });
+  assert.equal(createdOrganization.status, 201, '平台管理员应能原子开通组织及其管理员');
+  assert.match(JSON.parse(createdOrganization.body).data.id, /^[a-f0-9-]{36}$/i);
+  const expectedProvisioned = { ...expectedEmpty, organization: 2, users: 2, admins: 1, roles: 3 };
+  assert.deepEqual(counts(source), expectedProvisioned, '组织开通应创建首个组织管理员和内置角色');
+  source.username = source.tenantUsername;
   const authenticated = client(source);
-  await authenticated.login(password);
+  await authenticated.login(tenantPassword);
   summary.current_stage = 'source CSRF 写入限制与项目创建';
   const projectPayload = Buffer.from(JSON.stringify({ name: `隔离部署验收-${runId}`, description: '仅用于独立 Compose 验收，不属于正式业务数据' }));
   const rejected = await authenticated.request('POST', '/api/v1/projects', {
@@ -304,19 +325,20 @@ try {
   const downloaded = await authenticated.request('GET', `/api/v1/projects/${projectId}/documents/${documentId}/content?download=true`);
   assert.equal(downloaded.status, 200);
   assert.ok(downloaded.body.equals(content), '上传与下载字节必须一致');
-  assert.deepEqual(counts(source), { ...expectedEmpty, project: 1, document: 1, content: 0 });
-  summary.checks.push('HTTP IP:端口入口', '匿名 401', 'CSRF 拒绝无令牌写入', 'HTTP 登录及 HttpOnly 会话', '非白名单文档被拒绝', '项目文档上传下载字节一致');
+  assert.deepEqual(counts(source), { ...expectedProvisioned, project: 1, document: 1, content: 0 });
+  summary.checks.push('HTTP IP:端口入口', '匿名 401', '平台管理员禁止用户管理', '平台开通组织及组织管理员', 'CSRF 拒绝无令牌写入', 'HTTP 登录及 HttpOnly 会话', '非白名单文档被拒绝', '项目文档上传下载字节一致');
   operation(source, 'backup');
   const backups = (await readdir(path.join(source.dataRoot, 'backups'))).filter(name => name.endsWith('.dump'));
   assert.equal(backups.length, 1, '隔离源库应生成一个完整备份');
   const archive = path.join(source.dataRoot, 'backups', backups[0]);
   const restore = await prepareTarget('restore');
   operation(restore, 'restore-new', [archive]);
-  assert.deepEqual(counts(restore), { ...expectedEmpty, project: 1, document: 1, content: 0 });
+  assert.deepEqual(counts(restore), { ...expectedProvisioned, project: 1, document: 1, content: 0 });
   operation(restore, 'up');
   resolvePublishedPort(restore);
   operation(restore, 'check');
-  await verifyRestored(restore, password, projectId, documentId, content);
+  restore.username = source.tenantUsername;
+  await verifyRestored(restore, tenantPassword, projectId, documentId, content);
   summary.checks.push('逻辑备份校验', '全新隔离目标恢复', '恢复后重新登录、项目与文档字节一致');
   summary.status = 'passed';
   summary.current_stage = '全部隔离验收通过';

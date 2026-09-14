@@ -1,6 +1,6 @@
 # 生产 Compose 部署
 
-_更新时间：2026-09-10，Asia/Shanghai。_
+_更新时间：2026-09-11，Asia/Shanghai。_
 
 ## 1. 范围与访问边界
 
@@ -108,7 +108,7 @@ bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" up --confirm materials
 bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" check
 ```
 
-`bootstrap` 仅接受空库，等待 PostgreSQL 与 RustFS 健康后执行 Flyway，创建内部平台组织及平台管理员、首个真实业务组织及其超级管理员、三个组织角色和权限。平台管理员不属于业务租户，不能创建租户成员或读取业务数据；后续组织必须由其在“组织管理”中开通，开通操作原子创建新组织、三个内置角色及该组织首个管理员，不重复执行 `bootstrap`。不创建项目、实验、文档或开发用户。`up` 等待 API/Web 健康，失败时尝试停止 API/Web 写入口并保留数据与证据。
+`bootstrap` 仅接受空库，等待 PostgreSQL 与 RustFS 健康后执行 Flyway，只创建内部平台组织、平台管理员和全局权限字典；初始业务组织数量为 0。平台管理员不属于业务租户，不能创建租户成员或读取业务数据；每个业务组织必须由其在“组织管理”中开通，开通操作原子创建新组织、三个内置角色及该组织首个管理员，不重复执行 `bootstrap`。不创建项目、实验、文档、业务组织或开发用户。`up` 等待 API/Web 健康，失败时尝试停止 API/Web 写入口并保留数据与证据。
 
 通过实际地址 `http://<公网 IPv4>:15105` 完成以下验收：
 
@@ -121,7 +121,7 @@ bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" check
 | 时间 | JVM、数据库服务与 JDBC 会话使用 Asia/Shanghai |
 | 恢复 | 完整恢复组可恢复到新隔离环境，身份与文件正文完整 |
 
-验收后将初始化管理员密码转存到受控密码库。脚本不自动删除临时密钥文件、容器、镜像或数据目录。
+验收后将初始化平台管理员密码转存到受控密码库。脚本不自动删除临时密钥文件、容器、镜像或数据目录。
 
 ## 4. 升级、回退与恢复
 

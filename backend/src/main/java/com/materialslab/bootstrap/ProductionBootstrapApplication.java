@@ -52,12 +52,11 @@ public class ProductionBootstrapApplication {
         }
         BootstrapSettings settings = BootstrapSettings.from(environment);
         String encodedPlatformPassword = passwordEncoder.encode(BootstrapSettings.readPlatformAdminPassword(environment, settings));
-        String encodedOrganizationPassword = passwordEncoder.encode(BootstrapSettings.readOrganizationAdminPassword(environment, settings));
         var initializer = new ProductionIdentityInitializer(new JdbcTemplate(dataSource),
                 new TransactionTemplate(new DataSourceTransactionManager(dataSource)));
         return args -> {
             objectStorageService.verifyReady();
-            initializer.initialize(dataSource, args, settings, encodedPlatformPassword, encodedOrganizationPassword);
+            initializer.initialize(dataSource, args, settings, encodedPlatformPassword);
         };
     }
 }

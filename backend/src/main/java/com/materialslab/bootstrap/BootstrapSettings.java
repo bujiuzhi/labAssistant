@@ -6,31 +6,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import org.springframework.core.env.Environment;
 
-/** 一次性初始化的真实身份参数；密码只从 Secret 文件读取，不保留在配置对象中。 */
-record BootstrapSettings(String organizationCode, String organizationName, String organizationAdminUsername,
-                         String organizationAdminDisplayName, String platformAdminUsername, String platformAdminDisplayName) {
+/** 一次性初始化的平台管理员参数；密码只从 Secret 文件读取，不保留在配置对象中。 */
+record BootstrapSettings(String platformAdminUsername, String platformAdminDisplayName) {
     static BootstrapSettings from(Environment environment) {
-        String code = required(environment, "ORGANIZATION_CODE", 32);
-        String organizationAdminUsername = required(environment, "ADMIN_USERNAME", 64);
         String platformAdminUsername = required(environment, "PLATFORM_ADMIN_USERNAME", 64);
-        if (code.equalsIgnoreCase("DEV_TEST")) {
-            throw new IllegalArgumentException("DEV_TEST 为开发环境保留组织编码，禁止用于生产首次初始化");
+        if (!platformAdminUsername.matches("[A-Za-z0-9][A-Za-z0-9_.@-]*")) {
+            throw new IllegalArgumentException("平台管理员用户名含不支持的字符");
         }
-        if (!code.matches("[A-Za-z0-9][A-Za-z0-9_-]*") || !organizationAdminUsername.matches("[A-Za-z0-9][A-Za-z0-9_.@-]*")
-                || !platformAdminUsername.matches("[A-Za-z0-9][A-Za-z0-9_.@-]*")) {
-            throw new IllegalArgumentException("组织编码与管理员用户名含不支持的字符");
-        }
-        if (organizationAdminUsername.equalsIgnoreCase(platformAdminUsername)) {
-            throw new IllegalArgumentException("平台管理员与组织管理员必须使用不同用户名");
-        }
-        return new BootstrapSettings(code, required(environment, "ORGANIZATION_NAME", 200), organizationAdminUsername,
-                required(environment, "ADMIN_DISPLAY_NAME", 100), platformAdminUsername,
-                required(environment, "PLATFORM_ADMIN_DISPLAY_NAME", 100));
-    }
-
-    /** 读取最多 72 个 UTF-8 字节的首次管理员密码；允许 Secret 文件末尾有一个换行，不裁剪密码空格。 */
-    static String readOrganizationAdminPassword(Environment environment, BootstrapSettings settings) {
-        return readPassword(environment, "ADMIN_PASSWORD_FILE", settings.organizationAdminUsername());
+        return new BootstrapSettings(platformAdminUsername, required(environment, "PLATFORM_ADMIN_DISPLAY_NAME", 100));
     }
 
     /** 读取平台管理员密码；平台控制面与业务租户管理员必须使用独立凭据。 */

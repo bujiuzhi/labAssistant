@@ -19,26 +19,24 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /** 使用隔离内存记录验证身份写入边界与事务，不连接任何运行中数据库。 */
 class ProductionIdentityInitializerTest {
-    private final BootstrapSettings settings = new BootstrapSettings("REAL_LAB", "正式组织", "owner", "正式管理员", "platform", "平台管理员");
+    private final BootstrapSettings settings = new BootstrapSettings("platform", "平台管理员");
 
     @Test
     void initializesOnlyIdentityAndCommitsOnce() {
         var jdbc = new RecordingJdbcTemplate();
         var transactionManager = new RecordingTransactionManager();
-        initializer(jdbc, transactionManager).initializeIdentity(settings, "encoded-platform-password", "encoded-organization-password");
+        initializer(jdbc, transactionManager).initializeIdentity(settings, "encoded-platform-password");
         assertEquals(1, transactionManager.commits);
         assertEquals(0, transactionManager.rollbacks);
-        Set<String> allowedTables = Set.of("organization", "user_account", "permission", "role", "role_permission", "user_role");
+        Set<String> allowedTables = Set.of("organization", "user_account", "permission");
         for (String sql : jdbc.writes) {
             assertTrue(allowedTables.stream().anyMatch(table -> sql.startsWith("INSERT INTO " + table + "(")));
         }
-        assertEquals(2, jdbc.writes.stream().filter(sql -> sql.startsWith("INSERT INTO user_account(")).count());
-        assertEquals(2, jdbc.writes.stream().filter(sql -> sql.startsWith("INSERT INTO organization(")).count());
-        assertEquals(3, jdbc.writes.stream().filter(sql -> sql.startsWith("INSERT INTO role(")).count());
+        assertEquals(1, jdbc.writes.stream().filter(sql -> sql.startsWith("INSERT INTO user_account(")).count());
+        assertEquals(1, jdbc.writes.stream().filter(sql -> sql.startsWith("INSERT INTO organization(")).count());
         assertEquals(SystemIdentityCatalog.PERMISSIONS.size(), jdbc.writes.stream().filter(sql -> sql.startsWith("INSERT INTO permission(")).count());
         assertTrue(jdbc.writes.stream().filter(sql -> sql.startsWith("INSERT INTO user_account(")).allMatch(sql -> sql.contains("is_platform_admin")));
         assertTrue(jdbc.writes.stream().anyMatch(sql -> sql.contains("FALSE, TRUE, FALSE, FALSE")), "平台管理员不得拥有租户超级管理员权限");
-        assertTrue(jdbc.writes.stream().anyMatch(sql -> sql.contains("TRUE, FALSE, FALSE, FALSE")), "首个组织管理员不得拥有平台权限");
         assertTrue(jdbc.commands.getFirst().startsWith("LOCK TABLE"));
         assertTrue(jdbc.arguments.stream().flatMap(Arrays::stream).noneMatch(value -> "DEV_TEST".equals(value)));
     }
@@ -48,7 +46,7 @@ class ProductionIdentityInitializerTest {
         var jdbc = new RecordingJdbcTemplate();
         jdbc.nonEmpty = true;
         var transactionManager = new RecordingTransactionManager();
-        assertThrows(IllegalStateException.class, () -> initializer(jdbc, transactionManager).initializeIdentity(settings, "encoded-platform-password", "encoded-organization-password"));
+        assertThrows(IllegalStateException.class, () -> initializer(jdbc, transactionManager).initializeIdentity(settings, "encoded-platform-password"));
         assertTrue(jdbc.writes.isEmpty());
         assertEquals(0, transactionManager.commits);
         assertEquals(1, transactionManager.rollbacks);
@@ -85,7 +83,7 @@ class ProductionIdentityInitializerTest {
         var jdbc = new RecordingJdbcTemplate();
         jdbc.failAfter = 2;
         var transactionManager = new RecordingTransactionManager();
-        assertThrows(IllegalStateException.class, () -> initializer(jdbc, transactionManager).initializeIdentity(settings, "encoded-platform-password", "encoded-organization-password"));
+        assertThrows(IllegalStateException.class, () -> initializer(jdbc, transactionManager).initializeIdentity(settings, "encoded-platform-password"));
         assertEquals(0, transactionManager.commits);
         assertEquals(1, transactionManager.rollbacks);
     }

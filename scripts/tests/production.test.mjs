@@ -112,7 +112,7 @@ if (action === "exec" && tail.includes("postgres")) {
     if (query.includes("SELECT version, script, checksum, success FROM flyway_schema_history")) {
       finish(0, "1|V1__materials_lab_schema.sql|111|t\\n");
     }
-    finish(0, mode === "seeded" || (mode === "post-start-data-fails" && state.started) ? "1|1|1|0|1|2\\n" : "0|1|1|0|1|2\\n");
+    finish(0, mode === "seeded" || (mode === "post-start-data-fails" && state.started) ? "1|1|1|0|1|2\\n" : "0|1|1|0|0|2\\n");
   }
   if (command.includes("pg_dump")) finish(mode === "backup-fails" ? 37 : 0, "SYNTHETIC-POSTGRES-DUMP");
   if (pgRestore && tail.includes("--list")) {
@@ -153,10 +153,6 @@ function fixture(overrides = {}) {
     MATERIALS_LAB_PUBLIC_HOST: "198.51.100.10",
     MATERIALS_LAB_HTTP_BIND_ADDRESS: "0.0.0.0",
     MATERIALS_LAB_HTTP_BIND_PORT: "15105",
-    MATERIALS_LAB_BOOTSTRAP_ORGANIZATION_CODE: "TEST_ORGANIZATION",
-    MATERIALS_LAB_BOOTSTRAP_ORGANIZATION_NAME: "隔离测试组织",
-    MATERIALS_LAB_BOOTSTRAP_ADMIN_USERNAME: "fixture_admin",
-    MATERIALS_LAB_BOOTSTRAP_ADMIN_DISPLAY_NAME: "隔离测试管理员",
     MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME: "fixture_platform",
     MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_DISPLAY_NAME: "隔离测试平台管理员",
     ...overrides,
@@ -223,8 +219,8 @@ function writeReleaseManifest(f, release = f.values.MATERIALS_LAB_RELEASE) {
 function ready(f, withReleaseManifest = true) {
   mkdirSync(f.values.MATERIALS_LAB_SECRETS_DIR, { recursive: true, mode: 0o700 });
   chmodSync(f.values.MATERIALS_LAB_SECRETS_DIR, 0o700);
-  const passwords = ["SyntheticPostgresPassword!0123456789", "SyntheticApplicationPassword!0123456789", "SyntheticOrganizationAdministratorPassword!0123456789", "SyntheticPlatformAdministratorPassword!0123456789"];
-  for (const [index, name] of ["postgres_password", "database_password", "bootstrap_admin_password", "bootstrap_platform_admin_password", "object_storage_access_key", "object_storage_secret_key"].entries()) {
+  const passwords = ["SyntheticPostgresPassword!0123456789", "SyntheticApplicationPassword!0123456789", "SyntheticPlatformAdministratorPassword!0123456789"];
+  for (const [index, name] of ["postgres_password", "database_password", "bootstrap_platform_admin_password", "object_storage_access_key", "object_storage_secret_key"].entries()) {
     const value = name === "object_storage_access_key" ? "ML" + "A".repeat(48)
       : name === "object_storage_secret_key" ? "Aa1!" + "b".repeat(64) : passwords[index];
     writeFileSync(join(f.values.MATERIALS_LAB_SECRETS_DIR, name), value, { mode: 0o444 });
@@ -369,19 +365,19 @@ test("secrets 生成独立密码且不输出密码，重复运行拒绝覆盖", 
   assert.equal(first.status, 0, first.output);
   const directory = f.values.MATERIALS_LAB_SECRETS_DIR;
   assert.equal(statSync(directory).mode & 0o777, 0o700);
-  const secrets = ["postgres_password", "database_password", "bootstrap_admin_password", "bootstrap_platform_admin_password", "object_storage_access_key", "object_storage_secret_key"].map(name => {
+  const secrets = ["postgres_password", "database_password", "bootstrap_platform_admin_password", "object_storage_access_key", "object_storage_secret_key"].map(name => {
     const path = join(directory, name);
     assert.equal(statSync(path).mode & 0o777, 0o444);
     return readFileSync(path, "utf8");
   });
-  assert.equal(new Set(secrets).size, 6);
+  assert.equal(new Set(secrets).size, 5);
   for (const secret of secrets) {
     assert.ok(secret.length >= 32);
     assert.ok(!first.output.includes(secret), "生成操作不得输出密码");
   }
   const second = command(f, "secrets");
   deniedBeforeDocker(f, second, /拒绝覆盖/);
-  for (const [index, name] of ["postgres_password", "database_password", "bootstrap_admin_password", "bootstrap_platform_admin_password", "object_storage_access_key", "object_storage_secret_key"].entries()) {
+  for (const [index, name] of ["postgres_password", "database_password", "bootstrap_platform_admin_password", "object_storage_access_key", "object_storage_secret_key"].entries()) {
     assert.equal(readFileSync(join(directory, name), "utf8"), secrets[index]);
     assert.ok(!second.output.includes(secrets[index]));
   }
@@ -427,7 +423,7 @@ test("预检拒绝权限或内容不合规的管理员密码密钥", () => {
   for (const kind of ["permissions", "weak", "multiple-newlines"]) {
     const f = fixture();
     ready(f);
-    const file = join(f.values.MATERIALS_LAB_SECRETS_DIR, "bootstrap_admin_password");
+    const file = join(f.values.MATERIALS_LAB_SECRETS_DIR, "bootstrap_platform_admin_password");
     if (kind === "permissions") {
       chmodSync(file, 0o400);
     } else {
@@ -438,7 +434,7 @@ test("预检拒绝权限或内容不合规的管理员密码密钥", () => {
     }
     const result = command(f, "preflight");
     assert.notEqual(result.status, 0);
-    assert.match(result.output, /管理员密码|bootstrap_admin_password/);
+    assert.match(result.output, /管理员密码|bootstrap_platform_admin_password/);
     assert.ok(!calls(f).map(composeAction).some(call => call?.action === "config"));
   }
 });
@@ -446,7 +442,7 @@ test("预检拒绝权限或内容不合规的管理员密码密钥", () => {
 test("预检接受应用支持的管理员密码单个 CRLF 行尾", () => {
   const f = fixture();
   ready(f);
-  const file = join(f.values.MATERIALS_LAB_SECRETS_DIR, "bootstrap_admin_password");
+  const file = join(f.values.MATERIALS_LAB_SECRETS_DIR, "bootstrap_platform_admin_password");
   chmodSync(file, 0o600);
   writeFileSync(file, "admin@123!\r\n");
   chmodSync(file, 0o444);
@@ -454,10 +450,10 @@ test("预检接受应用支持的管理员密码单个 CRLF 行尾", () => {
   assert.equal(result.status, 0, result.output);
 });
 
-test("预检拒绝与首次管理员用户名相同的密码", () => {
-  const f = fixture({ MATERIALS_LAB_BOOTSTRAP_ADMIN_USERNAME: "admin123" });
+test("预检拒绝与平台管理员用户名相同的密码", () => {
+  const f = fixture({ MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME: "admin123" });
   ready(f);
-  const file = join(f.values.MATERIALS_LAB_SECRETS_DIR, "bootstrap_admin_password");
+  const file = join(f.values.MATERIALS_LAB_SECRETS_DIR, "bootstrap_platform_admin_password");
   chmodSync(file, 0o600);
   writeFileSync(file, "admin123");
   chmodSync(file, 0o444);

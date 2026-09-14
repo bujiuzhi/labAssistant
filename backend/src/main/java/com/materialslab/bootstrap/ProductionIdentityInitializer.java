@@ -2,9 +2,7 @@ package com.materialslab.bootstrap;
 
 import com.materialslab.api.common.config.SchemaMigrationInitializer;
 import com.materialslab.api.identity.service.SystemIdentityCatalog;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import javax.sql.DataSource;
@@ -30,19 +28,19 @@ final class ProductionIdentityInitializer {
         this.transactionTemplate = transactionTemplate;
     }
 
-    /** 检查空库、复用正式 Flyway 迁移，再原子创建平台控制面账号及首个租户管理员；迁移失败或非空库均终止。 */
-    void initialize(DataSource dataSource, ApplicationArguments args, BootstrapSettings settings, String encodedPlatformPassword, String encodedOrganizationPassword) {
+    /** 检查空库、复用正式 Flyway 迁移，再原子创建平台控制面账号；迁移失败或非空库均终止。 */
+    void initialize(DataSource dataSource, ApplicationArguments args, BootstrapSettings settings, String encodedPlatformPassword) {
         assertEmptyDatabase(false);
         new SchemaMigrationInitializer(dataSource).run(args);
-        initializeIdentity(settings, encodedPlatformPassword, encodedOrganizationPassword);
-        LOGGER.info("生产首次身份初始化完成：已创建 1 个内部平台组织、1 个业务组织、平台管理员及组织超级管理员，未写入项目或实验样例");
+        initializeIdentity(settings, encodedPlatformPassword);
+        LOGGER.info("生产首次身份初始化完成：已创建内部平台组织及平台管理员，业务组织数量为 0，未写入项目或实验样例");
     }
 
-    void initializeIdentity(BootstrapSettings settings, String encodedPlatformPassword, String encodedOrganizationPassword) {
+    void initializeIdentity(BootstrapSettings settings, String encodedPlatformPassword) {
         transactionTemplate.executeWithoutResult(status -> {
             // 锁定全部业务表后重新检查，阻止并发初始化或 API 写入绕过空库检查。
             assertEmptyDatabase(true);
-            createIdentity(settings, encodedPlatformPassword, encodedOrganizationPassword);
+            createIdentity(settings, encodedPlatformPassword);
         });
     }
 
@@ -77,45 +75,20 @@ final class ProductionIdentityInitializer {
         }
     }
 
-    private void createIdentity(BootstrapSettings settings, String encodedPlatformPassword, String encodedOrganizationPassword) {
+    private void createIdentity(BootstrapSettings settings, String encodedPlatformPassword) {
         UUID platformOrganizationId = UUID.randomUUID();
         UUID platformAdminId = UUID.randomUUID();
-        UUID organizationId = UUID.randomUUID();
-        UUID organizationAdminId = UUID.randomUUID();
         jdbcTemplate.update("INSERT INTO organization(id, organization_code, name, is_platform) VALUES (?, 'PLATFORM', '平台管理组织', TRUE)",
                 platformOrganizationId);
-        jdbcTemplate.update("INSERT INTO organization(id, organization_code, name) VALUES (?, ?, ?)",
-                organizationId, settings.organizationCode(), settings.organizationName());
         jdbcTemplate.update("""
                 INSERT INTO user_account(id, organization_id, password, username, display_name,
                   is_super_admin, is_platform_admin, is_superuser, is_staff) VALUES (?, ?, ?, ?, ?, FALSE, TRUE, FALSE, FALSE)
                 """, platformAdminId, platformOrganizationId, encodedPlatformPassword, settings.platformAdminUsername(), settings.platformAdminDisplayName());
-        jdbcTemplate.update("""
-                INSERT INTO user_account(id, organization_id, password, username, display_name,
-                  is_super_admin, is_platform_admin, is_superuser, is_staff) VALUES (?, ?, ?, ?, ?, TRUE, FALSE, FALSE, FALSE)
-                """, organizationAdminId, organizationId, encodedOrganizationPassword, settings.organizationAdminUsername(), settings.organizationAdminDisplayName());
-        Map<String, UUID> permissionIds = new HashMap<>();
         for (var permission : SystemIdentityCatalog.PERMISSIONS) {
             UUID id = UUID.randomUUID();
-            permissionIds.put(permission.code(), id);
             jdbcTemplate.update("""
                     INSERT INTO permission(id, permission_code, name, module_code, description) VALUES (?, ?, ?, ?, ?)
                     """, id, permission.code(), permission.name(), permission.moduleCode(), "系统 RBAC 权限");
-        }
-        for (var role : SystemIdentityCatalog.ROLES) {
-            UUID roleId = UUID.randomUUID();
-            jdbcTemplate.update("""
-                    INSERT INTO role(id, organization_id, role_code, name, description, is_system) VALUES (?, ?, ?, ?, ?, TRUE)
-                    """, roleId, organizationId, role.code(), role.name(), "系统角色");
-            for (String permissionCode : role.permissions()) {
-                jdbcTemplate.update("INSERT INTO role_permission(id, role_id, permission_id) VALUES (?, ?, ?)",
-                        UUID.randomUUID(), roleId, permissionIds.get(permissionCode));
-            }
-            if (role.code().equals("super_admin")) {
-                jdbcTemplate.update("""
-                        INSERT INTO user_role(id, organization_id, user_id, role_id, created_by_id) VALUES (?, ?, ?, ?, ?)
-                        """, UUID.randomUUID(), organizationId, organizationAdminId, roleId, organizationAdminId);
-            }
         }
     }
 }

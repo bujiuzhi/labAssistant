@@ -178,18 +178,12 @@ services:
       - org.springframework.boot.loader.launch.PropertiesLauncher
     environment:
       <<: *api-environment
-      MATERIALS_LAB_BOOTSTRAP_ORGANIZATION_CODE: ${MATERIALS_LAB_BOOTSTRAP_ORGANIZATION_CODE:?请设置真实组织代码}
-      MATERIALS_LAB_BOOTSTRAP_ORGANIZATION_NAME: ${MATERIALS_LAB_BOOTSTRAP_ORGANIZATION_NAME:?请设置真实组织名称}
-      MATERIALS_LAB_BOOTSTRAP_ADMIN_USERNAME: ${MATERIALS_LAB_BOOTSTRAP_ADMIN_USERNAME:?请设置首个管理员用户名}
-      MATERIALS_LAB_BOOTSTRAP_ADMIN_DISPLAY_NAME: ${MATERIALS_LAB_BOOTSTRAP_ADMIN_DISPLAY_NAME:?请设置管理员显示名}
-      MATERIALS_LAB_BOOTSTRAP_ADMIN_PASSWORD_FILE: /run/secrets/bootstrap_admin_password
       MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME: ${MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME:?请设置平台管理员用户名}
       MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_DISPLAY_NAME: ${MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_DISPLAY_NAME:?请设置平台管理员显示名}
       MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD_FILE: /run/secrets/bootstrap_platform_admin_password
     secrets:
       - source: database_password
         target: spring.datasource.password
-      - bootstrap_admin_password
       - bootstrap_platform_admin_password
       - source: object_storage_access_key
         target: materials-lab.object-storage.access-key
@@ -219,10 +213,6 @@ services:
       - org.springframework.boot.loader.launch.PropertiesLauncher
     environment:
       <<: *api-environment
-      MATERIALS_LAB_BOOTSTRAP_ORGANIZATION_CODE: ${MATERIALS_LAB_BOOTSTRAP_ORGANIZATION_CODE:?请设置真实组织代码}
-      MATERIALS_LAB_BOOTSTRAP_ORGANIZATION_NAME: ${MATERIALS_LAB_BOOTSTRAP_ORGANIZATION_NAME:?请设置真实组织名称}
-      MATERIALS_LAB_BOOTSTRAP_ADMIN_USERNAME: ${MATERIALS_LAB_BOOTSTRAP_ADMIN_USERNAME:?请设置首个管理员用户名}
-      MATERIALS_LAB_BOOTSTRAP_ADMIN_DISPLAY_NAME: ${MATERIALS_LAB_BOOTSTRAP_ADMIN_DISPLAY_NAME:?请设置管理员显示名}
       MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME: ${MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME:?请设置平台管理员用户名}
       MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_DISPLAY_NAME: ${MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_DISPLAY_NAME:?请设置平台管理员显示名}
       MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD_FILE: /run/secrets/bootstrap_platform_admin_password
@@ -248,8 +238,6 @@ secrets:
     file: ${MATERIALS_LAB_SECRETS_DIR:?请设置私有密钥目录}/postgres_password
   database_password:
     file: ${MATERIALS_LAB_SECRETS_DIR}/database_password
-  bootstrap_admin_password:
-    file: ${MATERIALS_LAB_SECRETS_DIR}/bootstrap_admin_password
   bootstrap_platform_admin_password:
     file: ${MATERIALS_LAB_SECRETS_DIR}/bootstrap_platform_admin_password
   object_storage_access_key:

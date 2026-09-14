@@ -49,7 +49,7 @@ while IFS= read -r lab_line || [[ -n $lab_line ]]; do
   export "$lab_key=$lab_value"
 done < "$lab_env"
 
-for lab_key in MATERIALS_LAB_COMPOSE_PROJECT MATERIALS_LAB_RELEASE MATERIALS_LAB_DATA_ROOT MATERIALS_LAB_SECRETS_DIR MATERIALS_LAB_DB_NAME MATERIALS_LAB_DB_USER MATERIALS_LAB_OBJECT_STORAGE_BUCKET MATERIALS_LAB_PUBLIC_HOST MATERIALS_LAB_HTTP_BIND_ADDRESS MATERIALS_LAB_HTTP_BIND_PORT MATERIALS_LAB_BOOTSTRAP_ORGANIZATION_CODE MATERIALS_LAB_BOOTSTRAP_ORGANIZATION_NAME MATERIALS_LAB_BOOTSTRAP_ADMIN_USERNAME MATERIALS_LAB_BOOTSTRAP_ADMIN_DISPLAY_NAME MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_DISPLAY_NAME; do
+for lab_key in MATERIALS_LAB_COMPOSE_PROJECT MATERIALS_LAB_RELEASE MATERIALS_LAB_DATA_ROOT MATERIALS_LAB_SECRETS_DIR MATERIALS_LAB_DB_NAME MATERIALS_LAB_DB_USER MATERIALS_LAB_OBJECT_STORAGE_BUCKET MATERIALS_LAB_PUBLIC_HOST MATERIALS_LAB_HTTP_BIND_ADDRESS MATERIALS_LAB_HTTP_BIND_PORT MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_DISPLAY_NAME; do
   [[ -n ${!lab_key:-} && ${!lab_key} != *CHANGE_ME* ]] || fail "请填写 $lab_key"
 done
 [[ $MATERIALS_LAB_COMPOSE_PROJECT =~ ^materials-lab-[a-z0-9][a-z0-9_-]*$ && $MATERIALS_LAB_COMPOSE_PROJECT != materials-lab-assistant ]] || fail '必须使用独立 materials-lab- 项目名，不能复用开发项目'
@@ -189,12 +189,12 @@ check_secrets() {
   [[ -d $MATERIALS_LAB_SECRETS_DIR ]] || fail '密钥目录不存在，请先 secrets'
   lab_mode=$(stat -c '%a' "$MATERIALS_LAB_SECRETS_DIR" 2>/dev/null || stat -f '%Lp' "$MATERIALS_LAB_SECRETS_DIR")
   [[ $lab_mode == 700 ]] || fail '密钥目录权限必须为 700'
-  for lab_name in postgres_password database_password bootstrap_admin_password bootstrap_platform_admin_password object_storage_access_key object_storage_secret_key; do
+  for lab_name in postgres_password database_password bootstrap_platform_admin_password object_storage_access_key object_storage_secret_key; do
     lab_file=$MATERIALS_LAB_SECRETS_DIR/$lab_name
     [[ -f $lab_file && -s $lab_file && ! -L $lab_file ]] || fail "密钥文件缺失、不是普通文件或是软链接：$lab_name"
     lab_mode=$(stat -c '%a' "$lab_file" 2>/dev/null || stat -f '%Lp' "$lab_file")
     [[ $lab_mode == 444 ]] || fail "密钥文件 $lab_name 须为 444；父目录保持 700，以供非 root 容器只读挂载"
-    if [[ $lab_name != bootstrap_admin_password && $lab_name != bootstrap_platform_admin_password ]]; then
+    if [[ $lab_name != bootstrap_platform_admin_password ]]; then
       [[ $(wc -c < "$lab_file") -ge 32 ]] || fail "密钥长度不足：$lab_name"
       continue
     fi
@@ -214,7 +214,7 @@ check_secrets() {
     [[ ${#lab_password} -ge 6 && $lab_password_bytes -le 72 ]] || fail '管理员密码长度不符合 6 字符至 72 字节要求'
     [[ ! $lab_password =~ [[:space:][:cntrl:]] ]] || fail '管理员密码不能包含空白或控制字符'
     [[ $lab_password =~ [A-Za-z] && $lab_password =~ [0-9] ]] || fail '管理员密码必须包含英文字母和数字'
-    if [[ $lab_name == bootstrap_admin_password ]]; then lab_username=$MATERIALS_LAB_BOOTSTRAP_ADMIN_USERNAME; else lab_username=$MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME; fi
+    lab_username=$MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME
     [[ $(printf '%s' "$lab_password" | tr '[:upper:]' '[:lower:]') != $(printf '%s' "$lab_username" | tr '[:upper:]' '[:lower:]') ]] \
       || fail '管理员密码不得与管理员用户名相同'
   done
@@ -247,7 +247,7 @@ check_data() {
   lab_schema_signature=$(db_query "SELECT (to_regclass('public.project_document_content') IS NOT NULL)::int || '|' || (to_regclass('public.experiment_attachment_content') IS NOT NULL)::int || '|' || EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'uk_user_account_username')::int || '|' || EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='organization' AND column_name='is_platform')::int || '|' || EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='uk_organization_single_platform')::int || '|' || EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.user_account'::regclass AND conname='ck_user_account_platform_not_super')::int;")
   [[ $lab_schema_signature == '1|1|1|1|1|1' ]] || fail '数据库不符合当前发布结构签名；拒绝上线，请只读核查，不要自动清库'
   lab_result=$(db_query "SELECT (SELECT count(*) FROM organization WHERE organization_code='DEV_TEST') || '|' || (SELECT count(*) FROM organization WHERE is_platform) || '|' || (SELECT count(*) FROM user_account WHERE is_platform_admin AND is_active AND status='active') || '|' || (SELECT count(*) FROM user_account WHERE is_platform_admin AND is_super_admin) || '|' || (SELECT count(*) FROM user_account WHERE is_super_admin AND is_active AND status='active') || '|' || (SELECT count(*) FROM flyway_schema_history WHERE success);")
-  [[ $lab_result =~ ^0\|1\|1\|0\|[1-9][0-9]*\|[1-9][0-9]*$ ]] || fail '身份/迁移检查失败、平台与租户管理员未分离，或发现 DEV_TEST；拒绝上线，请只读核查，不要自动清库'
+  [[ $lab_result =~ ^0\|1\|1\|0\|[0-9]+\|[1-9][0-9]*$ ]] || fail '身份边界或迁移检查失败，或发现 DEV_TEST；拒绝上线，请只读核查，不要自动清库'
 }
 check_legacy_identity_boundary() {
   local lab_schema_signature lab_result
@@ -323,7 +323,7 @@ case "$lab_action" in
     chmod 700 "$lab_secrets_stage"
     if ! (
       set -Eeuo pipefail
-      for lab_name in postgres_password database_password bootstrap_admin_password bootstrap_platform_admin_password; do
+      for lab_name in postgres_password database_password bootstrap_platform_admin_password; do
         lab_random=$(openssl rand -hex 24) || exit 1
         [[ $lab_random =~ ^[0-9a-f]{48}$ ]] || exit 1
         lab_password="Aa1!$lab_random"
@@ -365,7 +365,6 @@ case "$lab_action" in
     info '发布镜像构建完成；请连同发布清单经受控分发并在目标端校验后再执行部署。' ;;
   bootstrap)
     confirm "$@"; preflight; require_images; verify_release_manifest; require_stopped
-    [[ -s $MATERIALS_LAB_SECRETS_DIR/bootstrap_admin_password && ! -L $MATERIALS_LAB_SECRETS_DIR/bootstrap_admin_password ]] || fail '缺少初始化组织管理员密码文件'
     [[ -s $MATERIALS_LAB_SECRETS_DIR/bootstrap_platform_admin_password && ! -L $MATERIALS_LAB_SECRETS_DIR/bootstrap_platform_admin_password ]] || fail '缺少初始化平台管理员密码文件'
     # bootstrap 使用 --no-deps 防止隐式创建其他服务，因此须显式等待两个持久依赖均健康。
     dc up -d --wait --wait-timeout 180 postgres rustfs

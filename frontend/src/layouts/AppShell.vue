@@ -52,6 +52,15 @@ function openPasswordDialog(): void {
   passwordDialogVisible.value = true;
 }
 
+/** 处理当前账户下拉菜单，避免将账户操作分散在顶部导航中。 */
+function handleAccountCommand(command: "change-password" | "logout"): void {
+  if (command === "change-password") {
+    openPasswordDialog();
+    return;
+  }
+  void logout();
+}
+
 /** 校验旧密码并提交新密码；服务端完成后当前会话会立即失效。 */
 async function changePassword(): Promise<void> {
   if (passwordSubmitting.value) return;
@@ -112,16 +121,19 @@ function passwordValidationMessage(password: string, username: string): string |
         >{{ item.label }}</RouterLink>
       </nav>
       <div class="account-actions">
-        <div v-if="sessionStore.user" class="account-identity" :title="`当前登录账户：${sessionStore.user.username}`">
-          <Icon icon="tabler:user-circle" />
-          <span>{{ sessionStore.user.display_name }}（{{ sessionStore.user.username }}）</span>
-        </div>
-        <button class="logout-button" type="button" @click="openPasswordDialog">
-          <Icon icon="tabler:key" />修改密码
-        </button>
-        <button class="logout-button" type="button" @click="logout">
-          <Icon icon="tabler:logout" />退出登录
-        </button>
+        <el-dropdown v-if="sessionStore.user" trigger="click" @command="handleAccountCommand">
+          <button class="account-menu" type="button" :title="`当前登录账户：${sessionStore.user.username}`">
+            <Icon icon="tabler:user-circle" />
+            <span>{{ sessionStore.user.display_name }}（{{ sessionStore.user.username }}）</span>
+            <Icon class="account-menu-caret" icon="tabler:chevron-down" />
+          </button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="change-password"><Icon icon="tabler:key" />修改密码</el-dropdown-item>
+              <el-dropdown-item command="logout" divided><Icon icon="tabler:logout" />退出登录</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
     </header>
     <main class="route-content"><RouterView /></main>
@@ -156,14 +168,15 @@ function passwordValidationMessage(password: string, username: string): string |
 .product-nav a:hover,.product-nav a.active { color:#172033; }
 .product-nav a.active::after { background:#087cf0; }
 .account-actions { display:flex; align-items:center; margin-left:auto; gap:18px; }
-.account-identity { display:inline-flex; max-width:280px; align-items:center; overflow:hidden; color:#334155; font-size:12px; font-weight:600; text-overflow:ellipsis; white-space:nowrap; gap:5px; }
-.account-identity span { overflow:hidden; text-overflow:ellipsis; }
-.account-identity svg { width:16px; height:16px; flex:0 0 auto; color:#087cf0; }
-.logout-button { display:inline-flex; align-items:center; padding:0 4px; color:#536174; font-size:12px; background:transparent; border:0; cursor:pointer; gap:5px; }
-.logout-button:hover { color:#172033; }
-.logout-button svg { width:15px; height:15px; }
+.account-menu { display:inline-flex; max-width:280px; align-items:center; padding:4px 6px; overflow:hidden; color:#334155; font-size:12px; font-weight:600; text-overflow:ellipsis; white-space:nowrap; background:transparent; border:0; border-radius:5px; cursor:pointer; gap:5px; }
+.account-menu:hover,.account-menu:focus-visible { color:#172033; background:#f1f5f9; outline:none; }
+.account-menu span { overflow:hidden; text-overflow:ellipsis; }
+.account-menu svg { width:16px; height:16px; flex:0 0 auto; color:#087cf0; }
+.account-menu .account-menu-caret { width:14px; height:14px; color:#64748b; }
+:global(.el-dropdown-menu__item) { display:flex; align-items:center; gap:7px; }
+:global(.el-dropdown-menu__item svg) { width:15px; height:15px; }
 .route-content { min-width:0; min-height:0; flex:1; overflow:hidden; padding:0 18px; }
 .password-description { margin:0 0 18px; color:#66758a; font-size:13px; line-height:1.6; }
 .field-help { display:block; margin-top:6px; color:#7a8798; font-size:12px; line-height:1.5; }
-@media(max-width:760px){.assistant-header{padding:0 12px}.product-nav{overflow-x:auto;gap:22px}.account-actions{gap:8px}.account-identity{max-width:112px}.logout-button{font-size:0}.route-content{padding:0 10px}}
+@media(max-width:760px){.assistant-header{padding:0 12px}.product-nav{overflow-x:auto;gap:22px}.account-actions{gap:8px}.account-menu{max-width:144px}.route-content{padding:0 10px}}
 </style>
