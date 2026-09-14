@@ -21,6 +21,7 @@ export const experimentApi = {
     const response = await http.post<DataResponse<Experiment>>(
       `/experiments/${experimentNo}/attachments`,
       body,
+      { timeout: 600_000 },
     );
     return response.data.data;
   },

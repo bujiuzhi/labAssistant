@@ -22,8 +22,8 @@ spring:
     time-zone: Asia/Shanghai
   servlet:
     multipart:
-      max-file-size: 25MB
-      max-request-size: 27MB
+      max-file-size: 300MB
+      max-request-size: 305MB
 
 mybatis:
   mapper-locations: classpath*:mapper/**/*.xml

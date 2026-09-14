@@ -1,6 +1,7 @@
 package com.materialslab.api.common.storage;
 
 import com.materialslab.api.common.exception.BusinessException;
+import java.io.InputStream;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -8,6 +9,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.core.ResponseBytes;
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -52,6 +54,27 @@ public class ObjectStorageService {
         }
     }
 
+    /**
+     * 将已知长度的输入流写入 RustFS，避免大文件在 API 进程中完整驻留。
+     *
+     * @param key 私有桶内对象键
+     * @param content 调用方负责关闭的输入流
+     * @param contentLength 已校验的正文长度
+     * @param mimeType 服务端决定的媒体类型
+     * @return 可持久化的 S3 存储标识
+     */
+    public String put(String key, InputStream content, long contentLength, String mimeType) {
+        verifyReady();
+        try {
+            client().putObject(PutObjectRequest.builder().bucket(properties.bucketName()).key(key)
+                    .contentType(mimeType).contentLength(contentLength).build(),
+                    RequestBody.fromInputStream(content, contentLength));
+            return reference(key);
+        } catch (S3Exception | SdkClientException error) {
+            throw failure("写入", key, error);
+        }
+    }
+
     /** 读取私有对象正文；授权校验必须由调用方在本方法前完成。 */
     public byte[] read(String reference) {
         String key = key(reference);
@@ -59,6 +82,30 @@ public class ObjectStorageService {
             ResponseBytes<GetObjectResponse> result = client().getObjectAsBytes(
                     GetObjectRequest.builder().bucket(properties.bucketName()).key(key).build());
             return result.asByteArray();
+        } catch (NoSuchKeyException error) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "object_content_not_found", "文件正文不存在");
+        } catch (S3Exception error) {
+            if (error.statusCode() == 404) {
+                throw new BusinessException(HttpStatus.NOT_FOUND, "object_content_not_found", "文件正文不存在");
+            }
+            throw failure("读取", key, error);
+        } catch (SdkClientException error) {
+            throw failure("读取", key, error);
+        }
+    }
+
+    /**
+     * 打开私有对象输入流；调用方在响应写出结束后必须关闭。
+     *
+     * @param reference 数据库保存的 S3 对象标识
+     * @return 可顺序读取的对象正文流
+     */
+    public InputStream open(String reference) {
+        String key = key(reference);
+        try {
+            ResponseInputStream<GetObjectResponse> result = client().getObject(
+                    GetObjectRequest.builder().bucket(properties.bucketName()).key(key).build());
+            return result;
         } catch (NoSuchKeyException error) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "object_content_not_found", "文件正文不存在");
         } catch (S3Exception error) {

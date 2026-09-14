@@ -45,7 +45,7 @@ _描述当前 Java/Vue 实现及兼容性边界；结构与行为以链接的源
 | `experiment` | 项目、编号、类型、阶段、状态、计划/实际时间、负责人、`version` | 组织内编号唯一 |
 | `experiment_record` | `experiment_id` 唯一；配方/附表/附加过程 JSONB、过程/结果文本 | 一个实验至多一条 ELN 正文 |
 | `experiment_participant` | 实验、用户、参与角色 | 实验用户组合唯一，响应读取 |
-| `experiment_attachment` | 实验、用途、名称、`file`、MIME、大小、上传人 | 附件元数据，当前无业务上传入口 |
+| `experiment_attachment` | 实验、用途、名称、`file`、MIME、大小、上传人 | 附件元数据与私有 RustFS 对象标识 |
 | `business_number_sequence` | 组织、业务类型、期间、当前值 | 已建表，当前编号生成未使用 |
 | `idempotency_request` | 用户、作用域、键、请求摘要、响应、过期时间 | 已建表，当前创建流程未使用 |
 | `business_operation_log` | 组织、操作者、领域、对象、动作、变更 JSONB | 查询及文档上传日志 |
@@ -286,9 +286,9 @@ MIME 由文件扩展名和基础文件头校验决定，不信任 multipart 声�
 
 ### 实验附件
 
-实验附件元数据保存在 `experiment_attachment`，二进制正文保存在
-`experiment_attachment_content.content`。上传、删除和授权正文读取路由均已接通。
-服务端忽略 multipart MIME，按文件扩展名和基础文件头判定附件类型。过程图片只允许经确认的 JPG/PNG 且限制 10 MiB；结果附件使用与项目文档相同的格式白名单并限制 25 MiB；完成实验不可修改附件。历史异常 MIME 或非过程图片一律附件下载，只有已确认的过程图片可内联，并附加 `nosniff`、私有不缓存和最小 CSP。
+实验附件元数据保存在 `experiment_attachment`，新上传正文保存在私有 RustFS；
+`experiment_attachment_content.content` 仅用于读取历史 BYTEA 正文。上传、删除和授权正文读取路由均已接通。
+过程图片只允许经服务端文件头确认的 JPG/PNG，单文件限制 10 MiB，并经受会话保护的内容路由内联预览；前端不接收 RustFS 对象标识。结果附件不限制扩展名或客户端 MIME，单文件限制 300 MiB，流式写入 RustFS，并始终使用 `application/octet-stream` 和 `attachment` 下载，避免浏览器内联执行未知内容。完成实验不可修改附件。所有附件响应带 `nosniff`、私有不缓存和最小 CSP。
 附件新增或删除后实验版本递增，使响应 ETag 能反映附件列表变化。
 当前仅有实现与单元测试证据，仍需在隔离数据库完成迁移和端到端上传/读取/删除验收。
 

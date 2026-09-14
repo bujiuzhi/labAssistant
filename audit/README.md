@@ -81,3 +81,6 @@ _本目录保存来源、历史观察和变更记录；现行规范见 docs。_
 
 [2026-09-14 本机生产文档与实验附件修复升级](logs/2026-09-14-local-production-document-and-eln-upload-fix-upgrade.md)
 记录 `6e726fb` 的本机 Compose 备份、重启与健康验收；业务界面级上传验收仍待有权限用户确认。
+
+[2026-09-14 ELN 缩略图与大结果附件修复](logs/2026-09-14-eln-attachment-preview-and-large-file-fix.md)
+记录私有 RustFS 对象标识泄露导致的缩略图失败修复、任意格式 300 MiB 结果附件与流式传输边界；不代表已完成生产环境验收。

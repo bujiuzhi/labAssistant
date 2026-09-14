@@ -4,6 +4,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.materialslab.api.common.exception.BusinessException;
 import com.materialslab.api.common.storage.ObjectStorageService;
+import com.materialslab.api.experiments.domain.ExperimentAttachment;
 import com.materialslab.api.identity.security.AccessControlService;
 import com.materialslab.api.identity.security.UserPrincipal;
 import com.materialslab.api.experiments.domain.Experiment;
@@ -12,7 +13,9 @@ import com.materialslab.api.experiments.domain.ExperimentResponse;
 import com.materialslab.api.experiments.mapper.ExperimentMapper;
 import com.materialslab.api.experiments.mapper.ExperimentMapper.ExperimentCommand;
 import com.materialslab.api.projects.service.ProjectDocumentFilePolicy;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -75,7 +78,7 @@ public class ExperimentService {
                 experiment.projectName(), experiment.experimentType(), experiment.phase(), experiment.status(), experiment.purpose(),
                 experiment.estimatedStart(), experiment.estimatedEnd(), experiment.startedAt(), experiment.completedAt(), experiment.ownerId(),
                 experiment.ownerDisplayName(), participants.stream().map(item -> item.userId()).toList(),
-                participants.stream().map(item -> item.displayName()).toList(), record(record, experiment.id()), canEdit(principal, experiment), experiment.version(),
+                participants.stream().map(item -> item.displayName()).toList(), record(record, experiment), canEdit(principal, experiment), experiment.version(),
                 experiment.createdAt(), experiment.updatedAt());
     }
 
@@ -168,26 +171,38 @@ public class ExperimentService {
         if (file == null || file.isEmpty()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "请选择非空附件");
         }
-        long maximumSize = "process_image".equals(normalizedKind) ? 10L * 1024 * 1024 : 25L * 1024 * 1024;
+        long maximumSize = "process_image".equals(normalizedKind) ? 10L * 1024 * 1024 : 300L * 1024 * 1024;
         if (file.getSize() > maximumSize) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error",
-                    "process_image".equals(normalizedKind) ? "过程图片不能超过 10 MB" : "结果附件不能超过 25 MB");
+                    "process_image".equals(normalizedKind) ? "过程图片不能超过 10 MB" : "结果附件不能超过 300 MB");
         }
         String name = safeFileName(file.getOriginalFilename());
-        byte[] content;
-        try {
-            content = file.getBytes();
-        } catch (IOException error) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "attachment_read_failed", "读取上传附件失败");
-        }
-        String mimeType = ProjectDocumentFilePolicy.validateExperimentAttachment(normalizedKind, name, content);
         UUID attachmentId = UUID.randomUUID();
         String key = "organizations/" + principal.organizationId() + "/experiments/" + experiment.id()
                 + "/attachments/" + normalizedKind + "/" + attachmentId;
-        String storageReference = objectStorageService.put(key, content, mimeType);
+        String mimeType;
+        String storageReference;
+        if ("process_image".equals(normalizedKind)) {
+            byte[] content;
+            try {
+                content = file.getBytes();
+            } catch (IOException error) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "attachment_read_failed", "读取上传附件失败");
+            }
+            mimeType = ProjectDocumentFilePolicy.validateExperimentAttachment(normalizedKind, name, content);
+            storageReference = objectStorageService.put(key, content, mimeType);
+        } else {
+            // 结果附件始终强制为下载，类型不参与浏览器内联解析，也不信任客户端 MIME。
+            mimeType = "application/octet-stream";
+            try (InputStream content = file.getInputStream()) {
+                storageReference = objectStorageService.put(key, content, file.getSize(), mimeType);
+            } catch (IOException error) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "attachment_read_failed", "读取上传附件失败");
+            }
+        }
         try {
             experimentMapper.insertAttachment(new ExperimentMapper.ExperimentAttachmentCommand(attachmentId,
-                    principal.organizationId(), experiment.id(), normalizedKind, name, storageReference, mimeType, content.length, principal.userId()));
+                    principal.organizationId(), experiment.id(), normalizedKind, name, storageReference, mimeType, file.getSize(), principal.userId()));
             experimentMapper.touchExperiment(experiment.id(), principal.userId());
             return get(principal, experimentNo);
         } catch (RuntimeException error) {
@@ -219,20 +234,20 @@ public class ExperimentService {
         return get(principal, experimentNo);
     }
 
-    /** 读取当前用户可见实验的附件正文。 */
-    public AttachmentContent attachmentContent(UserPrincipal principal, String experimentNo, UUID attachmentId) {
+    /** 打开当前用户可见实验的附件正文流，调用方负责在响应结束后关闭。 */
+    public AttachmentStream attachmentContent(UserPrincipal principal, String experimentNo, UUID attachmentId) {
         Experiment experiment = get(principal, experimentNo);
         ExperimentMapper.ExperimentAttachmentContentRow row = experimentMapper.findAttachmentContent(experiment.id(), attachmentId);
         if (row == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "attachment_not_found", "实验附件不存在");
         }
-        byte[] content = objectStorageService.isObjectReference(row.file())
-                ? objectStorageService.read(row.file())
-                : experimentMapper.findLegacyAttachmentContent(attachmentId);
+        InputStream content = objectStorageService.isObjectReference(row.file())
+                ? objectStorageService.open(row.file())
+                : legacyAttachmentContent(attachmentId);
         if (content == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "attachment_not_found", "实验附件不存在");
         }
-        return new AttachmentContent(row.name(), row.kind(), row.mimeType(), row.fileSize(), content);
+        return new AttachmentStream(row.name(), row.kind(), row.mimeType(), row.fileSize(), content);
     }
     /** 执行不可跳级的实验状态迁移。 */
     @Transactional
@@ -291,12 +306,25 @@ public class ExperimentService {
     }
     private UUID uuidOr(JsonNode payload, String key, UUID fallback) { try { return payload.hasNonNull(key) ? UUID.fromString(payload.get(key).asText()) : fallback; } catch (IllegalArgumentException error) { throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", key+" 必须为 UUID"); } }
 
-    private ExperimentRecordResponse record(ExperimentMapper.ExperimentRecordRow row, UUID experimentId) {
+    private ExperimentRecordResponse record(ExperimentMapper.ExperimentRecordRow row, Experiment experiment) {
         return new ExperimentRecordResponse(
                 array(row == null ? null : row.formulaColumns()), array(row == null ? null : row.formulaRows()),
                 array(row == null ? null : row.extraTables()), row == null ? "" : row.processText(),
-                array(row == null ? null : row.extraProcesses()), experimentMapper.listAttachments(experimentId, "process_image"),
-                row == null ? "" : row.resultText(), experimentMapper.listAttachments(experimentId, "result_file"));
+                array(row == null ? null : row.extraProcesses()), attachmentResponses(experiment, "process_image"),
+                row == null ? "" : row.resultText(), attachmentResponses(experiment, "result_file"));
+    }
+
+    /** 仅返回受会话保护的内容路由，绝不向前端泄露私有 RustFS 对象标识。 */
+    private List<ExperimentAttachment> attachmentResponses(Experiment experiment, String kind) {
+        return experimentMapper.listAttachments(experiment.id(), kind).stream()
+                .map(item -> new ExperimentAttachment(item.id(), item.name(),
+                        "/api/v1/experiments/" + experiment.experimentNo() + "/attachments/" + item.id() + "/content", item.size()))
+                .toList();
+    }
+
+    private InputStream legacyAttachmentContent(UUID attachmentId) {
+        byte[] content = experimentMapper.findLegacyAttachmentContent(attachmentId);
+        return content == null ? null : new ByteArrayInputStream(content);
     }
 
     private JsonNode array(String source) {
@@ -407,6 +435,6 @@ public class ExperimentService {
                 + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
     }
 
-    /** 实验附件正文与响应元数据。 */
-    public record AttachmentContent(String name, String kind, String mimeType, long fileSize, byte[] content) { }
+    /** 实验附件流与响应元数据，正文在 HTTP 响应完成后关闭。 */
+    public record AttachmentStream(String name, String kind, String mimeType, long fileSize, InputStream content) { }
 }

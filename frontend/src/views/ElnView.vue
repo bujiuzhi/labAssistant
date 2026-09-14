@@ -641,8 +641,8 @@ async function addResultFiles(event: Event): Promise<void> {
   let succeeded = 0;
   const failures: string[] = [];
   for (const file of Array.from(input.files ?? [])) {
-    if (file.size > 25 * 1024 * 1024) {
-      failures.push(`${file.name}：超过 25 MB`);
+    if (file.size > 300 * 1024 * 1024) {
+      failures.push(`${file.name}：超过 300 MB`);
       continue;
     }
     try {

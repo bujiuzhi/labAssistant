@@ -30,6 +30,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 /** 实验计划和状态迁移接口，URL 为 /api/v1/experiments。 */
 @RestController
@@ -84,19 +85,24 @@ public class ExperimentController {
 
     /** 读取实验附件二进制正文。 */
     @GetMapping("/{experimentKey}/attachments/{attachmentId}/content")
-    public ResponseEntity<byte[]> attachmentContent(@PathVariable String experimentKey, @PathVariable UUID attachmentId) {
-        ExperimentService.AttachmentContent source = experimentService.attachmentContent(
+    public ResponseEntity<StreamingResponseBody> attachmentContent(@PathVariable String experimentKey, @PathVariable UUID attachmentId) {
+        ExperimentService.AttachmentStream source = experimentService.attachmentContent(
                 IdentityService.currentPrincipal(), experimentKey, attachmentId);
         MediaType mediaType = ProjectDocumentFilePolicy.responseMediaType(source.mimeType());
         boolean inline = "process_image".equals(source.kind()) && ProjectDocumentFilePolicy.isSafeInlinePreview(source.mimeType());
         ContentDisposition disposition = inline
                 ? ContentDisposition.inline().filename(source.name(), StandardCharsets.UTF_8).build()
                 : ContentDisposition.attachment().filename(source.name(), StandardCharsets.UTF_8).build();
-        return ResponseEntity.ok().contentType(mediaType).contentLength(source.content().length)
+        StreamingResponseBody body = outputStream -> {
+            try (var content = source.content()) {
+                content.transferTo(outputStream);
+            }
+        };
+        return ResponseEntity.ok().contentType(mediaType).contentLength(source.fileSize())
                 .header("X-Content-Type-Options", "nosniff")
                 .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
                 .header("Content-Security-Policy", "default-src 'none'; base-uri 'none'; frame-ancestors 'self'")
-                .cacheControl(CacheControl.noStore().cachePrivate()).body(source.content());
+                .cacheControl(CacheControl.noStore().cachePrivate()).body(body);
     }
     private int version(String header) { try{return Integer.parseInt(header.replace("\"", ""));}catch(Exception e){throw new BusinessException(HttpStatus.PRECONDITION_REQUIRED,"if_match_required","If-Match 必须携带资源版本号");} }
 }
