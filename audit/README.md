@@ -96,3 +96,6 @@ _本目录保存来源、历史观察和变更记录；现行规范见 docs。_
 
 [2026-09-14 主页未结束项目概览卡片](logs/2026-09-14-dashboard-project-overview-cards.md)
 记录主页卡片从仅进行中项目改为未结束项目概览、接口字段调整、排序与构建验证；不代表已完成本机业务界面验收。
+
+[2026-09-14 本机生产主页项目概览升级](logs/2026-09-14-local-production-dashboard-project-overview-upgrade.md)
+记录 `f61f7da` 的恢复组、Compose 重启和健康检查；登录后的项目卡片视觉验收仍待用户确认。
