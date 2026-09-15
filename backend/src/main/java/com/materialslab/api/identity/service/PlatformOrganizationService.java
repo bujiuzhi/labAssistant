@@ -102,7 +102,7 @@ public class PlatformOrganizationService {
     }
 
     private void requirePlatformAdmin(UserPrincipal principal) {
-        if (!principal.isPlatformAdmin()) {
+        if (!principal.isPlatformAdmin() || principal.isSuperAdmin() || !organizationMapper.isPlatformOrganization(principal.organizationId())) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "permission_denied", "仅平台管理员可管理组织");
         }
     }

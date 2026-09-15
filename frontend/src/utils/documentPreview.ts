@@ -8,7 +8,6 @@ export type DocumentPreviewMode =
   | "native-pdf"
   | "image"
   | "text"
-  | "converted-pdf"
   | "unsupported";
 
 export const MAX_COMPONENT_PREVIEW_BYTES = 25 * 1024 * 1024;
@@ -40,15 +39,10 @@ export function resolveDocumentPreviewMode(
   // Vue Office PDF 默认配置会引用外部静态资源；生产环境统一使用同源原生预览。
   if (normalizedExtension === "pdf") return "native-pdf";
   if (["txt", "csv"].includes(normalizedExtension)) {
-    return fileSize > MAX_TEXT_PREVIEW_BYTES ? "converted-pdf" : "text";
+    return fileSize > MAX_TEXT_PREVIEW_BYTES ? "unsupported" : "text";
   }
-  if (convertedOfficeExtensions.has(normalizedExtension)) {
-    return "converted-pdf";
-  }
+  if (convertedOfficeExtensions.has(normalizedExtension)) return "unsupported";
   if (fileSize > MAX_COMPONENT_PREVIEW_BYTES) {
-    if (["docx", "xls", "xlsx", "pptx"].includes(normalizedExtension)) {
-      return "converted-pdf";
-    }
     return "unsupported";
   }
   if (normalizedExtension === "docx") return "docx";

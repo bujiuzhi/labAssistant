@@ -99,3 +99,6 @@ _本目录保存来源、历史观察和变更记录；现行规范见 docs。_
 
 [2026-09-14 本机生产主页项目概览升级](logs/2026-09-14-local-production-dashboard-project-overview-upgrade.md)
 记录 `f61f7da` 的恢复组、Compose 重启和健康检查；登录后的项目卡片视觉验收仍待用户确认。
+
+[2026-09-14 OCR 发布阻断问题修复](logs/2026-09-14-ocr-release-blocker-remediation.md)
+记录 V1 迁移兼容性、平台账号边界、预览回退与敏感信息生命周期等修复及构建验证；未执行数据库迁移、生产重启或远程推送。

@@ -87,11 +87,6 @@ if (action === "up" && tail.includes("api") && tail.includes("web")) {
 }
 if (action === "up" && tail.includes("postgres") && !tail.includes("api") && !tail.includes("web")) finish();
 if (action === "run" && tail.at(-1) === "bootstrap") finish();
-if (action === "run" && tail.at(-1) === "identity-upgrade") {
-  state.identityUpgraded = true;
-  writeFileSync(stateFile, JSON.stringify(state));
-  finish();
-}
 if (action === "exec" && tail.includes("postgres")) {
   const command = tail.at(-1);
   const pgRestore = tail.includes("pg_restore") || command.includes("pg_restore");
@@ -698,19 +693,7 @@ test("成功备份生成完整归档和校验文件，中文日志不会误读�
   assert.match(readFileSync(join(directory, `${dump}.sha256`), "utf8"), /^[a-f0-9]{64}\n$/);
   assert.match(readFileSync(join(directory, `${storage}.sha256`), "utf8"), /^[a-f0-9]{64}\n$/);
   assert.match(readFileSync(join(directory, `${dump}.metadata.txt`), "utf8"), /^recovery_unit=postgres_dump\+rustfs_data$/m);
-  assert.match(readFileSync(join(directory, `${dump}.metadata.txt`), "utf8"), /^schema_profile=materials-lab-production-v2$/m);
-});
-
-test("首版身份升级先备份 V1，再运行一次性拆分任务且保持写入口停止", () => {
-  const f = fixture();
-  ready(f);
-  const result = command(f, "identity-upgrade", ["--confirm", f.values.MATERIALS_LAB_COMPOSE_PROJECT]);
-  assert.equal(result.status, 0, result.output);
-  const actionNames = calls(f).map(composeAction).filter(Boolean).map(call => call.action);
-  assert.ok(actionNames.includes("stop"));
-  assert.ok(calls(f).map(composeAction).filter(Boolean).some(call => call.action === "run" && call.args.at(-1) === "identity-upgrade"));
-  const dump = readdirSync(join(f.values.MATERIALS_LAB_DATA_ROOT, "backups")).find(name => name.endsWith(".dump"));
-  assert.match(readFileSync(join(f.values.MATERIALS_LAB_DATA_ROOT, "backups", `${dump}.metadata.txt`), "utf8"), /^schema_profile=materials-lab-first-production-v1$/m);
+  assert.match(readFileSync(join(directory, `${dump}.metadata.txt`), "utf8"), /^schema_profile=materials-lab-production-v1$/m);
 });
 
 test("空目标恢复同时校验并还原 RustFS 数据归档", () => {
@@ -813,8 +796,7 @@ test("生产 Compose 静态模型：固定 prod、只读应用、独立非公开
   const postgres = yamlBlock(services, "postgres");
   const web = yamlBlock(services, "web");
   const bootstrap = yamlBlock(services, "bootstrap");
-  const identityUpgrade = yamlBlock(services, "identity-upgrade");
-  assert.deepEqual([...services.matchAll(/^  ([a-z][a-z_-]*):$/gm)].map(match => match[1]), ["postgres", "api", "web", "rustfs-permissions", "rustfs", "bootstrap", "identity-upgrade"]);
+  assert.deepEqual([...services.matchAll(/^  ([a-z][a-z_-]*):$/gm)].map(match => match[1]), ["postgres", "api", "web", "rustfs-permissions", "rustfs", "bootstrap"]);
   assert.match(source, /SPRING_PROFILES_ACTIVE: prod/);
   assert.match(source, /SPRING_CONFIG_IMPORT: configtree:\/run\/secrets\//);
   assert.match(source, /SESSION_COOKIE_SECURE: "false"/);
@@ -822,7 +804,7 @@ test("生产 Compose 静态模型：固定 prod、只读应用、独立非公开
   assert.match(productionProfile, /url: \$\{JDBC_DATABASE_URL\}/);
   assert.match(productionProfile, /username: \$\{POSTGRES_PROD_USER\}/);
   assert.doesNotMatch(productionProfile, /JDBC_DATABASE_URL:|POSTGRES_PROD_USER:/);
-  for (const service of [api, web, bootstrap, identityUpgrade]) {
+  for (const service of [api, web, bootstrap]) {
     assert.match(service, /read_only: true/);
     assert.match(service, /cap_drop: \[ALL\]/);
     assert.match(service, /no-new-privileges:true/);

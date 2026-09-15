@@ -79,6 +79,7 @@ async function submit(): Promise<void> {
       admin_email: form.admin_email?.trim() || undefined,
       admin_password: form.admin_password,
     });
+    clearSensitiveForm();
     dialogVisible.value = false;
     ElMessage.success("组织已开通，首个管理员可使用所设账号登录");
     await loadOrganizations();
@@ -89,9 +90,15 @@ async function submit(): Promise<void> {
   }
 }
 
+/** 对话框关闭后不在响应式状态中保留初始管理员口令。 */
+function clearSensitiveForm(): void {
+  form.admin_password = "";
+  form.passwordConfirm = "";
+}
+
 function formatDateTime(value: string | null): string {
   if (!value) return "刚刚创建";
-  return new Date(value).toLocaleString("zh-CN", { dateStyle: "medium", timeStyle: "short", hour12: false });
+  return new Date(value).toLocaleString("zh-CN", { dateStyle: "medium", timeStyle: "short", hour12: false, timeZone: "Asia/Shanghai" });
 }
 
 onMounted(() => { void loadOrganizations(); });
@@ -124,7 +131,7 @@ onMounted(() => { void loadOrganizations(); });
       </el-table>
     </article>
 
-    <el-dialog v-model="dialogVisible" title="开通组织" width="680px" destroy-on-close align-center>
+    <el-dialog v-model="dialogVisible" title="开通组织" width="680px" destroy-on-close align-center @closed="clearSensitiveForm">
       <p class="dialog-hint">将一次性创建组织、三项内置角色和该组织的首个超级管理员；不会创建任何项目、实验或测试数据。</p>
       <el-form label-position="top">
         <div class="form-grid">

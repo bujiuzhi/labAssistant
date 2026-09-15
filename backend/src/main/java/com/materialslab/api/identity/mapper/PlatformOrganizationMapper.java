@@ -11,6 +11,10 @@ import org.apache.ibatis.annotations.Select;
 /** 平台控制面组织开通所需的最小数据库操作，不参与任何租户业务查询。 */
 @Mapper
 public interface PlatformOrganizationMapper {
+    /** 判断主体所属组织是否为唯一平台控制面组织。 */
+    @Select("SELECT EXISTS(SELECT 1 FROM organization WHERE id = #{organizationId} AND is_platform = TRUE)")
+    boolean isPlatformOrganization(@Param("organizationId") UUID organizationId);
+
     /** 返回所有组织的基础元数据，供平台管理员维护租户目录。 */
     @Select("""
             SELECT id, organization_code, name, status, created_at

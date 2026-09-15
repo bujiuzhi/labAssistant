@@ -99,7 +99,7 @@ public class DevelopmentDataInitializer implements ApplicationRunner {
                 ON CONFLICT (organization_id, username) DO UPDATE
                 SET is_platform_admin = user_account.is_platform_admin OR EXCLUDED.is_platform_admin
                 """, userId, ORGANIZATION_ID, passwordEncoder.encode(developmentPassword), username, displayName,
-                superAdmin, superAdmin && ADMIN_ID.equals(userId), superAdmin, superAdmin);
+                superAdmin, false, superAdmin, superAdmin);
     }
 
     private void createRole(UUID roleId, String roleCode, String roleName, UUID userId) {

@@ -22,8 +22,8 @@ _描述当前 Java/Vue 实现及兼容性边界；结构与行为以链接的源
 
 ### 迁移与物理约束
 
-[V1](../backend/src/main/resources/db/migration/V1__materials_lab_schema.sql)是首次正式发布的完整空库基线，创建 19 张表，
-包括项目文档和实验附件的二进制正文表。应用启动由
+[V1](../backend/src/main/resources/db/migration/V1__materials_lab_schema.sql)是首次正式发布的唯一完整空库基线，创建 20 张表，
+包括平台/租户身份边界、邀请码、逻辑删除字段，以及项目文档和实验附件的二进制正文表。应用启动由
 [SchemaMigrationInitializer](../backend/src/main/java/com/materialslab/api/common/config/SchemaMigrationInitializer.java)
 执行 Flyway；未知既有结构不会自动基线化。首版发布后不得改写 V1，只能新增 V2 及更高版本迁移。
 
@@ -31,8 +31,8 @@ _描述当前 Java/Vue 实现及兼容性边界；结构与行为以链接的源
 
 | 表 | 主要字段或关系 | 当前用途 |
 | --- | --- | --- |
-| `organization` | `organization_code` 唯一；`parent_id` 自引用 | 组织及层级 |
-| `user_account` | `organization_id`、`username`、`password`、`status`、`is_super_admin` | 组织内用户名唯一；含历史兼容身份字段 |
+| `organization` | `organization_code` 唯一；`parent_id` 自引用；唯一 `is_platform=true` | 平台控制面组织及业务组织层级 |
+| `user_account` | `organization_id`、全局唯一 `username`、`password`、`status`、删除元数据、身份标记 | 平台管理员只能属于平台组织；组织超级管理员不能兼任平台管理员 |
 | `role` | `organization_id`、`role_code`、`is_system` | 组织内角色代码唯一 |
 | `permission` | `permission_code` 唯一、`module_code` | 权限字典，无通用时间字段 |
 | `user_role` | `user_id`、`role_id`、`organization_id` | 用户角色组合唯一 |

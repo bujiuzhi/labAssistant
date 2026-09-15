@@ -43,6 +43,12 @@ class BootstrapSettingsTest {
     }
 
     @Test
+    void countsPasswordMinimumByUnicodeCodePoint() {
+        assertThrows(IllegalArgumentException.class, () -> BootstrapSettings.validatePassword("Aa1😀😀"));
+        BootstrapSettings.validatePassword("Aa1😀😀😀");
+    }
+
+    @Test
     void rejectsPasswordMatchingBootstrapUsername() {
         assertThrows(IllegalArgumentException.class, () -> BootstrapSettings.validatePassword("production.owner", "production.owner"));
     }

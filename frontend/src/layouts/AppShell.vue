@@ -46,10 +46,15 @@ async function logout(): Promise<void> {
 
 /** 打开当前用户自助改密窗口。 */
 function openPasswordDialog(): void {
+  clearPasswordForm();
+  passwordDialogVisible.value = true;
+}
+
+/** 每个关闭路径都清除内存中的明文密码。 */
+function clearPasswordForm(): void {
   passwordForm.currentPassword = "";
   passwordForm.newPassword = "";
   passwordForm.newPasswordConfirm = "";
-  passwordDialogVisible.value = true;
 }
 
 /** 处理当前账户下拉菜单，避免将账户操作分散在顶部导航中。 */
@@ -64,23 +69,25 @@ function handleAccountCommand(command: "change-password" | "logout"): void {
 /** 校验旧密码并提交新密码；服务端完成后当前会话会立即失效。 */
 async function changePassword(): Promise<void> {
   if (passwordSubmitting.value) return;
-  const validationMessage = passwordValidationMessage(passwordForm.newPassword, sessionStore.user?.username ?? "");
+  const currentPassword = passwordForm.currentPassword;
+  const newPassword = passwordForm.newPassword;
+  const validationMessage = passwordValidationMessage(newPassword, sessionStore.user?.username ?? "");
   if (validationMessage) {
     ElMessage.warning(validationMessage);
     return;
   }
-  if (!passwordForm.currentPassword) {
+  if (!currentPassword) {
     ElMessage.warning("请输入当前密码");
     return;
   }
-  if (passwordForm.newPassword !== passwordForm.newPasswordConfirm) {
+  if (newPassword !== passwordForm.newPasswordConfirm) {
     ElMessage.warning("两次输入的新密码不一致");
     return;
   }
   passwordSubmitting.value = true;
   try {
     const csrfToken = await authApi.getCsrfToken();
-    await authApi.changePassword(passwordForm.currentPassword, passwordForm.newPassword, csrfToken);
+    await authApi.changePassword(currentPassword, newPassword, csrfToken);
     await sessionStore.clearSession();
     passwordDialogVisible.value = false;
     ElMessage.success("密码已修改，请使用新密码重新登录");
@@ -96,7 +103,7 @@ async function changePassword(): Promise<void> {
 /** 返回与服务端一致的密码策略提示；服务端仍是最终校验边界。 */
 function passwordValidationMessage(password: string, username: string): string | null {
   if (
-    password.length < 6
+    Array.from(password).length < 6
     || new TextEncoder().encode(password).length > 72
     || /\s/.test(password)
     || !/[A-Za-z]/.test(password)
@@ -137,7 +144,17 @@ function passwordValidationMessage(password: string, username: string): string |
       </div>
     </header>
     <main class="route-content"><RouterView /></main>
-    <el-dialog v-model="passwordDialogVisible" title="修改密码" width="460px" destroy-on-close align-center>
+    <el-dialog
+      v-model="passwordDialogVisible"
+      title="修改密码"
+      width="460px"
+      destroy-on-close
+      align-center
+      :close-on-click-modal="!passwordSubmitting"
+      :close-on-press-escape="!passwordSubmitting"
+      :show-close="!passwordSubmitting"
+      @closed="clearPasswordForm"
+    >
       <p class="password-description">修改成功后会退出当前登录，需要使用新密码重新进入系统。</p>
       <el-form label-position="top">
         <el-form-item label="当前密码" required>
@@ -152,7 +169,7 @@ function passwordValidationMessage(password: string, username: string): string |
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="passwordDialogVisible = false">取消</el-button>
+        <el-button :disabled="passwordSubmitting" @click="passwordDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="passwordSubmitting" @click="changePassword">确认修改</el-button>
       </template>
     </el-dialog>

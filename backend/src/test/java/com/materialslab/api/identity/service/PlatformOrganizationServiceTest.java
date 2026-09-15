@@ -27,6 +27,7 @@ class PlatformOrganizationServiceTest {
         IdentityMapper identityMapper = mock(IdentityMapper.class);
         PasswordEncoder encoder = mock(PasswordEncoder.class);
         when(encoder.encode("StrongPassword123")).thenReturn("encoded-password");
+        when(organizationMapper.isPlatformOrganization(org.mockito.ArgumentMatchers.any(UUID.class))).thenReturn(true);
         when(organizationMapper.listPermissions()).thenReturn(SystemIdentityCatalog.PERMISSIONS.stream()
                 .map(permission -> new PlatformOrganizationMapper.PermissionRow(UUID.randomUUID(), permission.code())).toList());
         PlatformOrganizationService service = new PlatformOrganizationService(organizationMapper, identityMapper, encoder);
@@ -59,8 +60,19 @@ class PlatformOrganizationServiceTest {
         verify(organizationMapper, never()).insertOrganization(any(UUID.class), anyString(), anyString());
     }
 
+    @Test
+    void 平台标记与平台组织不匹配时不得读取组织目录() {
+        PlatformOrganizationMapper organizationMapper = mock(PlatformOrganizationMapper.class);
+        when(organizationMapper.isPlatformOrganization(any(UUID.class))).thenReturn(false);
+        PlatformOrganizationService service = new PlatformOrganizationService(organizationMapper, mock(IdentityMapper.class), mock(PasswordEncoder.class));
+
+        assertThatThrownBy(() -> service.listOrganizations(platformPrincipal())).isInstanceOf(BusinessException.class)
+                .extracting(error -> ((BusinessException) error).code()).isEqualTo("permission_denied");
+        verify(organizationMapper, never()).listOrganizations();
+    }
+
     private UserPrincipal platformPrincipal() {
         return new UserPrincipal(new UserAccount(UUID.randomUUID(), UUID.randomUUID(), "platform-admin", "",
-                "平台管理员", "active", true, true, 0), List.of());
+                "平台管理员", "active", false, true, 0), List.of());
     }
 }

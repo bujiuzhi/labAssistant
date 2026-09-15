@@ -55,6 +55,22 @@ const passwordForm = reactive({
   password: "",
   passwordConfirm: "",
 });
+
+/** 对话框关闭后清除明文密码与一次性邀请码。 */
+function clearPasswordForm(): void {
+  passwordForm.password = "";
+  passwordForm.passwordConfirm = "";
+  passwordTarget.value = null;
+}
+
+function clearUserFormSensitive(): void {
+  userForm.password = "";
+  userForm.passwordConfirm = "";
+}
+
+function clearCreatedInvitation(): void {
+  createdInvitation.value = null;
+}
 const invitationForm = reactive({
   role_code: "researcher",
   valid_for_hours: 168,
@@ -362,24 +378,26 @@ function openPasswordDialog(user: ManagedUser): void {
  * 重置普通用户密码
  */
 async function submitPasswordReset(): Promise<void> {
-  if (!passwordTarget.value || submitting.value) return;
-  const passwordMessage = passwordValidationMessage(passwordForm.password, passwordTarget.value.username);
+  const target = passwordTarget.value;
+  const newPassword = passwordForm.password;
+  if (!target || submitting.value) return;
+  const passwordMessage = passwordValidationMessage(newPassword, target.username);
   if (passwordMessage) {
     ElMessage.warning(passwordMessage);
     return;
   }
-  if (passwordForm.password !== passwordForm.passwordConfirm) {
+  if (newPassword !== passwordForm.passwordConfirm) {
     ElMessage.warning("两次输入的新密码不一致");
     return;
   }
   submitting.value = true;
   try {
     await userApi.resetManagedUserPassword(
-      passwordTarget.value.id,
-      passwordForm.password,
+      target.id,
+      newPassword,
     );
     passwordDialogVisible.value = false;
-    ElMessage.success(`已重置 ${passwordTarget.value.display_name} 的密码`);
+    ElMessage.success(`已重置 ${target.display_name} 的密码`);
   } catch (error) {
     const problem = getProblemDetail(error);
     ElMessage.error(problem?.detail ?? "密码重置失败");
@@ -420,7 +438,7 @@ async function deleteUser(user: ManagedUser): Promise<void> {
 /** 返回与服务端一致的密码策略提示；服务端仍是最终校验边界。 */
 function passwordValidationMessage(password: string, username: string): string | null {
   if (
-    password.length < 6 ||
+    Array.from(password).length < 6 ||
     new TextEncoder().encode(password).length > 72 ||
     /\s/.test(password) ||
     !/[A-Za-z]/.test(password) ||
@@ -588,6 +606,7 @@ onMounted(async () => {
       width="640px"
       destroy-on-close
       align-center
+      @closed="clearUserFormSensitive"
     >
       <el-form label-position="top">
         <div class="form-grid">
@@ -669,6 +688,10 @@ onMounted(async () => {
       width="480px"
       destroy-on-close
       align-center
+      :close-on-click-modal="!submitting"
+      :close-on-press-escape="!submitting"
+      :show-close="!submitting"
+      @closed="clearPasswordForm"
     >
       <p class="password-description">
         为 {{ passwordTarget?.display_name }}（{{ passwordTarget?.username }}）设置新密码。
@@ -693,7 +716,7 @@ onMounted(async () => {
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="passwordDialogVisible = false">取消</el-button>
+        <el-button :disabled="submitting" @click="passwordDialogVisible = false">取消</el-button>
         <el-button
           type="primary"
           :loading="submitting"
@@ -758,6 +781,8 @@ onMounted(async () => {
       width="520px"
       append-to-body
       align-center
+      destroy-on-close
+      @closed="clearCreatedInvitation"
     >
       <el-alert title="关闭此窗口后，系统不会再次显示邀请码明文。请通过受控渠道发给对应成员。" type="warning" :closable="false" show-icon />
       <p class="invitation-code">{{ createdInvitation?.invitation_code }}</p>

@@ -14,7 +14,6 @@ usage() {
     '  build                           在受控构建机生成新标签 API/Web 镜像（含测试）' \
     '  bootstrap --confirm 项目名       启动隔离 PostgreSQL，初始化空库真实身份' \
     '  up --confirm 项目名              首次启动或恢复已初始化且已停止的服务' \
-    '  identity-upgrade --confirm 项目名  一次性拆分首版双身份管理员，再启动新版本' \
     '  upgrade --confirm 项目名         停写、备份，再启动已构建的新版本' \
     '  rollback 标签 --schema-compatible --confirm 项目名' \
     '                                  仅回退应用镜像；须已核实迁移兼容性' \
@@ -110,7 +109,7 @@ dc() { "${lab_compose[@]}" "$@"; }
 confirm() { [[ $# == 2 && $1 == --confirm && $2 == "$MATERIALS_LAB_COMPOSE_PROJECT" ]] || fail "变更必须显式指定 --confirm $MATERIALS_LAB_COMPOSE_PROJECT"; }
 require_stopped() {
   local lab_id lab_state lab_ids
-  lab_ids=$(dc ps --all -q api web bootstrap identity-upgrade) || fail '无法读取目标容器状态，拒绝继续'
+  lab_ids=$(dc ps --all -q api web bootstrap) || fail '无法读取目标容器状态，拒绝继续'
   for lab_id in $lab_ids; do
     lab_state=$(docker inspect --format '{{.State.Status}}' "$lab_id")
     [[ $lab_state == exited || $lab_state == created ]] || fail '目标 API/Web/初始化任务未完全停止；不能执行此操作'
@@ -243,19 +242,11 @@ db_query() {
 }
 check_data() {
   local lab_result lab_schema_signature
-  # 当前发布必须具备完整 V1 业务结构与 V2 平台/租户身份边界；停写前只读核对，绝不自动修复或清库。
+  # 当前首版必须具备完整 V1 业务与平台/租户身份结构；停写前只读核对，绝不自动修复或清库。
   lab_schema_signature=$(db_query "SELECT (to_regclass('public.project_document_content') IS NOT NULL)::int || '|' || (to_regclass('public.experiment_attachment_content') IS NOT NULL)::int || '|' || EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'uk_user_account_username')::int || '|' || EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='organization' AND column_name='is_platform')::int || '|' || EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='uk_organization_single_platform')::int || '|' || EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.user_account'::regclass AND conname='ck_user_account_platform_not_super')::int;")
   [[ $lab_schema_signature == '1|1|1|1|1|1' ]] || fail '数据库不符合当前发布结构签名；拒绝上线，请只读核查，不要自动清库'
   lab_result=$(db_query "SELECT (SELECT count(*) FROM organization WHERE organization_code='DEV_TEST') || '|' || (SELECT count(*) FROM organization WHERE is_platform) || '|' || (SELECT count(*) FROM user_account WHERE is_platform_admin AND is_active AND status='active') || '|' || (SELECT count(*) FROM user_account WHERE is_platform_admin AND is_super_admin) || '|' || (SELECT count(*) FROM user_account WHERE is_super_admin AND is_active AND status='active') || '|' || (SELECT count(*) FROM flyway_schema_history WHERE success);")
   [[ $lab_result =~ ^0\|1\|1\|0\|[0-9]+\|[1-9][0-9]*$ ]] || fail '身份边界或迁移检查失败，或发现 DEV_TEST；拒绝上线，请只读核查，不要自动清库'
-}
-check_legacy_identity_boundary() {
-  local lab_schema_signature lab_result
-  # 首版升级前只允许明确的 V1 单组织、单个双身份管理员形态；不猜测复杂历史数据。
-  lab_schema_signature=$(db_query "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='organization' AND column_name='is_platform')::int;")
-  [[ $lab_schema_signature == 0 ]] || fail '数据库已不是可自动拆分的首版身份结构；请执行当前版本检查或单独审查迁移'
-  lab_result=$(db_query "SELECT (SELECT count(*) FROM organization WHERE organization_code='DEV_TEST') || '|' || (SELECT count(*) FROM user_account WHERE is_super_admin AND is_platform_admin AND is_active AND status='active') || '|' || (SELECT count(*) FROM flyway_schema_history WHERE success);")
-  [[ $lab_result == '0|1|1' ]] || fail '旧身份数据不符合单一双身份管理员的受控拆分条件；拒绝自动迁移'
 }
 check_global_username_uniqueness() {
   local lab_duplicates
@@ -264,10 +255,10 @@ check_global_username_uniqueness() {
   [[ $lab_duplicates == 0 ]] || fail '发现跨组织重复用户名；全局登录名唯一约束不允许上线，已在停写前拒绝升级。请先完成受控账号重命名'
 }
 backup() {
-  local lab_schema_profile=${1:-materials-lab-production-v2} lab_base lab_backup lab_storage_backup lab_metadata lab_digest lab_service lab_container
+  local lab_schema_profile=materials-lab-production-v1 lab_base lab_backup lab_storage_backup lab_metadata lab_digest lab_service lab_container
   # 数据库元数据与对象文件只有在 API/Web 都停止时才构成同一恢复点。
   require_stopped
-  if [[ $lab_schema_profile == materials-lab-first-production-v1 ]]; then check_legacy_identity_boundary; else check_data; fi
+  check_data
   lab_base="$MATERIALS_LAB_DATA_ROOT/backups/$(TZ=Asia/Shanghai date +%Y%m%d-%H%M%S)-$$"
   lab_backup="$lab_base.dump"
   lab_storage_backup="$lab_base.rustfs-data.tar.gz"
@@ -380,15 +371,6 @@ case "$lab_action" in
     check_data
     trap - EXIT
     info '容器与健康检查通过；仍需通过公网 HTTP 地址完成登录和业务验收。' ;;
-  identity-upgrade)
-    confirm "$@"; preflight; require_images; verify_release_manifest; check_legacy_identity_boundary; check_global_username_uniqueness
-    trap 'release_exit $?' EXIT
-    dc stop web api
-    backup materials-lab-first-production-v1
-    dc run --no-deps -T identity-upgrade
-    check_data
-    trap - EXIT
-    info '首版双身份管理员已拆分，V2 身份边界检查通过；API/Web 保持停止，请执行 up 恢复写入。' ;;
   upgrade)
     confirm "$@"; preflight; require_images; verify_release_manifest
     check_data
@@ -441,7 +423,7 @@ case "$lab_action" in
     lab_storage_archive="${lab_archive%.dump}.rustfs-data.tar.gz"
     [[ $lab_archive == *.dump && -f $lab_storage_archive && ! -L $lab_storage_archive && -s $lab_storage_archive.sha256 ]] || fail '缺少同一恢复组的 RustFS 数据归档或校验文件'
     grep -Fx "recovery_unit=postgres_dump+rustfs_data" "$lab_archive.metadata.txt" >/dev/null || fail '备份元数据不属于完整恢复组'
-    grep -Eq '^schema_profile=materials-lab-(first-production-v1|production-v2)$' "$lab_archive.metadata.txt" || fail '备份架构不兼容当前恢复流程；未写入目标，请使用对应版本的恢复工具'
+    grep -Fx 'schema_profile=materials-lab-production-v1' "$lab_archive.metadata.txt" >/dev/null || fail '备份架构不兼容当前恢复流程；未写入目标，请使用对应版本的恢复工具'
     grep -Fx "rustfs_data_archive=$(basename -- "$lab_storage_archive")" "$lab_archive.metadata.txt" >/dev/null || fail '备份元数据与 RustFS 数据归档不匹配'
     if command -v sha256sum >/dev/null; then lab_digest=$(sha256sum "$lab_archive"); else lab_digest=$(shasum -a 256 "$lab_archive"); fi
     [[ ${lab_digest%% *} == "$(< "$lab_archive.sha256")" ]] || fail '备份校验值不匹配'

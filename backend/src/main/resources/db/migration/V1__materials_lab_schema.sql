@@ -1,8 +1,8 @@
 -- 材料实验助手 v1.0.0 首次正式发布的完整物理结构。
--- 此迁移仅适用于空数据库；后续结构变化只能新增 V2 及更高版本迁移。
+-- 本迁移仅适用于首次部署的空数据库；发布后不得改写，后续变更以 V2 及更高版本追加。
 CREATE TABLE organization (
   id UUID PRIMARY KEY, organization_code VARCHAR(32) NOT NULL UNIQUE, name VARCHAR(200) NOT NULL,
-  parent_id UUID REFERENCES organization(id), status VARCHAR(16) NOT NULL DEFAULT 'active',
+  parent_id UUID REFERENCES organization(id), status VARCHAR(16) NOT NULL DEFAULT 'active', is_platform BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE user_account (
@@ -12,9 +12,14 @@ CREATE TABLE user_account (
   is_staff BOOLEAN NOT NULL DEFAULT FALSE, is_active BOOLEAN NOT NULL DEFAULT TRUE, date_joined TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   display_name VARCHAR(100) NOT NULL, status VARCHAR(16) NOT NULL DEFAULT 'active', is_super_admin BOOLEAN NOT NULL DEFAULT FALSE,
   is_platform_admin BOOLEAN NOT NULL DEFAULT FALSE, session_version BIGINT NOT NULL DEFAULT 0,
+  deleted_at TIMESTAMPTZ, deleted_by_id UUID REFERENCES user_account(id),
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT uk_user_account_org_username UNIQUE (organization_id, username),
-  CONSTRAINT uk_user_account_username UNIQUE (username)
+  CONSTRAINT uk_user_account_username UNIQUE (username),
+  CONSTRAINT ck_user_account_platform_not_super CHECK (NOT (is_platform_admin AND is_super_admin)),
+  CONSTRAINT ck_user_account_status CHECK (status IN ('active', 'locked', 'disabled', 'deleted')),
+  CONSTRAINT ck_user_account_active_state CHECK (is_active = (status = 'active')),
+  CONSTRAINT ck_user_account_deleted_state CHECK ((status = 'deleted') = (deleted_at IS NOT NULL))
 );
 CREATE TABLE role (
   id UUID PRIMARY KEY, organization_id UUID NOT NULL REFERENCES organization(id), role_code VARCHAR(64) NOT NULL,
@@ -119,6 +124,13 @@ CREATE INDEX idx_experiment_participant_experiment_id ON experiment_participant 
 CREATE INDEX idx_experiment_participant_user_id ON experiment_participant (user_id);
 CREATE INDEX idx_experiment_attachment_experiment_id ON experiment_attachment (experiment_id);
 CREATE INDEX idx_registration_invitation_org_status_expires ON registration_invitation (organization_id, status, expires_at);
+CREATE INDEX idx_user_account_org_status ON user_account (organization_id, status);
+CREATE UNIQUE INDEX uk_organization_single_platform ON organization ((is_platform)) WHERE is_platform;
+CREATE UNIQUE INDEX uk_organization_id_is_platform ON organization (id, is_platform);
+ALTER TABLE user_account
+  ADD CONSTRAINT fk_user_account_platform_membership
+  FOREIGN KEY (organization_id, is_platform_admin)
+  REFERENCES organization (id, is_platform);
 
 COMMENT ON TABLE organization IS '组织及组织层级';
 COMMENT ON COLUMN organization.id IS '组织主键';
@@ -126,6 +138,7 @@ COMMENT ON COLUMN organization.organization_code IS '组织业务编码';
 COMMENT ON COLUMN organization.name IS '组织名称';
 COMMENT ON COLUMN organization.parent_id IS '上级组织主键';
 COMMENT ON COLUMN organization.status IS '组织状态';
+COMMENT ON COLUMN organization.is_platform IS '是否内部平台控制面组织；平台组织不属于业务租户且不显示在租户目录';
 COMMENT ON COLUMN organization.created_at IS '创建时刻';
 COMMENT ON COLUMN organization.updated_at IS '最近更新时刻';
 
@@ -146,6 +159,9 @@ COMMENT ON COLUMN user_account.display_name IS '显示名称';
 COMMENT ON COLUMN user_account.status IS '业务状态';
 COMMENT ON COLUMN user_account.is_super_admin IS '业务超级管理员标记';
 COMMENT ON COLUMN user_account.is_platform_admin IS '平台管理员标记，仅用于组织开通等控制面操作';
+COMMENT ON COLUMN user_account.session_version IS '会话版本；权限或口令变更后递增以失效旧会话';
+COMMENT ON COLUMN user_account.deleted_at IS '逻辑删除时刻；非空表示账号已删除且不可登录';
+COMMENT ON COLUMN user_account.deleted_by_id IS '执行逻辑删除的当前组织超级管理员主键';
 COMMENT ON COLUMN user_account.created_at IS '创建时刻';
 COMMENT ON COLUMN user_account.updated_at IS '最近更新时刻';
 

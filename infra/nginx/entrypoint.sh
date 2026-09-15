@@ -13,6 +13,13 @@ materials_lab_fail() {
 if ! printf '%s\n' "$MATERIALS_LAB_PUBLIC_HOST" | LC_ALL=C grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; then
     materials_lab_fail '访问主机仅允许 IPv4，不含协议、端口或路径'
 fi
+(
+    IFS=.
+    set -- $MATERIALS_LAB_PUBLIC_HOST
+    for materials_lab_octet do
+        [ "$materials_lab_octet" -le 255 ] || materials_lab_fail '访问主机仅允许有效 IPv4'
+    done
+)
 case "$MATERIALS_LAB_PUBLIC_PORT" in
     ''|*[!0-9]*) materials_lab_fail '公开端口必须为 1 到 65535 的整数' ;;
 esac

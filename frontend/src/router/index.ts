@@ -73,7 +73,11 @@ router.beforeEach((to) => {
     return { name: "login", query: { redirect: to.fullPath } };
   }
   if (to.name === "login" && sessionStore.isAuthenticated) {
-    return { name: sessionStore.isPlatformAdmin && !sessionStore.isSuperAdmin ? "system-organizations" : "dashboard" };
+    return {
+      name: sessionStore.isPlatformAdmin && !sessionStore.isSuperAdmin
+        ? "system-organizations"
+        : "dashboard",
+    };
   }
   if (to.meta.requiresTenantAccess && sessionStore.isPlatformAdmin && !sessionStore.isSuperAdmin) {
     return { name: "system-organizations" };

@@ -39,8 +39,12 @@ public class ObjectStorageService {
 
     /** 验证 RustFS 可访问并确保私有业务桶已创建；供启动和就绪探针调用。 */
     public void verifyReady() {
+        if (!properties.enabled()) return;
         ensureBucket();
     }
+
+    /** 返回对象存储是否作为当前运行环境的就绪依赖。 */
+    public boolean isEnabled() { return properties.enabled(); }
 
     /** 将经过上层校验的对象写入 RustFS，并返回数据库保存的稳定存储标识。 */
     public String put(String key, byte[] content, String mimeType) {

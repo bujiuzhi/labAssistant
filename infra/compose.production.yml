@@ -197,35 +197,6 @@ services:
     networks: [database, storage]
     logging: *logging
 
-  identity-upgrade:
-    image: materials-lab-api:${MATERIALS_LAB_RELEASE}
-    profiles: [maintenance]
-    restart: "no"
-    read_only: true
-    tmpfs: ["/tmp:size=128m,mode=1777"]
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    command:
-      - java
-      - -Dloader.main=com.materialslab.bootstrap.ProductionIdentityBoundaryUpgradeApplication
-      - -cp
-      - /app/application.jar
-      - org.springframework.boot.loader.launch.PropertiesLauncher
-    environment:
-      <<: *api-environment
-      MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME: ${MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME:?请设置平台管理员用户名}
-      MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_DISPLAY_NAME: ${MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_DISPLAY_NAME:?请设置平台管理员显示名}
-      MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD_FILE: /run/secrets/bootstrap_platform_admin_password
-    secrets:
-      - source: database_password
-        target: spring.datasource.password
-      - bootstrap_platform_admin_password
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks: [database]
-    logging: *logging
-
 networks:
   database:
     internal: true

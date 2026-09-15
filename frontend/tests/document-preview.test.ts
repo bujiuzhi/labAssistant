@@ -5,6 +5,7 @@ import test from "node:test";
 
 import {
   MAX_COMPONENT_PREVIEW_BYTES,
+  MAX_TEXT_PREVIEW_BYTES,
   decodeTextDocument,
   parseCsvPreview,
   resolveDocumentPreviewMode,
@@ -20,15 +21,17 @@ test("常用格式优先选择对应预览组件", () => {
   assert.equal(resolveDocumentPreviewMode("csv", 1024), "text");
 });
 
-test("旧版或大体积办公文档使用服务端 PDF 兜底", () => {
-  assert.equal(resolveDocumentPreviewMode("doc", 1024), "converted-pdf");
-  assert.equal(resolveDocumentPreviewMode("odt", 1024), "converted-pdf");
-  assert.equal(resolveDocumentPreviewMode("ppt", 1024), "converted-pdf");
+test("未部署转换器时旧版或大体积办公文档明确要求下载", () => {
+  assert.equal(resolveDocumentPreviewMode("doc", 1024), "unsupported");
+  assert.equal(resolveDocumentPreviewMode("odt", 1024), "unsupported");
+  assert.equal(resolveDocumentPreviewMode("ppt", 1024), "unsupported");
   assert.equal(
     resolveDocumentPreviewMode("docx", MAX_COMPONENT_PREVIEW_BYTES + 1),
-    "converted-pdf",
+    "unsupported",
   );
   assert.equal(resolveDocumentPreviewMode("pdf", MAX_COMPONENT_PREVIEW_BYTES + 1), "native-pdf");
+  assert.equal(resolveDocumentPreviewMode("txt", MAX_TEXT_PREVIEW_BYTES + 1), "unsupported");
+  assert.equal(resolveDocumentPreviewMode("csv", MAX_TEXT_PREVIEW_BYTES + 1), "unsupported");
 });
 
 test("文本预览支持 UTF-8、UTF-16 和中文传统编码兜底", () => {

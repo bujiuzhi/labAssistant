@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.when;
 
 import com.materialslab.api.common.storage.ObjectStorageService;
 import java.lang.reflect.Proxy;
@@ -100,6 +101,7 @@ class HealthControllerTest {
     @Test
     void refusesTrafficWhenEnabledObjectStorageIsUnavailable() {
         var storage = mock(ObjectStorageService.class);
+        when(storage.isEnabled()).thenReturn(true);
         doThrow(new IllegalStateException("隔离测试对象存储不可用")).when(storage).verifyReady();
         var response = new HealthController(new DatabaseFixture(true, false).dataSource(), readyAvailability(), storage).ready();
         assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode());
@@ -113,7 +115,9 @@ class HealthControllerTest {
     }
 
     private ObjectStorageService readyStorage() {
-        return mock(ObjectStorageService.class);
+        var storage = mock(ObjectStorageService.class);
+        when(storage.isEnabled()).thenReturn(true);
+        return storage;
     }
 
     /** 不连接任何真实数据库，同时记录连接释放和探测次数。 */

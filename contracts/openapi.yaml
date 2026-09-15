@@ -2263,7 +2263,7 @@ components:
       description: "项目指标的 in_progress/completed、实验指标的 active/archived/at_risk 固定为 0。"
     DashboardProject:
       type: "object"
-      required: ["id","project_no","name","project_type","owner_name","objectives","progress_percent","is_followed","risk_level"]
+      required: ["id","project_no","name","project_type","owner_name","objectives","status","progress_percent","is_followed","risk_level"]
       properties:
         id:
           type: "string"
@@ -2286,6 +2286,9 @@ components:
         planned_end_date:
           type: ["string","null"]
           format: "date-time"
+        status:
+          type: "string"
+          enum: ["draft","not_started","active","at_risk","suspended","completed","archived"]
         milestone:
           anyOf:
             -
@@ -2304,7 +2307,7 @@ components:
           description: "按 Asia/Shanghai 当前日期到里程碑日期的天数；无有效日期时无值"
     Dashboard:
       type: "object"
-      required: ["project_metrics","experiment_metrics","type_distribution","trend","active_projects"]
+      required: ["project_metrics","experiment_metrics","type_distribution","trend","overview_projects"]
       properties:
         project_metrics:
           "$ref": "#/components/schemas/DashboardMetrics"
@@ -2366,7 +2369,7 @@ components:
                     type: "string"
                   name:
                     type: "string"
-        active_projects:
+        overview_projects:
           type: "array"
           items:
             "$ref": "#/components/schemas/DashboardProject"

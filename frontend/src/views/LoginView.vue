@@ -69,19 +69,20 @@ async function submitRegistration(): Promise<void> {
     errorMessage.value = "两次输入的密码不一致";
     return;
   }
+  const registrationPayload = {
+    invitation_code: registrationForm.invitation_code.trim(),
+    username: registrationForm.username.trim(),
+    display_name: registrationForm.display_name.trim(),
+    email: registrationForm.email.trim() || undefined,
+    password: registrationForm.password,
+  };
   loading.value = true;
   errorMessage.value = "";
   successMessage.value = "";
   try {
     const csrfToken = await authApi.getCsrfToken();
-    await authApi.register({
-      invitation_code: registrationForm.invitation_code.trim(),
-      username: registrationForm.username.trim(),
-      display_name: registrationForm.display_name.trim(),
-      email: registrationForm.email.trim() || undefined,
-      password: registrationForm.password,
-    }, csrfToken);
-    form.username = registrationForm.username.trim();
+    await authApi.register(registrationPayload, csrfToken);
+    form.username = registrationPayload.username;
     form.password = "";
     registrationForm.invitation_code = "";
     registrationForm.password = "";
@@ -98,6 +99,11 @@ async function submitRegistration(): Promise<void> {
 
 /** 切换登录与注册面板，并清除上一种操作的错误提示。 */
 function switchMode(nextMode: "login" | "register"): void {
+  if (loading.value) return;
+  form.password = "";
+  registrationForm.invitation_code = "";
+  registrationForm.password = "";
+  registrationForm.passwordConfirm = "";
   mode.value = nextMode;
   errorMessage.value = "";
   successMessage.value = "";
@@ -106,7 +112,7 @@ function switchMode(nextMode: "login" | "register"): void {
 /** 返回与服务端一致的密码策略提示；服务端仍是最终校验边界。 */
 function passwordValidationMessage(password: string, username: string): string | null {
   if (
-    password.length < 6
+    Array.from(password).length < 6
     || new TextEncoder().encode(password).length > 72
     || /\s/.test(password)
     || !/[A-Za-z]/.test(password)
@@ -204,7 +210,7 @@ function passwordValidationMessage(password: string, username: string): string |
           登录
         </el-button>
 
-        <el-button type="text" class="switch-mode" @click="switchMode('register')">
+        <el-button type="text" class="switch-mode" :disabled="loading" @click="switchMode('register')">
           持有管理员邀请码？注册组织账号
         </el-button>
       </form>
@@ -295,7 +301,7 @@ function passwordValidationMessage(password: string, username: string): string |
           注册并返回登录
         </el-button>
 
-        <el-button type="text" class="switch-mode" @click="switchMode('login')">
+        <el-button type="text" class="switch-mode" :disabled="loading" @click="switchMode('login')">
           返回登录
         </el-button>
         <p class="security-note">没有邀请码请联系组织超级管理员；邀请码仅可使用一次。</p>

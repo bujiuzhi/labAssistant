@@ -41,10 +41,12 @@ const props = defineProps<{
 
 const previewMode = ref<DocumentPreviewMode>("unsupported");
 const sourceData = shallowRef<ArrayBuffer | null>(null);
+const nativePdfUrl = ref("");
 const textContent = ref("");
 const loading = ref(false);
 const errorMessage = ref("");
 let requestSequence = 0;
+const activePreviewSequence = ref(0);
 
 const normalizedExtension = computed(() =>
   props.documentItem.extension.trim().toLowerCase(),
@@ -53,9 +55,6 @@ const viewerKey = computed(
   () => `${props.documentItem.id}-${props.documentItem.updated_at}-${previewMode.value}`,
 );
 const imageUrl = computed(() =>
-  projectApi.documentPreviewUrl(props.projectId, props.documentItem.id),
-);
-const nativePdfUrl = computed(() =>
   projectApi.documentPreviewUrl(props.projectId, props.documentItem.id),
 );
 const csvRows = computed(() =>
@@ -70,10 +69,17 @@ const previewMethodLabel = computed(() => {
     "native-pdf": "浏览器 PDF 预览",
     image: "图片预览",
     text: normalizedExtension.value === "csv" ? "CSV 表格预览" : "文本预览",
-    "converted-pdf": "服务端转换 · PDF 组件预览",
     unsupported: "暂不支持预览",
   };
   return labels[previewMode.value];
+});
+const previewEventHandlers = computed(() => {
+  const sequence = activePreviewSequence.value;
+  return {
+    rendered: () => handleRendered(sequence),
+    nativeError: () => handleNativeError(sequence),
+    rendererError: () => handleRendererError(sequence),
+  };
 });
 
 /**
@@ -81,6 +87,7 @@ const previewMethodLabel = computed(() => {
  */
 async function loadPreview(): Promise<void> {
   const sequence = ++requestSequence;
+  activePreviewSequence.value = sequence;
   const nextMode = resolveDocumentPreviewMode(
     props.documentItem.extension,
     props.documentItem.file_size,
@@ -89,9 +96,10 @@ async function loadPreview(): Promise<void> {
   sourceData.value = null;
   textContent.value = "";
   errorMessage.value = "";
+  resetNativePdfUrl();
   loading.value = true;
 
-  if (["image", "native-pdf"].includes(nextMode)) {
+  if (nextMode === "image") {
     loading.value = false;
     return;
   }
@@ -102,19 +110,18 @@ async function loadPreview(): Promise<void> {
   }
 
   try {
-    const content =
-      nextMode === "converted-pdf"
-        ? await projectApi.getDocumentPreview(
-            props.projectId,
-            props.documentItem.id,
-          )
-        : await projectApi.getDocumentContent(
-            props.projectId,
-            props.documentItem.id,
-          );
+    const content = await projectApi.getDocumentContent(
+      props.projectId,
+      props.documentItem.id,
+    );
     if (sequence !== requestSequence) return;
     if (nextMode === "text") {
       textContent.value = decodeTextDocument(content);
+      loading.value = false;
+    } else if (nextMode === "native-pdf") {
+      nativePdfUrl.value = URL.createObjectURL(
+        new Blob([content], { type: "application/pdf" }),
+      );
       loading.value = false;
     } else {
       sourceData.value = content;
@@ -129,55 +136,41 @@ async function loadPreview(): Promise<void> {
 }
 
 /**
- * 当前端办公组件无法解析时改用服务端 PDF 转换
+ * 当前版本未部署文档转换器；办公组件解析失败时明确提示下载，避免把原文件误标为 PDF。
  */
-async function useServerPdfFallback(): Promise<void> {
-  const sequence = ++requestSequence;
-  sourceData.value = null;
-  errorMessage.value = "";
-  loading.value = true;
-  try {
-    const content = await projectApi.getDocumentPreview(
-      props.projectId,
-      props.documentItem.id,
-    );
-    if (sequence !== requestSequence) return;
-    previewMode.value = "converted-pdf";
-    sourceData.value = content;
-  } catch (error) {
-    if (sequence !== requestSequence) return;
-    loading.value = false;
-    const problem = getProblemDetail(error);
-    errorMessage.value =
-      problem?.detail ??
-      "组件预览和服务端转换均失败，请下载原文件使用本地软件查看。";
-  }
+async function useServerPdfFallback(sequence: number): Promise<void> {
+  if (sequence !== requestSequence) return;
+  loading.value = false;
+  errorMessage.value = "当前服务器未启用文档转换，请下载原文件使用本地软件查看。";
+}
+
+/** 清理当前 PDF Blob URL，避免连续预览时遗留浏览器内存。 */
+function resetNativePdfUrl(): void {
+  if (nativePdfUrl.value.startsWith("blob:")) URL.revokeObjectURL(nativePdfUrl.value);
+  nativePdfUrl.value = "";
 }
 
 /**
  * 处理第三方预览组件的渲染错误
  */
-function handleRendererError(): void {
+function handleRendererError(sequence: number): void {
+  if (sequence !== requestSequence) return;
   if (["docx", "spreadsheet", "pptx"].includes(previewMode.value)) {
-    void useServerPdfFallback();
-    return;
-  }
-  if (previewMode.value === "converted-pdf") {
-    previewMode.value = "native-pdf";
-    loading.value = false;
-    errorMessage.value = "";
+    void useServerPdfFallback(sequence);
     return;
   }
   loading.value = false;
   errorMessage.value = "文档组件渲染失败，请重试或下载原文件查看。";
 }
 
-function handleRendered(): void {
+function handleRendered(sequence: number): void {
+  if (sequence !== requestSequence) return;
   loading.value = false;
   errorMessage.value = "";
 }
 
-function handleNativeError(): void {
+function handleNativeError(sequence: number): void {
+  if (sequence !== requestSequence) return;
   loading.value = false;
   errorMessage.value = "浏览器无法显示该文件，请下载原文件查看。";
 }
@@ -193,6 +186,7 @@ watch(
 );
 onBeforeUnmount(() => {
   requestSequence += 1;
+  resetNativePdfUrl();
 });
 </script>
 
@@ -217,16 +211,17 @@ onBeforeUnmount(() => {
       class="image-viewer"
       :src="imageUrl"
       :alt="documentItem.name"
-      @load="handleRendered"
-      @error="handleNativeError"
+      @load="previewEventHandlers.rendered"
+      @error="previewEventHandlers.nativeError"
     />
 
     <iframe
-      v-else-if="previewMode === 'native-pdf' && !errorMessage"
+      v-else-if="previewMode === 'native-pdf' && nativePdfUrl && !errorMessage"
       class="native-pdf-viewer"
       :src="nativePdfUrl"
       :title="`${documentItem.name} PDF 预览`"
-      @load="handleRendered"
+      @load="previewEventHandlers.rendered"
+      @error="previewEventHandlers.nativeError"
     />
 
     <VueOfficeDocx
@@ -234,8 +229,8 @@ onBeforeUnmount(() => {
       :key="viewerKey"
       class="office-viewer"
       :src="sourceData"
-      @rendered="handleRendered"
-      @error="handleRendererError"
+      @rendered="previewEventHandlers.rendered"
+      @error="previewEventHandlers.rendererError"
     />
 
     <VueOfficeExcel
@@ -246,8 +241,8 @@ onBeforeUnmount(() => {
       class="office-viewer spreadsheet-viewer"
       :src="sourceData"
       :options="{ showContextmenu: false }"
-      @rendered="handleRendered"
-      @error="handleRendererError"
+      @rendered="previewEventHandlers.rendered"
+      @error="previewEventHandlers.rendererError"
     />
 
     <VueOfficePptx
@@ -255,8 +250,8 @@ onBeforeUnmount(() => {
       :key="viewerKey"
       class="office-viewer presentation-viewer"
       :src="sourceData"
-      @rendered="handleRendered"
-      @error="handleRendererError"
+      @rendered="previewEventHandlers.rendered"
+      @error="previewEventHandlers.rendererError"
     />
 
     <div

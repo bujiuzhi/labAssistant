@@ -73,11 +73,15 @@ public class HealthController {
             } catch (Exception error) {
                 lastDatabaseReady = false;
             }
-            try {
-                objectStorageService.verifyReady();
+            if (!objectStorageService.isEnabled()) {
                 lastObjectStorageReady = true;
-            } catch (RuntimeException error) {
-                lastObjectStorageReady = false;
+            } else {
+                try {
+                    objectStorageService.verifyReady();
+                    lastObjectStorageReady = true;
+                } catch (RuntimeException error) {
+                    lastObjectStorageReady = false;
+                }
             }
             nextDependencyCheckNanos = System.nanoTime() + DATABASE_CHECK_CACHE_NANOS;
             hasDependencyCheck = true;

@@ -43,7 +43,7 @@ record BootstrapSettings(String platformAdminUsername, String platformAdminDispl
     }
 
     static void validatePassword(String password, String username) {
-        if (password == null || password.length() < 6 || password.getBytes(StandardCharsets.UTF_8).length > 72
+        if (password == null || password.codePointCount(0, password.length()) < 6 || password.getBytes(StandardCharsets.UTF_8).length > 72
                 || password.chars().anyMatch(character -> Character.isWhitespace(character) || Character.isISOControl(character))
                 || password.chars().noneMatch(character -> (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z'))
                 || password.chars().noneMatch(character -> character >= '0' && character <= '9')
