@@ -598,7 +598,7 @@ test("install 将首次部署收敛为单个受确认命令，且不回显生成
   assert.ok(existsSync(join(f.values.MATERIALS_LAB_DATA_ROOT, "releases", `${f.values.MATERIALS_LAB_RELEASE}.json`)));
   const actions = calls(f).map(composeAction).filter(Boolean);
   assert.equal(calls(f).filter(call => call[0] === "build").length, 2, "首次部署必须构建 API 与 Web 镜像");
-  assert.ok(actions.some(call => call.action === "run" && call.args.at(-1) === "bootstrap"));
+  assert.ok(actions.some(call => call.action === "run" && call.args.includes("--rm") && call.args.at(-1) === "bootstrap"));
   assert.ok(actions.some(call => call.action === "up" && call.args.includes("api") && call.args.includes("web")));
   assert.ok(actions.some(call => call.action === "exec" && call.args.includes("api")));
   assert.ok(actions.some(call => call.action === "exec" && call.args.includes("web")));

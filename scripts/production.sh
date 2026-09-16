@@ -376,8 +376,9 @@ case "$lab_action" in
     [[ -s $MATERIALS_LAB_SECRETS_DIR/bootstrap_platform_admin_password && ! -L $MATERIALS_LAB_SECRETS_DIR/bootstrap_platform_admin_password ]] || fail '缺少初始化平台管理员密码文件'
     # bootstrap 使用 --no-deps 防止隐式创建其他服务，因此须显式等待两个持久依赖均健康。
     dc up -d --wait --wait-timeout 180 postgres rustfs
-    # 保留一次性容器退出结果供审计；不自动清理。
-    dc run --no-deps -T bootstrap
+    # 初始化成功后删除一次性容器，避免后续启动产生无意义的孤儿容器告警。
+    # 初始化结果、版本和身份边界已写入数据库与审计日志，可通过 check/status 复核。
+    dc run --rm --no-deps -T bootstrap
     check_data
     info '首次身份初始化完成。生产样例数据检查通过。' ;;
   up)
