@@ -75,8 +75,8 @@ curl --fail --silent --show-error http://127.0.0.1:8000/api/v1/health/ready
 ## 📦 生产环境部署
 
 以[生产 Compose 部署指南](docs/production-deployment.md)为单一操作入口。
-先准备 `.env.production` 与独立凭据，再按 `preflight → build → bootstrap → up → check` 执行。
-命令详见 `bash scripts/production.sh --help`；其中 `bootstrap` 仅用于空库，升级不重复建账。
+先准备 `.env.production`，首次部署执行 `install --confirm <项目名>`，后续发布执行 `upgrade --confirm <项目名>`；脚本会收敛预检、构建、初始化、备份和健康检查。
+命令详见 `bash scripts/production.sh --help`；其中 `install` 仅用于空库，升级不重复建账。
 生产构建在容器内完成，宿主无需安装 Java/Node；当前明确采用无 TLS 的公网 HTTP `IP:15105` 入口，风险与验收要求见生产部署指南。
 
 ## ✅ 验证与交付

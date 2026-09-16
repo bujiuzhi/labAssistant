@@ -80,6 +80,7 @@ if (action === "ps") {
 if (action === "stop" && tail.join(" ") === "web api") {
   finish(process.env.LAB_PRODUCTION_TEST_STOP_FAILURE === "true" ? 57 : 0);
 }
+if (action === "down" && tail.join(" ") === "--remove-orphans") finish();
 if (action === "up" && tail.includes("api") && tail.includes("web")) {
   state.started = true;
   writeFileSync(stateFile, JSON.stringify(state));
@@ -119,6 +120,7 @@ if (action === "exec" && tail.includes("postgres")) {
     finish(0);
   }
 }
+if (action === "exec" && (tail.includes("api") || tail.includes("web"))) finish();
 throw new Error("拒绝未建模的 Compose 操作：" + action);
 `;
 writeFileSync(join(fakeBin, "docker"), fakeDocker, { mode: 0o755 });
@@ -291,7 +293,7 @@ test("无效命令、未知参数与缺少操作确认均在 Docker 之前拒绝
     ["destroy", [], /未知命令/],
     ...["secrets", "prepare", "preflight", "build", "status", "check"].map(action => [action, ["--unknown"], /不接受额外参数/]),
     ["backup", ["--unknown"], /--confirm/],
-    ...["bootstrap", "up", "upgrade"].map(action => [action, [], /--confirm/]),
+    ...["install", "bootstrap", "up", "upgrade", "restart", "uninstall"].map(action => [action, [], /--confirm/]),
     ["up", ["--confirm", "materials-lab-other"], /--confirm/],
     ["rollback", ["old-release"], /--schema-compatible/],
     ["restore-new", [], /--confirm/],
@@ -583,6 +585,57 @@ test("首次初始化先等待 PostgreSQL 与 RustFS 健康，再运行无依赖
   assert.ok(dependencyStart.args.includes("--wait"));
   assert.ok(actions.some(call => call.action === "run" && call.args.includes("--no-deps") && call.args.at(-1) === "bootstrap"));
   assert.ok(!actions.some(call => call.action === "up" && call.args.includes("api")), "初始化不得启动 API/Web 写入口");
+});
+
+test("install 将首次部署收敛为单个受确认命令，且不回显生成的凭据", () => {
+  const f = fixture();
+  const result = command(f, "install", ["--confirm", f.values.MATERIALS_LAB_COMPOSE_PROJECT], {
+    LAB_PRODUCTION_TEST_DOCKER_MODE: "build-images-absent",
+  });
+  assert.equal(result.status, 0, result.output);
+  assert.match(result.output, /首次部署完成/);
+  assert.ok(existsSync(join(f.values.MATERIALS_LAB_SECRETS_DIR, "bootstrap_platform_admin_password")));
+  assert.ok(existsSync(join(f.values.MATERIALS_LAB_DATA_ROOT, "releases", `${f.values.MATERIALS_LAB_RELEASE}.json`)));
+  const actions = calls(f).map(composeAction).filter(Boolean);
+  assert.equal(calls(f).filter(call => call[0] === "build").length, 2, "首次部署必须构建 API 与 Web 镜像");
+  assert.ok(actions.some(call => call.action === "run" && call.args.at(-1) === "bootstrap"));
+  assert.ok(actions.some(call => call.action === "up" && call.args.includes("api") && call.args.includes("web")));
+  assert.ok(actions.some(call => call.action === "exec" && call.args.includes("api")));
+  assert.ok(actions.some(call => call.action === "exec" && call.args.includes("web")));
+  assert.doesNotMatch(result.output, /SyntheticPlatformAdministratorPassword/);
+});
+
+test("install 保留已有密钥，不以便捷入口覆盖管理员凭据", () => {
+  const f = fixture();
+  ready(f, false);
+  const secretPath = join(f.values.MATERIALS_LAB_SECRETS_DIR, "bootstrap_platform_admin_password");
+  const originalSecret = readFileSync(secretPath, "utf8");
+  const result = command(f, "install", ["--confirm", f.values.MATERIALS_LAB_COMPOSE_PROJECT], {
+    LAB_PRODUCTION_TEST_DOCKER_MODE: "build-images-absent",
+  });
+  assert.equal(result.status, 0, result.output);
+  assert.equal(readFileSync(secretPath, "utf8"), originalSecret);
+});
+
+test("restart 停写后复用受控启动流程，uninstall 仅移除容器和网络", () => {
+  const restarted = fixture();
+  ready(restarted);
+  const restart = command(restarted, "restart", ["--confirm", restarted.values.MATERIALS_LAB_COMPOSE_PROJECT]);
+  assert.equal(restart.status, 0, restart.output);
+  const restartActions = calls(restarted).map(composeAction).filter(Boolean);
+  assert.ok(restartActions.some(call => call.action === "stop" && call.args.join(" ") === "web api"));
+  assert.ok(restartActions.some(call => call.action === "up" && call.args.includes("api") && call.args.includes("web")));
+
+  const uninstalled = fixture();
+  ready(uninstalled);
+  const uninstall = command(uninstalled, "uninstall", ["--confirm", uninstalled.values.MATERIALS_LAB_COMPOSE_PROJECT]);
+  assert.equal(uninstall.status, 0, uninstall.output);
+  assert.deepEqual(calls(uninstalled).map(composeAction).filter(Boolean), [{ action: "down", args: ["--remove-orphans"] }]);
+  assert.ok(existsSync(join(uninstalled.values.MATERIALS_LAB_DATA_ROOT, "postgres")));
+  assert.ok(existsSync(join(uninstalled.values.MATERIALS_LAB_DATA_ROOT, "rustfs", "data")));
+  assert.ok(existsSync(join(uninstalled.values.MATERIALS_LAB_DATA_ROOT, "backups")));
+  assert.ok(existsSync(join(uninstalled.values.MATERIALS_LAB_DATA_ROOT, "releases")));
+  assert.ok(existsSync(uninstalled.values.MATERIALS_LAB_SECRETS_DIR));
 });
 
 test("读取容器列表或 inspect 失败时拒绝继续，不把读取失败当作已停止", () => {

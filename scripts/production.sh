@@ -12,9 +12,12 @@ usage() {
     '  prepare                         创建项目持久目录（不更改已有所有者）' \
     '  preflight                       检查配置、密钥和 Compose，不启动服务' \
     '  build                           在受控构建机生成新标签 API/Web 镜像（含测试）' \
+    '  install --confirm 项目名         首次部署：生成缺失密钥、准备目录、构建、初始化并启动' \
     '  bootstrap --confirm 项目名       启动隔离 PostgreSQL，初始化空库真实身份' \
     '  up --confirm 项目名              首次启动或恢复已初始化且已停止的服务' \
     '  upgrade --confirm 项目名         停写、备份，再启动已构建的新版本' \
+    '  restart --confirm 项目名         安全重启 API/Web 并等待健康检查' \
+    '  uninstall --confirm 项目名       移除本项目容器和网络，保留镜像、密钥与所有数据' \
     '  rollback 标签 --schema-compatible --confirm 项目名' \
     '                                  仅回退应用镜像；须已核实迁移兼容性' \
     '  status                          查看本项目容器状态' \
@@ -22,10 +25,11 @@ usage() {
     '  backup --confirm 项目名          停写后备份 PostgreSQL 与 RustFS，生成恢复组校验文件' \
     '  restore-new 备份绝对路径 --confirm 项目名' \
     '                                  只恢复到无业务表且应用已停止的新目标库' \
-    '不提供删除、自动清理、覆盖现有库、自动数据库回滚或真实服务器连接命令。'
+    '不提供删库、删备份、覆盖现有库、自动数据库回滚或真实服务器连接命令。'
 }
 
 lab_repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+lab_script=$lab_repo/scripts/production.sh
 if [[ ${1:-} == --help || ${1:-} == -h ]]; then usage; exit 0; fi
 [[ ${HOME:-} == /* && -d $HOME ]] || fail '当前执行用户 HOME 必须是已有绝对目录'
 lab_home=$(cd -- "$HOME" && pwd -P)
@@ -107,6 +111,7 @@ esac
 lab_compose=(docker compose --project-directory "$lab_repo/infra" --env-file "$lab_env" -p "$MATERIALS_LAB_COMPOSE_PROJECT" -f "$lab_repo/infra/compose.production.yml")
 dc() { "${lab_compose[@]}" "$@"; }
 confirm() { [[ $# == 2 && $1 == --confirm && $2 == "$MATERIALS_LAB_COMPOSE_PROJECT" ]] || fail "变更必须显式指定 --confirm $MATERIALS_LAB_COMPOSE_PROJECT"; }
+run_action() { bash "$lab_script" --env "$lab_env" "$@"; }
 require_stopped() {
   local lab_id lab_state lab_ids
   lab_ids=$(dc ps --all -q api web bootstrap) || fail '无法读取目标容器状态，拒绝继续'
@@ -354,6 +359,18 @@ case "$lab_action" in
     require_clean_release_source
     write_release_manifest
     info '发布镜像构建完成；请连同发布清单经受控分发并在目标端校验后再执行部署。' ;;
+  install)
+    confirm "$@"
+    # 首次部署允许不存在密钥目录；已有目录必须保留并由后续预检校验，绝不覆盖。
+    if [[ ! -e $MATERIALS_LAB_SECRETS_DIR && ! -L $MATERIALS_LAB_SECRETS_DIR ]]; then
+      run_action secrets
+    fi
+    run_action prepare
+    run_action build
+    run_action bootstrap --confirm "$MATERIALS_LAB_COMPOSE_PROJECT"
+    run_action up --confirm "$MATERIALS_LAB_COMPOSE_PROJECT"
+    run_action check
+    info '首次部署完成：镜像、空库身份初始化和内部健康检查均已通过；仍需完成公网业务验收。' ;;
   bootstrap)
     confirm "$@"; preflight; require_images; verify_release_manifest; require_stopped
     [[ -s $MATERIALS_LAB_SECRETS_DIR/bootstrap_platform_admin_password && ! -L $MATERIALS_LAB_SECRETS_DIR/bootstrap_platform_admin_password ]] || fail '缺少初始化平台管理员密码文件'
@@ -384,6 +401,15 @@ case "$lab_action" in
     check_data
     trap - EXIT
     info '升级启动完成。失败时保持停写状态，请按备份与迁移兼容性决定恢复，不会自动回滚数据库。' ;;
+  restart)
+    confirm "$@"; preflight; require_images; verify_release_manifest; check_data
+    dc stop web api
+    run_action up --confirm "$MATERIALS_LAB_COMPOSE_PROJECT"
+    info 'API/Web 已重启并通过健康检查。' ;;
+  uninstall)
+    confirm "$@"
+    dc down --remove-orphans
+    info '本项目容器和网络已移除；PostgreSQL、RustFS、备份、发布清单、密钥和镜像均已保留。' ;;
   rollback)
     [[ $# == 4 && $2 == --schema-compatible ]] || fail '回退需要旧标签、--schema-compatible 和 --confirm 项目名'
     lab_previous=$1; shift 2; confirm "$@"
