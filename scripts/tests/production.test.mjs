@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -59,6 +60,7 @@ if (args[0] === "inspect" && args.at(-1) === "synthetic-container-id") {
 }
 if (args[0] === "inspect" && /^synthetic-(api|web|postgres|rustfs)-container$/.test(args.at(-1))) {
   const service = args.at(-1).split("-")[1];
+  if (args.includes("{{.State.Status}}")) finish(0, mode === "rustfs-running" && service === "rustfs" ? "running\\n" : "exited\\n");
   const image = service === "postgres" ? "postgres:18.4-alpine" : service === "rustfs" ? "rustfs/rustfs:v1.0.0-rc.5" : "materials-lab-" + service + ":source-release-20260801";
   const hash = { api: "a", web: "b", postgres: "c", rustfs: "d" }[service].repeat(64);
   finish(0, image + " sha256:" + hash + "\\n");
@@ -77,7 +79,7 @@ if (action === "ps") {
   }
   finish(0, ["running", "inspect-fails"].includes(mode) ? "synthetic-container-id\\n" : "");
 }
-if (action === "stop" && tail.join(" ") === "web api") {
+if (action === "stop" && (tail.join(" ") === "web api" || tail.join(" ") === "rustfs")) {
   finish(process.env.LAB_PRODUCTION_TEST_STOP_FAILURE === "true" ? 57 : 0);
 }
 if (action === "down" && tail.join(" ") === "--remove-orphans") finish();
@@ -86,7 +88,7 @@ if (action === "up" && tail.includes("api") && tail.includes("web")) {
   writeFileSync(stateFile, JSON.stringify(state));
   finish(mode === "api-up-fails" ? 42 : 0);
 }
-if (action === "up" && tail.includes("postgres") && !tail.includes("api") && !tail.includes("web")) finish();
+if (action === "up" && (tail.includes("postgres") || tail.includes("rustfs")) && !tail.includes("api") && !tail.includes("web")) finish();
 if (action === "run" && tail.at(-1) === "bootstrap") finish();
 if (action === "exec" && tail.includes("postgres")) {
   const command = tail.at(-1);
@@ -339,6 +341,16 @@ test("拒绝部署路径中的软链接和数据密钥共用目录", () => {
   const same = fixture();
   writeFileSync(same.envFile, same.content.replace(same.values.MATERIALS_LAB_SECRETS_DIR, same.values.MATERIALS_LAB_DATA_ROOT));
   deniedBeforeDocker(same, command(same, "prepare"), /不能与数据根目录相同/);
+  const nestedSecrets = fixture();
+  const nestedPath = join(nestedSecrets.values.MATERIALS_LAB_DATA_ROOT, "rustfs", "data", "secrets");
+  writeFileSync(nestedSecrets.envFile, nestedSecrets.content.replace(nestedSecrets.values.MATERIALS_LAB_SECRETS_DIR, nestedPath));
+  deniedBeforeDocker(nestedSecrets, command(nestedSecrets, "prepare"), /不能位于持久化数据根目录/);
+});
+
+test("同一项目已有运维锁时拒绝并发变更", () => {
+  const f = fixture();
+  mkdirSync(join(f.values.MATERIALS_LAB_DATA_ROOT, ".operation-lock"), { recursive: true });
+  deniedBeforeDocker(f, command(f, "prepare"), /已有本项目运维操作/);
 });
 
 test("公网 HTTP 入口只接受有效的 IP 地址与端口", () => {
@@ -663,7 +675,8 @@ test("up、upgrade、rollback 启动失败后停止写入口，并保留原退�
     assert.match(result.output, /上线失败.*停止.*写入口/);
     const actions = calls(f).map(composeAction).filter(Boolean);
     assert.deepEqual(actions.at(-1), { action: "stop", args: ["web", "api"] });
-    assert.equal(actions.filter(call => call.action === "stop").length, action === "up" ? 1 : 2);
+    assert.equal(actions.filter(call => call.action === "stop").length, action === "up" ? 1 : 3);
+    if (action !== "up") assert.ok(actions.some(call => call.action === "stop" && call.args.join(" ") === "rustfs"));
     assert.ok(!actions.some(call => ["down", "rm", "restart"].includes(call.action)));
     for (const password of passwords) assert.ok(!result.output.includes(password));
   }
@@ -749,6 +762,22 @@ test("成功备份生成完整归档和校验文件，中文日志不会误读�
   assert.match(readFileSync(join(directory, `${dump}.metadata.txt`), "utf8"), /^schema_profile=materials-lab-production-v1$/m);
 });
 
+test("备份拒绝包含软链接、硬链接或特殊文件的 RustFS 数据归档", () => {
+  for (const kind of ["symbolic", "hard"]) {
+    const f = fixture();
+    ready(f);
+    const object = join(f.values.MATERIALS_LAB_DATA_ROOT, "rustfs", "data", "fixture-object");
+    const unexpected = join(f.values.MATERIALS_LAB_DATA_ROOT, "rustfs", "data", "unexpected-link");
+    writeFileSync(object, "fixture");
+    if (kind === "symbolic") symlinkSync(join(f.directory, "outside-project-data"), unexpected);
+    else linkSync(object, unexpected);
+    const result = command(f, "backup", ["--confirm", f.values.MATERIALS_LAB_COMPOSE_PROJECT]);
+    assert.notEqual(result.status, 0, kind);
+    assert.match(result.output, /链接或特殊文件/);
+    assert.ok(!readdirSync(join(f.values.MATERIALS_LAB_DATA_ROOT, "backups")).some(name => name.endsWith(".rustfs-data.tar.gz")));
+  }
+});
+
 test("空目标恢复同时校验并还原 RustFS 数据归档", () => {
   const source = fixture();
   ready(source);
@@ -790,6 +819,24 @@ test("恢复在写入目标数据库前拒绝不兼容的恢复组架构标识",
   assert.ok(!calls(target).map(composeAction).some(call => call?.action === "up" || call?.action === "exec"), "不兼容恢复组不得写入目标数据库");
 });
 
+test("恢复要求 RustFS 已停止，未写入目标数据库", () => {
+  const source = fixture();
+  ready(source);
+  const backup = command(source, "backup", ["--confirm", source.values.MATERIALS_LAB_COMPOSE_PROJECT]);
+  assert.equal(backup.status, 0, backup.output);
+  const dump = readdirSync(join(source.values.MATERIALS_LAB_DATA_ROOT, "backups")).find(name => name.endsWith(".dump"));
+  assert.ok(dump);
+
+  const target = fixture({ MATERIALS_LAB_COMPOSE_PROJECT: "materials-lab-restore-rustfs-running" });
+  ready(target);
+  const restore = command(target, "restore-new", [
+    join(source.values.MATERIALS_LAB_DATA_ROOT, "backups", dump), "--confirm", target.values.MATERIALS_LAB_COMPOSE_PROJECT,
+  ], { LAB_PRODUCTION_TEST_DOCKER_MODE: "rustfs-running" });
+  assert.notEqual(restore.status, 0);
+  assert.match(restore.output, /RustFS 未完全停止/);
+  assert.ok(!calls(target).map(composeAction).some(call => call?.action === "exec"), "RustFS 运行时不得写入目标数据库");
+});
+
 test("升级和回退备份记录实际旧容器镜像与 Flyway 历史，不用目标标签冒充来源", () => {
   for (const action of ["upgrade", "rollback"]) {
     const f = fixture();
@@ -816,6 +863,10 @@ test("升级和回退备份记录实际旧容器镜像与 Flyway 历史，不用
     assert.ok(!metadata.includes(f.values.MATERIALS_LAB_RELEASE));
     assert.ok(!metadata.includes("rollback-target-release"));
     for (const password of passwords) assert.ok(!metadata.includes(password));
+    const actions = calls(f).map(composeAction).filter(Boolean);
+    if (action === "rollback") {
+      assert.ok(actions.some(call => call.action === "up" && call.args.at(-1) === "rustfs"), "回退备份后必须重启 RustFS");
+    }
     const sourceInspects = calls(f).filter(call => call[0] === "inspect" && call[2] === "{{.Config.Image}} {{.Image}}");
     assert.equal(sourceInspects.length, 4, "必须实际读取四个来源容器的镜像标签和镜像 ID");
   }

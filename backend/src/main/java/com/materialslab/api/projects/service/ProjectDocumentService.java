@@ -20,6 +20,8 @@ import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 /** 提供项目文档的真实数据库查询、上传和内容读取能力。 */
@@ -86,6 +88,7 @@ public class ProjectDocumentService {
         String mimeType = ProjectDocumentFilePolicy.validateAndResolveMimeType(name, content);
         String key = "organizations/" + principal.organizationId() + "/projects/" + project.id() + "/documents/" + documentId;
         String storageReference = objectStorageService.put(key, content, mimeType);
+        boolean rollbackCleanupRegistered = false;
         try {
             documentMapper.insert(new DocumentWriteCommand(documentId, principal.organizationId(), project.id(), normalizedCategory,
                     name, normalizedVersion, storageReference, mimeType, content.length, principal.userId(), now, now));
@@ -93,11 +96,25 @@ public class ProjectDocumentService {
             documentMapper.insertUploadOperationLog(UUID.randomUUID(), principal.organizationId(), principal.userId(), project.id(),
                     project.projectNo(), "上传项目文档：" + name,
                     "{\"document_id\":\"" + documentId + "\",\"category\":\"" + normalizedCategory + "\",\"test_data\":false}");
+            registerObjectCleanupOnRollback(storageReference);
+            rollbackCleanupRegistered = true;
             return response(documentMapper.findById(project.id(), documentId));
         } catch (RuntimeException error) {
-            objectStorageService.deleteBestEffort(storageReference);
+            if (!rollbackCleanupRegistered) objectStorageService.deleteBestEffort(storageReference);
             throw error;
         }
+    }
+
+    /** SQL 已执行但事务提交失败时清理由本次上传创建的对象，避免长期孤儿文件。 */
+    void registerObjectCleanupOnRollback(String storageReference) {
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status != TransactionSynchronization.STATUS_COMMITTED) {
+                    objectStorageService.deleteBestEffort(storageReference);
+                }
+            }
+        });
     }
 
     /** 读取项目文档正文；已迁移文档从 RustFS 读取，旧记录保留 BYTEA 兼容读取。 */

@@ -108,3 +108,9 @@ _本目录保存来源、历史观察和变更记录；现行规范见 docs。_
 
 [2026-09-16 生产运维命令收敛](logs/2026-09-16-production-operations-command-simplification.md)
 记录首次部署、升级、重启和卸载的单命令入口及其数据保留边界。
+
+[2026-09-17 OCR 生产运行与对象存储修复](logs/2026-09-17-ocr-production-runtime-and-object-storage-remediation.md)
+记录运维互斥、恢复组一致性、安全解包、对象桶引用与上传事务清理的修复及本地构建验证；未操作生产环境。
+
+[2026-09-17 项目文档与本地构建产物整理](logs/2026-09-17-project-documentation-and-artifact-cleanup.md)
+记录正式文档入口按开源项目惯例补齐、过时视觉 QA 与重复素材移除，以及本地可再生成产物清理；未删除部署数据或操作生产环境。

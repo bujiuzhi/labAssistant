@@ -1,6 +1,6 @@
 # 生产 Compose 部署
 
-_更新时间：2026-09-16，Asia/Shanghai。_
+_更新时间：2026-09-17，Asia/Shanghai。_
 
 ## 1. 范围与访问边界
 
@@ -119,7 +119,7 @@ docker image inspect 'rustfs/rustfs:v1.0.0-rc.5@sha256:b7014e0ce2bc703c1316b3ef7
 
 ## 5. 升级、回退与恢复
 
-每次升级使用新的发布标签，先评审变更、迁移与停写窗口，再执行上方的单命令 `upgrade`。脚本会只读检查身份、结构和发布清单，停止 API/Web 写入，对 PostgreSQL 与 RustFS 创建同一恢复组，然后启动新版本。失败时保持写入口停止；不会自动回退数据库。
+每次升级使用新的发布标签，先评审变更、迁移与停写窗口，再执行上方的单命令 `upgrade`。脚本会只读检查身份、结构和发布清单，停止 API/Web 与 RustFS，对 PostgreSQL 与 RustFS 创建同一恢复组，然后启动新版本。停止 RustFS 是为了避免直接归档其仍在写入的底层数据目录。失败时保持写入口停止；不会自动回退数据库。
 
 首版仅有 `V1__materials_lab_schema.sql`。生产发布后不得修改 V1，所有后续结构变化只能新增 V2、V3 等迁移。若新旧 schema 已经人工确认兼容，可只回退应用镜像：
 
@@ -130,7 +130,7 @@ bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" rollback <旧标签> \
 
 这不会降级数据库；不兼容迁移应恢复到新隔离环境或向前修复。
 
-手工备份会停写并在 `backups/` 生成 PostgreSQL `.dump`、RustFS `.rustfs-data.tar.gz`、两个校验文件和元数据文件；五个文件共同组成恢复组：
+手工备份会停止 API/Web 与 RustFS，并在 `backups/` 生成 PostgreSQL `.dump`、RustFS `.rustfs-data.tar.gz`、两个校验文件和元数据文件；五个文件共同组成恢复组。备份完成后服务保持停止，使用 `up --confirm` 才恢复写入：
 
 ```bash
 bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" backup --confirm materials-lab-production

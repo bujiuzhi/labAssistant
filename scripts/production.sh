@@ -105,13 +105,43 @@ validate_path "$MATERIALS_LAB_DATA_ROOT/backups"
 validate_path "$MATERIALS_LAB_DATA_ROOT/rustfs"
 [[ $MATERIALS_LAB_DATA_ROOT != "$MATERIALS_LAB_SECRETS_DIR" ]] || fail '密钥目录不能与数据根目录相同'
 case "$MATERIALS_LAB_SECRETS_DIR" in
-  "$MATERIALS_LAB_DATA_ROOT/postgres"|"$MATERIALS_LAB_DATA_ROOT/postgres/"*|"$MATERIALS_LAB_DATA_ROOT/backups"|"$MATERIALS_LAB_DATA_ROOT/backups/"*) fail '密钥目录不能位于数据库或备份目录中' ;;
+  "$MATERIALS_LAB_DATA_ROOT"/*) fail '密钥目录不能位于持久化数据根目录中，避免被数据库、RustFS 或备份读取' ;;
+esac
+case "$MATERIALS_LAB_DATA_ROOT" in
+  "$MATERIALS_LAB_SECRETS_DIR"/*) fail '持久化数据根目录不能位于密钥目录中' ;;
 esac
 
 lab_compose=(docker compose --project-directory "$lab_repo/infra" --env-file "$lab_env" -p "$MATERIALS_LAB_COMPOSE_PROJECT" -f "$lab_repo/infra/compose.production.yml")
 dc() { "${lab_compose[@]}" "$@"; }
 confirm() { [[ $# == 2 && $1 == --confirm && $2 == "$MATERIALS_LAB_COMPOSE_PROJECT" ]] || fail "变更必须显式指定 --confirm $MATERIALS_LAB_COMPOSE_PROJECT"; }
-run_action() { bash "$lab_script" --env "$lab_env" "$@"; }
+lab_operation_lock=''
+lab_operation_lock_owned=false
+release_operation_lock() {
+  [[ $lab_operation_lock_owned == true && -n $lab_operation_lock ]] || return 0
+  if ! rmdir -- "$lab_operation_lock"; then
+    printf '警告：无法释放项目运维锁：%s；请确认没有并发脚本后人工移除空目录。\n' "$lab_operation_lock" >&2
+  fi
+  lab_operation_lock_owned=false
+}
+operation_exit() {
+  local lab_status=$1
+  trap - EXIT
+  release_operation_lock
+  exit "$lab_status"
+}
+acquire_operation_lock() {
+  [[ ${LABASSISTANT_OPERATION_LOCK_HELD:-} == "$MATERIALS_LAB_COMPOSE_PROJECT" ]] && return 0
+  mkdir -p -- "$MATERIALS_LAB_DATA_ROOT"
+  lab_operation_lock="$MATERIALS_LAB_DATA_ROOT/.operation-lock"
+  mkdir -- "$lab_operation_lock" 2>/dev/null || fail "已有本项目运维操作正在执行或遗留锁：$lab_operation_lock"
+  lab_operation_lock_owned=true
+  trap 'operation_exit $?' EXIT
+}
+release_success() {
+  trap - EXIT
+  release_operation_lock
+}
+run_action() { LABASSISTANT_OPERATION_LOCK_HELD="$MATERIALS_LAB_COMPOSE_PROJECT" bash "$lab_script" --env "$lab_env" "$@"; }
 require_stopped() {
   local lab_id lab_state lab_ids
   lab_ids=$(dc ps --all -q api web bootstrap) || fail '无法读取目标容器状态，拒绝继续'
@@ -119,6 +149,13 @@ require_stopped() {
     lab_state=$(docker inspect --format '{{.State.Status}}' "$lab_id")
     [[ $lab_state == exited || $lab_state == created ]] || fail '目标 API/Web/初始化任务未完全停止；不能执行此操作'
   done
+}
+require_rustfs_stopped() {
+  local lab_id lab_state
+  lab_id=$(dc ps --all -q rustfs) || fail '无法读取 RustFS 容器状态，拒绝继续'
+  [[ -z $lab_id ]] && return 0
+  lab_state=$(docker inspect --format '{{.State.Status}}' "$lab_id")
+  [[ $lab_state == exited || $lab_state == created ]] || fail 'RustFS 未完全停止；不能备份或恢复其底层数据目录'
 }
 require_images() {
   docker image inspect "materials-lab-api:$MATERIALS_LAB_RELEASE" "materials-lab-web:$MATERIALS_LAB_RELEASE" >/dev/null || fail '目标版本镜像不齐，请先 build 或导入已验证的同标签镜像'
@@ -186,6 +223,7 @@ release_exit() {
   if ! dc stop web api; then
     printf '警告：自动停写失败，必须立即人工核对并阻断目标服务写入。\n' >&2
   fi
+  release_operation_lock
   exit "$lab_status"
 }
 check_secrets() {
@@ -259,10 +297,23 @@ check_global_username_uniqueness() {
   lab_duplicates=$(db_query "SELECT count(*) FROM (SELECT username FROM user_account GROUP BY username HAVING count(*) > 1) duplicate_usernames;")
   [[ $lab_duplicates == 0 ]] || fail '发现跨组织重复用户名；全局登录名唯一约束不允许上线，已在停写前拒绝升级。请先完成受控账号重命名'
 }
+verify_rustfs_archive() {
+  local lab_archive=$1 lab_member
+  while IFS= read -r lab_member; do
+    [[ $lab_member == rustfs/data || $lab_member == rustfs/data/* ]] || fail 'RustFS 数据归档包含恢复目录之外的成员'
+    [[ $lab_member != ../* && $lab_member != ./* && $lab_member != *'/../'* && $lab_member != *'/./'* && $lab_member != *'//' && $lab_member != */.. && $lab_member != */. ]] \
+      || fail 'RustFS 数据归档包含不安全路径，拒绝恢复'
+  done < <(tar -tzf "$lab_archive")
+  # 仅允许目录与普通文件，拒绝软/硬链接、设备和 FIFO，避免解包改变项目目录边界。
+  tar -tvzf "$lab_archive" | awk 'substr($0, 1, 1) != "-" && substr($0, 1, 1) != "d" { exit 1 }' \
+    || fail 'RustFS 数据归档包含链接或特殊文件，拒绝恢复'
+}
 backup() {
   local lab_schema_profile=materials-lab-production-v1 lab_base lab_backup lab_storage_backup lab_metadata lab_digest lab_service lab_container
-  # 数据库元数据与对象文件只有在 API/Web 都停止时才构成同一恢复点。
+  # 数据库元数据与对象文件只有在 API/Web/RustFS 都停止时才构成同一恢复点。
   require_stopped
+  dc stop rustfs
+  require_rustfs_stopped
   check_data
   lab_base="$MATERIALS_LAB_DATA_ROOT/backups/$(TZ=Asia/Shanghai date +%Y%m%d-%H%M%S)-$$"
   lab_backup="$lab_base.dump"
@@ -289,7 +340,7 @@ backup() {
   dc exec -T postgres sh -ec 'exec pg_dump -U postgres -d "$MATERIALS_LAB_DB_NAME" --format=custom --no-owner --no-acl' > "$lab_backup.partial"
   dc exec -T postgres pg_restore --list < "$lab_backup.partial" >/dev/null
   tar -C "$MATERIALS_LAB_DATA_ROOT" -czf "$lab_storage_backup.partial" rustfs/data
-  tar -tzf "$lab_storage_backup.partial" >/dev/null
+  verify_rustfs_archive "$lab_storage_backup.partial"
   mv -- "$lab_backup.partial" "$lab_backup"
   mv -- "$lab_storage_backup.partial" "$lab_storage_backup"
   if command -v sha256sum >/dev/null; then
@@ -307,6 +358,11 @@ backup() {
   mv -- "$lab_metadata.partial" "$lab_metadata"
   info "恢复组备份完成：${lab_backup} 与 ${lab_storage_backup}（Asia/Shanghai；尚需隔离恢复验证）"
 }
+
+case "$lab_action" in
+  secrets|prepare|build|install|bootstrap|up|upgrade|restart|uninstall|rollback|backup|restore-new)
+    acquire_operation_lock ;;
+esac
 
 case "$lab_action" in
   secrets)
@@ -387,7 +443,7 @@ case "$lab_action" in
     trap 'release_exit $?' EXIT
     dc up -d --no-build --wait --wait-timeout 180 api web
     check_data
-    trap - EXIT
+    release_success
     info '容器与健康检查通过；仍需通过公网 HTTP 地址完成登录和业务验收。' ;;
   upgrade)
     confirm "$@"; preflight; require_images; verify_release_manifest
@@ -400,12 +456,14 @@ case "$lab_action" in
     backup
     dc up -d --no-build --wait --wait-timeout 180 api web
     check_data
-    trap - EXIT
+    release_success
     info '升级启动完成。失败时保持停写状态，请按备份与迁移兼容性决定恢复，不会自动回滚数据库。' ;;
   restart)
     confirm "$@"; preflight; require_images; verify_release_manifest; check_data
+    trap 'release_exit $?' EXIT
     dc stop web api
     run_action up --confirm "$MATERIALS_LAB_COMPOSE_PROJECT"
+    release_success
     info 'API/Web 已重启并通过健康检查。' ;;
   uninstall)
     confirm "$@"
@@ -423,9 +481,11 @@ case "$lab_action" in
     trap 'release_exit $?' EXIT
     dc stop web api
     backup
+    # backup 为一致性停止 RustFS；回退仍需显式恢复对象存储，不能用 --no-deps 遗漏它。
+    dc up -d --no-build --wait --wait-timeout 180 rustfs
     dc up -d --no-build --no-deps --wait --wait-timeout 180 api web
     check_data
-    trap - EXIT
+    release_success
     info '已回退应用镜像，数据库未降级；请同步受控配置中的发布标签并重新验收。' ;;
   status)
     [[ $# == 0 ]] || fail 'status 不接受额外参数'
@@ -441,7 +501,7 @@ case "$lab_action" in
     trap 'release_exit $?' EXIT
     dc stop web api
     backup
-    trap - EXIT
+    release_success
     info '恢复组已生成，API/Web 保持停止；请完成异机副本或执行 up --confirm 项目名后再恢复写入。' ;;
   restore-new)
     [[ $# == 3 ]] || fail 'restore-new 需要备份绝对路径和 --confirm 项目名'
@@ -456,14 +516,15 @@ case "$lab_action" in
     [[ ${lab_digest%% *} == "$(< "$lab_archive.sha256")" ]] || fail '备份校验值不匹配'
     if command -v sha256sum >/dev/null; then lab_digest=$(sha256sum "$lab_storage_archive"); else lab_digest=$(shasum -a 256 "$lab_storage_archive"); fi
     [[ ${lab_digest%% *} == "$(< "$lab_storage_archive.sha256")" ]] || fail 'RustFS 数据归档校验值不匹配'
-    preflight; require_stopped
+    preflight; require_stopped; require_rustfs_stopped
     lab_storage_directory="$MATERIALS_LAB_DATA_ROOT/rustfs/data"
     [[ ! -L $lab_storage_directory ]] || fail '目标 RustFS 数据目录不能是软链接'
     if [[ -e $lab_storage_directory ]]; then
       [[ -d $lab_storage_directory && -z $(find "$lab_storage_directory" -mindepth 1 -maxdepth 1 -print -quit) ]] || fail '目标 RustFS 数据目录非空，拒绝覆盖'
     fi
     lab_restore_stage=$(mktemp -d "$MATERIALS_LAB_DATA_ROOT/.materials-lab-rustfs-restore.XXXXXXXX") || fail '无法创建 RustFS 恢复暂存目录'
-    tar -C "$lab_restore_stage" -xzf "$lab_storage_archive"
+    verify_rustfs_archive "$lab_storage_archive"
+    tar --no-same-owner --no-same-permissions -C "$lab_restore_stage" -xzf "$lab_storage_archive"
     [[ -d $lab_restore_stage/rustfs/data && -z $(find "$lab_restore_stage" -mindepth 1 -maxdepth 1 ! -name rustfs -print -quit) ]] || fail "RustFS 数据归档结构无效；暂存目录保留：$lab_restore_stage"
     db_start
     lab_tables=$(db_query "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE left(n.nspname,3) <> 'pg_' AND n.nspname <> 'information_schema' AND c.relkind IN ('r','p','v','m','S','f');")

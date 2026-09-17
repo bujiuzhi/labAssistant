@@ -2,7 +2,6 @@ package com.materialslab.api.common.storage;
 
 import com.materialslab.api.common.exception.BusinessException;
 import java.io.InputStream;
-import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -30,7 +29,6 @@ public class ObjectStorageService {
 
     private final ObjectStorageProperties properties;
     private final ObjectProvider<S3Client> clientProvider;
-    private final AtomicBoolean bucketReady = new AtomicBoolean(false);
 
     public ObjectStorageService(ObjectStorageProperties properties, ObjectProvider<S3Client> clientProvider) {
         this.properties = properties;
@@ -81,10 +79,10 @@ public class ObjectStorageService {
 
     /** 读取私有对象正文；授权校验必须由调用方在本方法前完成。 */
     public byte[] read(String reference) {
-        String key = key(reference);
+        ObjectReference objectReference = objectReference(reference);
         try {
             ResponseBytes<GetObjectResponse> result = client().getObjectAsBytes(
-                    GetObjectRequest.builder().bucket(properties.bucketName()).key(key).build());
+                    GetObjectRequest.builder().bucket(objectReference.bucket()).key(objectReference.key()).build());
             return result.asByteArray();
         } catch (NoSuchKeyException error) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "object_content_not_found", "文件正文不存在");
@@ -92,9 +90,9 @@ public class ObjectStorageService {
             if (error.statusCode() == 404) {
                 throw new BusinessException(HttpStatus.NOT_FOUND, "object_content_not_found", "文件正文不存在");
             }
-            throw failure("读取", key, error);
+            throw failure("读取", objectReference, error);
         } catch (SdkClientException error) {
-            throw failure("读取", key, error);
+            throw failure("读取", objectReference, error);
         }
     }
 
@@ -105,10 +103,10 @@ public class ObjectStorageService {
      * @return 可顺序读取的对象正文流
      */
     public InputStream open(String reference) {
-        String key = key(reference);
+        ObjectReference objectReference = objectReference(reference);
         try {
             ResponseInputStream<GetObjectResponse> result = client().getObject(
-                    GetObjectRequest.builder().bucket(properties.bucketName()).key(key).build());
+                    GetObjectRequest.builder().bucket(objectReference.bucket()).key(objectReference.key()).build());
             return result;
         } catch (NoSuchKeyException error) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "object_content_not_found", "文件正文不存在");
@@ -116,32 +114,38 @@ public class ObjectStorageService {
             if (error.statusCode() == 404) {
                 throw new BusinessException(HttpStatus.NOT_FOUND, "object_content_not_found", "文件正文不存在");
             }
-            throw failure("读取", key, error);
+            throw failure("读取", objectReference, error);
         } catch (SdkClientException error) {
-            throw failure("读取", key, error);
+            throw failure("读取", objectReference, error);
         }
     }
 
     /** 尽力删除对象；调用方应在数据库提交后调用以避免正文先于元数据丢失。 */
     public void deleteBestEffort(String reference) {
         if (!isObjectReference(reference)) return;
-        String key = key(reference);
+        ObjectReference objectReference = objectReference(reference);
         try {
-            client().deleteObject(DeleteObjectRequest.builder().bucket(properties.bucketName()).key(key).build());
+            client().deleteObject(DeleteObjectRequest.builder().bucket(objectReference.bucket()).key(objectReference.key()).build());
         } catch (S3Exception | SdkClientException error) {
-            LOGGER.error("RustFS 对象删除失败，bucket={}, key={}", properties.bucketName(), key, error);
+            LOGGER.error("RustFS 对象删除失败，bucket={}, key={}", objectReference.bucket(), objectReference.key(), error);
         }
     }
 
-    /** 供旧 BYTEA 记录兼容判断；新写入必须使用此类生成的 S3 标识。 */
+    /** 供旧 BYTEA 记录兼容判断；读取历史对象时保留其持久化桶名，避免恢复后改配置造成误判。 */
     public boolean isObjectReference(String reference) {
-        return reference != null && reference.startsWith(REFERENCE_PREFIX + properties.bucketName() + "/");
+        return parseReference(reference) != null;
     }
 
     private void ensureBucket() {
-        if (bucketReady.get()) return;
-        synchronized (bucketReady) {
-            if (bucketReady.get()) return;
+        try {
+            client().headBucket(HeadBucketRequest.builder().bucket(properties.bucketName()).build());
+            return;
+        } catch (S3Exception error) {
+            if (error.statusCode() != 404) throw failure("检查桶", properties.bucketName(), error);
+        } catch (SdkClientException error) {
+            throw failure("检查桶", properties.bucketName(), error);
+        }
+        synchronized (this) {
             try {
                 client().headBucket(HeadBucketRequest.builder().bucket(properties.bucketName()).build());
             } catch (S3Exception error) {
@@ -154,7 +158,6 @@ public class ObjectStorageService {
             } catch (SdkClientException error) {
                 throw failure("检查桶", properties.bucketName(), error);
             }
-            bucketReady.set(true);
         }
     }
 
@@ -170,15 +173,34 @@ public class ObjectStorageService {
         return REFERENCE_PREFIX + properties.bucketName() + "/" + key;
     }
 
-    private String key(String reference) {
-        if (!isObjectReference(reference)) {
+    private ObjectReference objectReference(String reference) {
+        ObjectReference objectReference = parseReference(reference);
+        if (objectReference == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "object_content_not_found", "文件正文不存在");
         }
-        return reference.substring((REFERENCE_PREFIX + properties.bucketName() + "/").length());
+        return objectReference;
     }
+
+    private ObjectReference parseReference(String reference) {
+        if (reference == null || !reference.startsWith(REFERENCE_PREFIX)) return null;
+        int separator = reference.indexOf('/', REFERENCE_PREFIX.length());
+        if (separator <= REFERENCE_PREFIX.length() || separator == reference.length() - 1) return null;
+        String bucket = reference.substring(REFERENCE_PREFIX.length(), separator);
+        String key = reference.substring(separator + 1);
+        if (!bucket.matches("[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]") || bucket.contains("..")
+                || !key.startsWith("organizations/") || key.contains("\u0000")) return null;
+        return new ObjectReference(bucket, key);
+    }
+
+    private record ObjectReference(String bucket, String key) { }
 
     private BusinessException failure(String action, String key, RuntimeException error) {
         LOGGER.warn("RustFS 对象{}失败，bucket={}, key={}", action, properties.bucketName(), key, error);
+        return new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, "object_storage_unavailable", "对象存储暂时不可用，请稍后重试");
+    }
+
+    private BusinessException failure(String action, ObjectReference reference, RuntimeException error) {
+        LOGGER.warn("RustFS 对象{}失败，bucket={}, key={}", action, reference.bucket(), reference.key(), error);
         return new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, "object_storage_unavailable", "对象存储暂时不可用，请稍后重试");
     }
 }

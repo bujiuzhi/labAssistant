@@ -9,8 +9,8 @@ _描述当前代码可证明的产品范围与架构；运行验收记录独立�
 材料实验助手是面向材料研发团队的独立 Web 系统。组织承担数据隔离，项目组织研发协作，
 实验与 ELN 记录计划、过程和结果。技术实现为 Vue 前端和 Java API；当前仓库不包含桌面客户端或外部单点登录实现。
 
-本文与[详细设计](detailed-design.md)、[运维指南](development-operations-guide.md)共同维护现行规范，
-代码核验基线和本次验证见[文档重写记录](../audit/logs/2026-09-07-documentation-rewrite.md)。
+本文与[详细设计](detailed-design.md)、[运维指南](development-operations-guide.md)共同维护现行规范；
+历史核验记录仅用于追溯，当前验证范围以本次实际执行结果为准。
 
 ## 📋 能力范围
 
