@@ -102,8 +102,6 @@ export interface OrganizationUserOption {
   id: string;
   username: string;
   display_name: string;
-  organization_id: string;
-  organization_name: string;
 }
 
 export type ManagedUserStatus = "active" | "locked" | "disabled";

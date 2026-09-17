@@ -87,7 +87,7 @@ const memberOptions = computed(() =>
     const keyword = memberSearch.value.trim().toLowerCase();
     return (
       !keyword ||
-      `${user.display_name} ${user.username} ${user.organization_name}`
+      `${user.display_name} ${user.username}`
         .toLowerCase()
         .includes(keyword)
     );
@@ -231,7 +231,7 @@ function handleOwnerChange(ownerId: string): void {
 }
 
 /**
- * 按姓名、账号或组织筛选项目成员候选项
+ * 按姓名或账号筛选当前组织内的项目成员候选项
  *
  * @param keyword 下拉框内输入的筛选关键字
  */
@@ -632,11 +632,11 @@ onBeforeUnmount(() => {
                   <el-option
                     v-for="user in userOptions"
                     :key="user.id"
-                    :label="`${user.display_name} · ${user.organization_name}`"
+                    :label="`${user.display_name}（${user.username}）`"
                     :value="user.id"
                   >
                     <span>{{ user.display_name }}</span>
-                    <small>{{ user.organization_name }}</small>
+                    <small>{{ user.username }}</small>
                   </el-option>
                 </el-select>
               </label>
@@ -680,7 +680,7 @@ onBeforeUnmount(() => {
                 collapse-tags-tooltip
                 :reserve-keyword="false"
                 :max-collapse-tags="2"
-                placeholder="输入姓名、账号或组织筛选"
+                placeholder="输入姓名或账号筛选"
                 no-data-text="暂无其他可选成员"
                 no-match-text="没有匹配成员"
                 :filter-method="filterMemberOptions"
@@ -696,7 +696,7 @@ onBeforeUnmount(() => {
                     <i>{{ user.display_name.slice(0, 1) }}</i>
                     <span class="member-option-copy">
                       <strong>{{ user.display_name }}</strong>
-                      <small>{{ user.username }} · {{ user.organization_name }}</small>
+                      <small>{{ user.username }}</small>
                     </span>
                   </span>
                 </el-option>
