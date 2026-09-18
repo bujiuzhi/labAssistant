@@ -33,6 +33,8 @@ lab_script=$lab_repo/scripts/production.sh
 if [[ ${1:-} == --help || ${1:-} == -h ]]; then usage; exit 0; fi
 [[ ${HOME:-} == /* && -d $HOME ]] || fail '当前执行用户 HOME 必须是已有绝对目录'
 lab_home=$(cd -- "$HOME" && pwd -P)
+lab_work=$lab_home/work
+[[ ! -d $lab_work ]] || lab_work=$(cd -- "$lab_work" && pwd -P)
 [[ ${1:-} == --env && $# -ge 3 ]] || { usage; exit 1; }
 lab_env=$2
 shift 2
@@ -81,7 +83,7 @@ validate_path() {
   local lab_path=$1 lab_cursor
   [[ $lab_path == /* && $lab_path != *'//'* && $lab_path != *'/../'* && $lab_path != */.. && $lab_path != *'/./'* && $lab_path != */. ]] || fail "目录不是规范绝对路径：$lab_path"
   case "$lab_path" in
-    "$lab_home/work/data/labAssistant"|"$lab_home/work/data/labAssistant/"*|"$lab_home/work/server/labAssistant/data"|"$lab_home/work/server/labAssistant/data/"*|"$lab_repo/data"|"$lab_repo/data/"*) ;;
+    "$lab_work/data/labAssistant"|"$lab_work/data/labAssistant/"*|"$lab_work/server/labAssistant/data"|"$lab_work/server/labAssistant/data/"*|"$lab_repo/data"|"$lab_repo/data/"*) ;;
     *) fail '目录必须位于 ~/work/data/labAssistant 或项目部署目录 data/（公网服务器为 ~/work/server/labAssistant/data）' ;;
   esac
   lab_cursor=$lab_path
@@ -93,7 +95,7 @@ validate_path() {
 validate_data_root() {
   local lab_path=$1
   case "$lab_path" in
-    "$lab_home/work/data/labAssistant"|"$lab_home/work/data/labAssistant/"*) ;;
+    "$lab_work/data/labAssistant"|"$lab_work/data/labAssistant/"*) ;;
     *) fail '持久化数据目录必须位于 ~/work/data/labAssistant' ;;
   esac
   validate_path "$lab_path"

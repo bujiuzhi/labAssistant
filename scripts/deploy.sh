@@ -72,9 +72,12 @@ if [[ $lab_host != auto ]]; then
   IFS=. read -r -a lab_octets <<< "$lab_host"
   for lab_octet in "${lab_octets[@]}"; do [[ $((10#$lab_octet)) -le 255 ]] || fail 'PUBLIC_HOST 不是有效 IPv4'; done
 fi
-lab_data=$lab_home/work/data/labAssistant
-lab_secrets=$lab_home/work/server/labAssistant/data/production-secrets
-lab_state=$lab_home/work/server/labAssistant/data/deployment
+# 工作区入口可由运维环境映射（例如 ~/work -> /data/work）；先解析为物理路径，
+# 后续仍逐级拒绝项目数据、密钥和状态目录中的软链接。
+lab_work=$(cd -- "$lab_home/work" && pwd -P) || fail '工作区目录不存在或无法解析'
+lab_data=$lab_work/data/labAssistant
+lab_secrets=$lab_work/server/labAssistant/data/production-secrets
+lab_state=$lab_work/server/labAssistant/data/deployment
 lab_active=$lab_state/active.env
 lab_incomplete=$lab_state/incomplete.env
 # 写入前逐级排除软链接；只有当前用户的项目专属目录可以存放状态。

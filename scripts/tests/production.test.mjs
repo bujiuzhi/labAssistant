@@ -974,8 +974,9 @@ test("隔离生产验收由 Docker 分配并回读 HTTP 端口", () => {
 });
 
 /** 简化入口仍调用真实 production.sh，Git/Docker 保持不可透传的替身。 */
-function simpleFixture() {
+function simpleFixture(createWork = true) {
   const f = fixture();
+  if (createWork) mkdirSync(join(f.directory, 'work'));
   writeFileSync(f.envFile, 'APP_PORT=13501\nADMIN_USERNAME=admin\nADMIN_DISPLAY_NAME=平台管理员\n');
   f.active = join(f.directory, 'work/server/labAssistant/data/deployment/active.env');
   f.incomplete = join(f.directory, 'work/server/labAssistant/data/deployment/incomplete.env');
@@ -1015,6 +1016,18 @@ test('简化部署三项配置自动生成目录版本，安装拉取依赖并�
   assert.equal(existsSync(f.incomplete), false);
   assert.equal(existsSync(join(f.directory, 'work/data/labAssistant/.operation-lock')), false);
   assert.equal(simple(f, 'install').status, 1, '再次 install 必须拒绝');
+});
+
+test('简化入口允许工作区入口软链接，但使用其物理目录保存项目部署状态', () => {
+  const f = simpleFixture(false);
+  const physicalWork = join(f.directory, 'physical-work');
+  mkdirSync(physicalWork);
+  symlinkSync(physicalWork, join(f.directory, 'work'));
+  const result = simple(f, 'install', buildEnvironment);
+  assert.equal(result.status, 0, result.output);
+  const active = readFileSync(f.active, 'utf8');
+  assert.ok(active.includes(`MATERIALS_LAB_DATA_ROOT=${physicalWork}/data/labAssistant`));
+  assert.equal(existsSync(join(physicalWork, 'server/labAssistant/data/deployment/active.env')), true);
 });
 
 test('修改源代码提交或端口后，restart 仍使用已部署版本', () => {
