@@ -1,6 +1,8 @@
 # 生产 Compose 部署
 
-_更新时间：2026-09-17，Asia/Shanghai。_
+[English](production-deployment.en.md) | [简体中文](production-deployment.md)
+
+_更新时间：2026-09-18，Asia/Shanghai。_
 
 ## 1. 范围与访问边界
 

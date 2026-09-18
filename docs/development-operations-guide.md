@@ -1,5 +1,7 @@
 # 开发、部署与运维指南
 
+[English](development-operations-guide.en.md) | [简体中文](development-operations-guide.md)
+
 _适用于当前仓库；开发复现与生产准备分别说明，目标服务器参数以实际确认结果为准。_
 
 ---

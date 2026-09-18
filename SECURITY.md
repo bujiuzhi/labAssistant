@@ -1,22 +1,30 @@
-# 安全策略
+# Security Policy
 
-## 支持范围
+[English](SECURITY.md) | [简体中文](SECURITY.zh-CN.md)
 
-当前仓库尚未发布独立的长期维护版本线。安全修复以维护中的当前代码为准；部署方应在升级前完成备份、审查和隔离验证。
+## Supported scope
 
-## 报告漏洞
+There is no separately supported long-term release line yet. Security fixes target the maintained current code. Deployers must review changes, create a recovery point through the documented release process, and validate in an isolated environment before production rollout.
 
-请不要在公开 Issue、提交信息、截图或日志中披露漏洞利用细节、真实凭据、会话标识、业务数据或可访问地址。
+## Reporting a vulnerability
 
-本仓库当前未公布独立的安全报告邮箱或响应时限。请通过与仓库维护者已约定的私下沟通渠道报告，并尽量提供：
+Do **not** disclose exploit details, credentials, session identifiers, business data, accessible production addresses, screenshots containing sensitive data, or proof-of-concept code in public issues, pull requests, commits, or logs.
 
-- 受影响的提交号、版本或部署方式；
-- 可最小化复现的步骤和前置条件；
-- 影响范围与可能的缓解方式；
-- 不包含真实密钥或业务数据的日志、请求或截图。
+This repository does not publish a dedicated security email or response SLA. Use an agreed private channel with the maintainers and include:
 
-维护者收到报告后应先确认影响与修复范围，再协调修复、验证和披露时间。未修复前不要公开漏洞细节。
+- affected commit, release tag, or deployment path;
+- minimal reproducible steps and preconditions;
+- impact and suggested mitigation;
+- sanitized logs, requests, or screenshots only.
 
-## 部署方责任
+Maintainers should confirm scope, coordinate a fix and validation, then agree on disclosure timing. Do not publish details before a fix or mitigation is available.
 
-生产环境必须使用独立强密钥、项目隔离的数据目录和最小网络暴露。当前公开入口为部署方选择的 HTTP `IP:15105`，该模式不提供传输层加密；应限制可信来源访问，并接受由此带来的明文传输风险。详见[生产 Compose 部署指南](docs/production-deployment.md)。
+## Deployment responsibilities
+
+- Use unique, strong secrets and project-isolated data directories.
+- Keep PostgreSQL, RustFS, and the API off host-published ports.
+- Restrict access to the documented Web entry point.
+- Treat the selected `HTTP IP:15105` profile as unencrypted transport; it is only appropriate for trusted, limited-access users who accept that risk.
+- Back up PostgreSQL and RustFS as one recovery unit before a release or other planned high-risk operation; test restores in a separate empty environment.
+
+See the [production deployment guide](docs/production-deployment.en.md) for current operational constraints.

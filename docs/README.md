@@ -1,38 +1,41 @@
-# 文档索引
+# Documentation
 
-本目录保留当前有效的设计与运维文档。项目入口是根目录 [README](../README.md)；历史来源、决策过程和验证证据位于 [audit/](../audit/README.md)，不能代替当前行为说明。
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-## 文档地图
+This directory contains the current design and operations documentation for Materials Lab Assistant. The project entry point is the [README](../README.md). Historical decisions and verification records are kept separately in [audit/](../audit/README.md); they do not define current behavior.
 
-| 文档 | 说明 | 读者 |
-| --- | --- | --- |
-| [概要设计](overview-design.md) | 产品范围、角色、架构、能力边界与验收范围 | 产品、研发、交接负责人 |
-| [详细设计](detailed-design.md) | 数据、接口、授权范围、状态、页面语义与限制 | 开发、测试、评审人员 |
-| [生产 Compose 部署](production-deployment.md) | 生产配置、首次部署、升级、备份、恢复与回退 | 运维、发布人员 |
-| [开发与运维指南](development-operations-guide.md) | 开发环境、配置、验证、迁移与运维边界 | 开发、运维人员 |
-| [贡献指南](../CONTRIBUTING.md) | 本地准备、质量检查和 Pull Request 要求 | 贡献者、评审人员 |
-| [安全策略](../SECURITY.md) | 当前支持范围与私下报告原则 | 使用者、维护者 |
+## Document map
 
-模块导航见 [backend/README](../backend/README.md) 与 [frontend/README](../frontend/README.md)。
+| Topic | English | 中文 | Primary readers |
+| --- | --- | --- | --- |
+| Product and architecture | [System overview](overview-design.en.md) | [系统概要设计](overview-design.md) | Product, engineering, handover owners |
+| Data, API, and authorization | [Detailed design](detailed-design.en.md) | [详细设计](detailed-design.md) | Engineering, QA, reviewers |
+| Server deployment and recovery | [Production deployment](production-deployment.en.md) | [生产 Compose 部署](production-deployment.md) | Operators, release owners |
+| Development and operations | [Development and operations](development-operations-guide.en.md) | [开发与运维指南](development-operations-guide.md) | Developers, operators |
+| HTTP contract | [OpenAPI](../contracts/openapi.yaml) | [OpenAPI](../contracts/openapi.yaml) | API consumers |
+| Contribution process | [Contributing](../CONTRIBUTING.md) | [贡献指南](../CONTRIBUTING.zh-CN.md) | Contributors |
+| Security reporting | [Security](../SECURITY.md) | [安全策略](../SECURITY.zh-CN.md) | Maintainers and reporters |
 
-## 事实来源
+The English and Chinese files describe the same supported release boundary. If a translation becomes inconsistent, source code, migrations, Compose configuration, and the OpenAPI contract take precedence until the documentation is corrected.
 
-| 内容 | 权威来源 |
+## Sources of truth
+
+| Subject | Source of truth |
 | --- | --- |
-| HTTP 契约 | [OpenAPI](../contracts/openapi.yaml) 与 Controller/Service 实现 |
-| 数据结构与迁移顺序 | [Flyway 迁移](../backend/src/main/resources/db/migration/) |
-| 运行配置 | Compose、应用 Profile 和 `.env` 模板 |
-| 依赖版本 | Maven、`package.json` 与锁文件 |
-| 历史证据 | [audit/](../audit/README.md) |
+| HTTP behavior | [OpenAPI](../contracts/openapi.yaml), controllers, and services |
+| Database structure and migration order | [Flyway migrations](../backend/src/main/resources/db/migration/) |
+| Runtime configuration | Compose files, application profiles, and environment templates |
+| Dependency versions | `pom.xml`, `package.json`, and lock files |
+| Historical evidence | [audit/](../audit/README.md) |
 
-文档不得替代代码、迁移或配置作为事实来源。未实现、待验证和历史行为必须明确标注。
+Do not treat documentation as evidence that an unexecuted deployment, migration, login, upload, or recovery has succeeded.
 
-## 维护规则
+## Documentation maintenance
 
-- 功能范围或角色调整：更新概要设计。
-- 接口、数据、授权或状态调整：同步更新详细设计与 OpenAPI。
-- 部署、环境变量、网络、备份或恢复调整：同步更新生产部署文档与运维指南。
-- 影响安全、兼容、数据或发布的重要变更：在 `audit/logs/` 记录决策、影响、验证和恢复要点，不记录凭据或业务正文。
-- 已执行的 Flyway 迁移不可修改；仅新增版本。
+- Product scope or role changes: update the system overview.
+- API, data, authorization, or lifecycle changes: update the detailed design and OpenAPI contract.
+- Deployment, environment, networking, backup, or recovery changes: update both operations guides.
+- Security, compatibility, data, and release-sensitive changes: add an `audit/logs/` record without credentials or business content.
+- Never rewrite an executed Flyway migration; add a new migration instead.
 
-交付前核对链接、标题层级、命令、配置名和契约引用。文档检查不替代实际运行验收。
+Before publishing, validate links, headings, commands, configuration keys, and contract references. Documentation review does not replace runtime acceptance.

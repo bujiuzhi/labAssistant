@@ -1,29 +1,35 @@
-# 贡献指南
+# Contributing
 
-感谢参与材料实验助手的改进。提交前请先确认变更范围、兼容性影响和可验证的完成条件；涉及数据结构、权限、文件存储或生产运维时，优先发起讨论并说明迁移与恢复方案。
+[English](CONTRIBUTING.md) | [简体中文](CONTRIBUTING.zh-CN.md)
 
-## 本地准备
+Thank you for improving Materials Lab Assistant. Keep each contribution focused, state its compatibility impact, and provide evidence appropriate to the risk.
 
-按根目录 [README](README.md#快速开始开发) 配置开发环境。开发 Compose 会初始化开发数据，禁止指向生产数据库、生产对象存储或生产数据目录。
+## Before you start
+
+- Read the [documentation index](docs/README.md), [security policy](SECURITY.md), and applicable design documents.
+- Discuss changes affecting authorization, tenancy, data storage, migrations, deployment, or recovery before implementation.
+- Do not use development Compose, fixtures, or local configuration against production databases, RustFS instances, credentials, or data directories.
+
+## Local setup
 
 ```bash
 pnpm --dir frontend install --frozen-lockfile
 docker compose --env-file .env -f infra/docker-compose.yml config --quiet
 ```
 
-后端直接执行 Maven 时需要 JDK 25；前端依赖使用 `frontend/package.json` 指定的 pnpm 版本与锁文件。
+Host Maven requires JDK 25. Use the pnpm version locked by `frontend/package.json` and `frontend/pnpm-lock.yaml`.
 
-## 提交要求
+## Change requirements
 
-- 一个变更只解决一个清晰的问题，避免混入格式化、依赖升级或无关重构。
-- 不提交 `.env`、密钥、生产连接信息、构建产物、依赖目录、业务数据或日志中的敏感内容。
-- 结构变更仅通过 Flyway 新增迁移；不得改写已经执行的迁移。
-- 变更接口、数据、授权、配置或部署行为时，同步更新 [docs/](docs/README.md)、OpenAPI、配置模板或审计记录。
-- 使用项目既有提交前缀，例如 `feat:`、`fix:`、`docs:`、`test:`、`refactor:` 或 `chore:`，摘要使用中文并准确描述影响。
+- Do not commit `.env` files, credentials, production connection details, generated artifacts, dependencies, business data, or sensitive logs.
+- Add schema changes only through a new Flyway migration. Never rewrite a migration that may already have run.
+- Update the matching design document, OpenAPI contract, configuration template, and/or audit record when behavior changes.
+- Use existing commit prefixes such as `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, or `chore:`. Keep the Chinese subject concise and accurate.
+- Add behavior-focused tests for new or changed authorization, persistence, lifecycle, or UI behavior. Do not weaken existing checks to make a change pass.
 
-## 本地检查
+## Verification
 
-按变更范围执行必要检查：
+Run the checks that apply to the changed area:
 
 ```bash
 mvn -f backend/pom.xml verify
@@ -33,15 +39,17 @@ node --test scripts/tests/production.test.mjs
 git diff --check
 ```
 
-不适用或未执行的检查应在 Pull Request 中说明原因。通过构建或单元测试不等同于生产部署、权限隔离、文件上传或恢复验收。
+Explain any check that is not applicable or could not be run. Build and unit-test success do not prove production authorization, file upload, network, or recovery acceptance.
 
-## Pull Request
+## Pull requests
 
-请在描述中包含：
+Use `dev` for day-to-day integration. `main` is the release branch. Do not target `main` directly for ordinary development.
 
-- 变更目的与范围；
-- 受影响的接口、配置、数据库迁移或用户行为；
-- 已执行的检查及结果；
-- 部署、升级、回退、数据迁移或安全影响（如有）。
+Include in every pull request:
 
-维护者在合并前可能要求补充测试、文档、兼容性说明或隔离环境验证。
+- purpose and scope;
+- affected API, configuration, migration, authorization, or user behavior;
+- verification commands and results;
+- deployment, rollback, data-migration, or security impact where applicable.
+
+Maintainers may request a narrower diff, tests, documentation, compatibility notes, or isolated-environment validation before merging.

@@ -44,8 +44,8 @@ mvn -f backend/pom.xml verify
 项目文档与实验附件的新二进制正文保存在 RustFS；PostgreSQL 保存元数据、对象标识和历史 BYTEA 兼容正文。Redis 与 LibreOffice 未接入。
 `/health/live` 验证进程；`/health/ready` 需全部启动任务完成、应用接受流量且数据库连接有效，
 不代替身份、权限、正文完整性和业务验收。
-正常 `prod` API 不自动创建身份；首次真实组织、角色、权限和管理员（同时为平台管理员）通过
-[生产 Compose](../docs/production-deployment.md)的 `bootstrap` 任务显式初始化，拒绝非空库和重复建账。
+正常 `prod` API 不自动创建身份；首次生产初始化仅创建内部平台组织、平台管理员和全局权限字典。业务组织、内置角色及其首个组织超级管理员由平台管理员开通组织时原子创建。初始化通过
+[生产 Compose](../docs/production-deployment.md)的 `bootstrap` 任务显式执行，拒绝非空库和重复建账。
 `dev` 不是只在空库运行初始化；`prod/dev` 混合 Profile 会在数据库连接前拒绝。
 全部 Profile 使用 25 MiB 文件/27 MiB 请求限额；prod 默认启用 Secure Cookie 及 Asia/Shanghai 数据库连接会话时区。当前生产 Compose 因明确授权的 HTTP IP:15105 入口将 Cookie 覆盖为非 Secure，风险见生产部署指南。
 

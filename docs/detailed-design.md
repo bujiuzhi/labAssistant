@@ -1,5 +1,7 @@
 # 材料实验助手详细设计
 
+[English](detailed-design.en.md) | [简体中文](detailed-design.md)
+
 _描述当前 Java/Vue 实现及兼容性边界；结构与行为以链接的源码和迁移为依据。_
 
 ---

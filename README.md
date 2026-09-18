@@ -1,141 +1,132 @@
-# 材料实验助手
+# Materials Lab Assistant
 
-材料研发团队使用的多租户 Web 应用，提供组织开通、项目协作、电子实验记录本（ELN）及受控文件管理能力。
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-## 功能
+Materials Lab Assistant is a multi-tenant web application for material R&D teams. It combines organization administration, project collaboration, electronic laboratory notebooks (ELN), and controlled document storage in one self-hosted deployment.
 
-- **多租户与 RBAC**：平台管理员开通组织；组织管理员在本组织内管理成员与邀请码；一个账号仅属于一个组织。
-- **项目协作**：项目总览、基础信息、里程碑、实验计划、参与人、状态流转。
-- **实验记录**：电子实验记录本、过程图片、结果附件与完成后只读控制。
-- **文件管理**：项目文档和实验附件正文保存于私有 RustFS，PostgreSQL 保存业务元数据与授权关系。
-- **运维交付**：生产 Compose 隔离 PostgreSQL、RustFS、API 与 Web，并提供部署、升级、备份、恢复和回退入口。
+> This repository is public, but it is **not licensed for reuse yet**. See [License](#license) before copying, redistributing, or modifying the code.
 
-当前版本不使用 Redis，未接入 LibreOffice 文件转换。产品边界、接口限制与已知条件以 [docs/](docs/README.md) 中的正式设计为准。
+## Highlights
 
-## 架构
+- **Tenant isolation and RBAC** — a platform administrator provisions organizations; each account belongs to one organization; organization roles grant actions while project membership limits data scope.
+- **Project collaboration** — projects, objectives, milestones, members, activity history, and document management.
+- **ELN workflow** — experiment plans, participants, process photos, result attachments, status transitions, and completed-record immutability.
+- **Private file storage** — PostgreSQL stores business metadata and authorization relationships; RustFS stores document and attachment bodies.
+- **Self-hosted operations** — production Docker Compose keeps PostgreSQL, RustFS, API, and Web isolated and provides controlled install, release, recovery, and rollback commands.
+
+Redis and LibreOffice-based document conversion are not part of the current release.
+
+## Architecture
 
 ```text
-浏览器
-  │ HTTP（生产默认 IP:15105）
+Browser
+  │ HTTP (current production profile)
   ▼
 Nginx / Web ─────────────► Spring Boot API
-                                 ├── PostgreSQL（业务数据、权限、ELN）
-                                 └── RustFS（项目文档、实验附件）
+                                  ├── PostgreSQL: business data, ELN, RBAC
+                                  └── RustFS: project documents and attachments
 ```
 
-生产环境仅对外暴露 Web 入口；数据库、RustFS API 与控制台保持在主机回环或内部网络。当前部署模式按使用方选择的 HTTP `IP:15105` 运行，明文传输风险必须由部署方接受，并应限制访问来源。
+Only the Web entry point is published by production Compose. The API, PostgreSQL, and RustFS remain on internal Docker networks.
 
-## 前置条件
+## Quick start for development
 
-- Docker Engine 与 Docker Compose v2：用于开发 Compose 和生产 Compose。
-- JDK 25：仅在宿主机直接执行后端 Maven 命令时需要。
-- Node.js 与 Corepack/pnpm：仅在宿主机安装前端依赖、执行前端测试或构建时需要；pnpm 版本以 [`frontend/package.json`](frontend/package.json) 的 `packageManager` 为准。
+Development Compose is isolated from production and initializes development fixtures. Never point it at production PostgreSQL, RustFS, credentials, or data directories.
 
-## 快速开始（开发）
+### Prerequisites
 
-开发 Compose 与生产环境隔离，且会写入开发示例数据；不得连接生产数据库或生产对象存储。
+- Docker Engine with Docker Compose v2
+- JDK 25 only when running Maven directly on the host
+- Node.js with Corepack/pnpm only when running frontend commands on the host; use the pnpm version declared in [`frontend/package.json`](frontend/package.json)
 
 ```bash
-git clone <repository-url> labAssistant
+git clone https://github.com/bujiuzhi/labAssistant.git
 cd labAssistant
 
 if [ ! -e .env ]; then
   (umask 077; cp .env.example .env)
 fi
 
-# 在目标 Linux 环境安装，勿复制 macOS 的 node_modules
 pnpm --dir frontend install --frozen-lockfile
-
 docker compose --env-file .env -f infra/docker-compose.yml config --quiet
 docker compose --env-file .env -f infra/docker-compose.yml up -d
 docker compose --env-file .env -f infra/docker-compose.yml ps
 ```
 
-默认页面为 `http://127.0.0.1:5173/`；存活和就绪检查分别为 `http://127.0.0.1:8000/api/v1/health/live` 与 `http://127.0.0.1:8000/api/v1/health/ready`。开发环境变量、挂载路径、初始化行为和排障见[开发与运维指南](docs/development-operations-guide.md)。
+- Web: `http://127.0.0.1:5173/`
+- API liveness: `http://127.0.0.1:8000/api/v1/health/live`
+- API readiness: `http://127.0.0.1:8000/api/v1/health/ready`
 
-## 配置
+For environment variables, fixture behavior, data paths, and troubleshooting, read the [development and operations guide](docs/development-operations-guide.en.md).
 
-- 仅将 [`.env.example`](.env.example) 作为开发配置模板；复制后的 `.env` 不提交版本库。
-- 生产环境使用 [`infra/.env.production.example`](infra/.env.production.example) 和独立的 `.env.production`；不得复用开发数据库、开发对象存储、开发口令或数据目录。
-- 数据库密码、RustFS 凭据和会话密钥必须由部署方设置为独立强值；不要在 Issue、日志、提交或文档中写入真实值。
-
-配置的生效范围、网络绑定和持久化目录说明见[开发与运维指南](docs/development-operations-guide.md)。
-
-## 测试与检查
+## Quality checks
 
 ```bash
-# 后端：需要 JDK 25
+# Backend: requires JDK 25
 mvn -f backend/pom.xml verify
 
-# 前端：需要已安装的锁定依赖
+# Frontend: requires locked dependencies
 pnpm --dir frontend test
 pnpm --dir frontend run build
 
-# 生产运维脚本的隔离测试
+# Production-operation script tests
 node --test scripts/tests/production.test.mjs
 
-# 文本与补丁完整性
+# Whitespace and patch integrity
 git diff --check
 ```
 
-这些检查分别验证编译、已有测试、构建或脚本行为，不替代目标服务器上的部署、登录、权限、上传和恢复验收。
+Passing these checks does not replace production acceptance for login, authorization, upload/download, firewall rules, or recovery.
 
-## 生产部署
+## Production lifecycle
 
-生产操作由统一脚本收敛，完整前置检查、配置、备份、恢复和回退规则见[生产 Compose 部署指南](docs/production-deployment.md)。在服务器完成 `.env.production` 配置后，常用入口如下：
+Production Compose expects code and private configuration in `~/work/server/labAssistant` and persistent data in `~/work/data/labAssistant`. Copy [`infra/.env.production.example`](infra/.env.production.example) to a private `.env.production`; do not commit it.
 
-```bash
-cd ~/work/server/labAssistant
-LABASSISTANT_PROD_ENV="$PWD/.env.production"
+| Situation | Command | Effect |
+| --- | --- | --- |
+| First deployment on an empty database | `install` | Creates missing secrets and directories, builds, initializes the empty production database, and starts services. |
+| Release a reviewed version | `build` then `upgrade` | Builds or imports immutable images; `upgrade` stops writes, creates a PostgreSQL + RustFS recovery unit, then starts the new version. |
+| Safe service restart | `restart` | Restarts API and Web only, then waits for health checks. |
+| Independent recovery point | `backup` | Stops writers and creates a recovery unit; services remain stopped until `up` is run. Not a routine online backup. |
 
-# 空库首次部署：生成缺失密钥、构建、初始化并启动
-bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" install --confirm materials-lab-production
+Use the full commands and preconditions in the [production deployment guide](docs/production-deployment.en.md). `install` is only for an empty database. `upgrade` never builds from an unreviewed working tree and already creates its own recovery unit; do not run an extra manual `backup` before every ordinary upgrade.
 
-# 已同步经评审发布代码后：停写、备份并启动新版本
-bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" upgrade --confirm materials-lab-production
+The currently documented minimal deployment profile exposes trusted users through HTTP at `http://<public-ip>:15105`. HTTP sends credentials, cookies, and uploaded content without transport encryption. Restrict `15105/TCP` to trusted sources and move to HTTPS before expanding access or handling higher-sensitivity data.
 
-# 日常维护
-bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" restart --confirm materials-lab-production
-bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" backup --confirm materials-lab-production
-```
+## Documentation
 
-`install` 仅用于空库；`upgrade` 不会隐式构建工作区，发布前须同步受评审代码并执行 `build` 或导入已验证镜像。升级与恢复前必须按部署指南完成备份和停写确认。
-
-## 文档
-
-| 文档 | 内容 |
+| English | 中文 |
 | --- | --- |
-| [文档索引](docs/README.md) | 当前有效文档、权威来源和维护规则 |
-| [概要设计](docs/overview-design.md) | 产品范围、角色、架构与验收边界 |
-| [详细设计](docs/detailed-design.md) | 数据、接口、授权范围、状态与页面语义 |
-| [生产 Compose 部署](docs/production-deployment.md) | 正式服务器部署、升级、备份、恢复与回退 |
-| [开发与运维指南](docs/development-operations-guide.md) | 开发环境、配置、验证与运维边界 |
-| [OpenAPI](contracts/openapi.yaml) | 已实现 HTTP 契约 |
-| [审计记录](audit/README.md) | 历史来源、重要变更和验证证据 |
+| [Documentation index](docs/README.md) | [文档索引](docs/README.zh-CN.md) |
+| [System overview](docs/overview-design.en.md) | [系统概要设计](docs/overview-design.md) |
+| [Detailed design](docs/detailed-design.en.md) | [详细设计](docs/detailed-design.md) |
+| [Production deployment](docs/production-deployment.en.md) | [生产 Compose 部署](docs/production-deployment.md) |
+| [Development and operations](docs/development-operations-guide.en.md) | [开发与运维指南](docs/development-operations-guide.md) |
+| [OpenAPI contract](contracts/openapi.yaml) | [OpenAPI 契约](contracts/openapi.yaml) |
 
-## 参与贡献
+Historical sources, decisions, and verification evidence live in [audit/](audit/README.md). They are historical records, not a description of the current runtime behavior.
 
-贡献流程、质量检查和 Pull Request 所需信息见 [CONTRIBUTING.md](CONTRIBUTING.md)。提交前请保持变更聚焦，并同步更新受影响的契约、迁移、配置或文档。
-
-## 安全
-
-请勿将漏洞细节、真实凭据或业务数据公开到 Issue。当前漏洞报告方式和支持范围见 [SECURITY.md](SECURITY.md)。
-
-## 许可证
-
-仓库当前未包含 `LICENSE` 文件，也未声明开源许可证。在获得权利人明确授权并补充许可证前，不应将本仓库内容视为可按开源许可证再分发或再许可的软件。
-
-## 目录
+## Repository layout
 
 ```text
 labAssistant/
-├── backend/       Spring Boot API、MyBatis、Flyway、JUnit
-├── frontend/      Vue 页面、类型定义与前端测试
-├── infra/         Compose、Dockerfile、Nginx 与生产配置模板
-├── scripts/       生产运维脚本与隔离测试
-├── contracts/     OpenAPI 契约
-├── docs/          当前有效的设计与运维文档
-└── audit/         历史来源、决策和验证记录
+├── backend/       Spring Boot API, MyBatis, Flyway, and JUnit tests
+├── frontend/      Vue application, TypeScript types, and frontend tests
+├── infra/         Compose files, Dockerfiles, Nginx, and configuration templates
+├── scripts/       Production operation script and isolated tests
+├── contracts/     OpenAPI contract
+├── docs/          Current design and operations documentation
+└── audit/         Historical sources, decisions, and verification evidence
 ```
 
-依赖版本以 `backend/pom.xml`、`frontend/package.json`、`frontend/pnpm-lock.yaml` 和 Compose 文件为准。
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening an issue or pull request. Changes affecting authorization, data, storage, configuration, migrations, or production operations require matching tests and documentation.
+
+## Security
+
+Do not report vulnerabilities, credentials, session data, or business data in public issues. See [SECURITY.md](SECURITY.md) for the private reporting expectations and deployment responsibilities.
+
+## License
+
+No open-source license has been granted for this repository. Public visibility does not grant permission to reuse, redistribute, or sublicense its contents. A license must be added by the rights holder before such permissions exist.
