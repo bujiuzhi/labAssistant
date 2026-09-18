@@ -24,7 +24,7 @@
 
 ## 快速部署
 
-生产部署使用 `main` 分支。服务器需要 Docker Engine、Docker Compose **2.24.4+**、Git、Bash、OpenSSL 和常用归档工具；Java 与前端构建环境由 Docker 镜像提供。
+服务器需要 Docker Engine、Docker Compose **2.24.4+**、Git、Bash、OpenSSL 和常用归档工具。Java 与前端构建环境由镜像提供。
 
 ### 1. 获取代码与配置
 
@@ -32,44 +32,33 @@
 mkdir -p ~/work/server
 git clone --branch main https://github.com/bujiuzhi/labAssistant.git ~/work/server/labAssistant
 cd ~/work/server/labAssistant
-
 if [ ! -e .env.production ]; then
   (umask 077; cp infra/.env.production.example .env.production)
 fi
-chmod 600 .env.production
 ```
 
-编辑 `.env.production`，填写全部 `CHANGE_ME`：
+默认配置可以直接使用，只修改需要调整的值：
 
-| 配置 | 填写说明 |
-| --- | --- |
-| `MATERIALS_LAB_RELEASE` | 本次唯一发布标签，可使用 `git rev-parse --short HEAD` 的结果 |
-| `MATERIALS_LAB_PUBLIC_HOST` | 服务器公网 IPv4，不含协议和端口 |
-| `MATERIALS_LAB_DATA_ROOT` | 当前用户的绝对路径，如 `/home/你的用户名/work/data/labAssistant` |
-| `MATERIALS_LAB_SECRETS_DIR` | 独立密钥目录，如 `/home/你的用户名/work/server/labAssistant/data/production-secrets` |
-| `MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME` | 初始平台管理员登录名 |
-| `MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_DISPLAY_NAME` | 初始平台管理员显示名 |
+```ini
+APP_PORT=13501
+ADMIN_USERNAME=admin
+ADMIN_DISPLAY_NAME=平台管理员
+```
 
-配置文件只填写实际值，不使用引号、字面量 `~` 或 shell 表达式。完整模板见 [infra/.env.production.example](infra/.env.production.example)。
+无需填写公网 IP、目录或 Git 版本。脚本自动准备依赖镜像，按当前用户主目录生成项目专属路径，生成缺失密钥，并为当前提交创建唯一发布标签。
 
-首次部署先获取锁定的数据库与对象存储镜像：
+### 2. 安装并访问
 
 ```bash
-docker compose --env-file .env.production -f infra/compose.production.yml pull postgres rustfs
+bash scripts/deploy.sh install
 ```
 
-### 2. 一条命令安装
+浏览器打开 **`http://服务器IP:13501`**。首次只创建平台管理员及内部平台组织，业务组织数量为 **0**，没有测试项目或开发账号。
 
-```bash
-bash scripts/production.sh --env "$PWD/.env.production" install --confirm materials-lab-production
-```
-
-脚本完成密钥生成、目录准备、镜像构建、空库初始化与服务启动。浏览器打开 **`http://服务器IP:13501`**。
-
-首次安装只创建平台管理员及内部平台组织，业务组织数量为 **0**，不初始化示例项目、实验或开发账号。管理员凭据的保存位置与首次登录步骤见[生产部署指南](docs/production-deployment.md)。
+初始密码保存在 `~/work/server/labAssistant/data/production-secrets/bootstrap_platform_admin_password`，登录名默认为 `admin`。升级会保留原密码；更改配置中的管理员信息不会重置已有账号。
 
 > [!IMPORTANT]
-> `install` 仅用于空库。已有部署使用下方升级流程；`.env.production` 中若显式配置了其他端口，将继续使用该值。当前 HTTP 入口不加密口令、会话与文件内容，应将 `13501/TCP` 限制到可信来源。
+> `install` 仅用于新部署。已有完整 `MATERIALS_LAB_*` 配置继续兼容，请保留原文件；不要用新模板覆盖旧部署配置。HTTP 为明文传输，应将入口端口限制到可信来源。默认支持 IPv4 地址访问。
 
 ## 核心能力
 
@@ -101,28 +90,26 @@ PostgreSQL 保存业务元数据，RustFS 保存新上传的文档与附件正�
 
 ## 升级与维护
 
-在项目目录中执行，`--confirm` 后的名称应与配置里的 `MATERIALS_LAB_COMPOSE_PROJECT` 一致。
+在项目目录同步已评审的 `main` 代码，再执行升级：
 
 ```bash
-LABASSISTANT_PROD_ENV="$PWD/.env.production"
+git pull --ff-only origin main
+bash scripts/deploy.sh upgrade
 ```
 
-升级前同步已评审的 `main` 代码，并在 `.env.production` 中设置**新的发布标签**：
-
-```bash
-bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" build
-bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" upgrade --confirm materials-lab-production
-```
-
-`upgrade` 会停写、备份 PostgreSQL 与 RustFS，再启动新版本。构建要求干净且已提交的代码；正常升级无需额外手工执行 `backup`。
+升级自动构建新版本、停写、备份 PostgreSQL 与 RustFS，然后启动服务。构建失败不停止旧服务；进入停写阶段后失败会保持写入口停止，避免自动退回可能不兼容的旧版本。
 
 | 操作 | 命令 |
 | --- | --- |
-| 查看状态 | `bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" status` |
-| 重启服务 | `bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" restart --confirm materials-lab-production` |
-| 卸载服务，保留数据与镜像 | `bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" uninstall --confirm materials-lab-production` |
+| 查看状态 | `bash scripts/deploy.sh status` |
+| 重启当前版本 | `bash scripts/deploy.sh restart` |
+| 检查健康状态 | `bash scripts/deploy.sh check` |
+| 创建独立备份并保持停写 | `bash scripts/deploy.sh backup` |
+| 备份后恢复服务 | `bash scripts/deploy.sh up` |
+| 继续启动失败部署的目标版本 | `bash scripts/deploy.sh resume` |
+| 卸载服务，保留数据、密钥及镜像 | `bash scripts/deploy.sh uninstall` |
 
-独立备份 `backup` 完成后服务保持停止，需要 `up` 恢复。备份、恢复和回退的完整步骤见[生产部署指南](docs/production-deployment.md)。
+修改端口后使用 `upgrade` 应用；`restart` 始终使用上次成功部署的配置和版本。首次初始化中断、旧完整配置、数据库恢复和兼容性回退见[生产部署指南](docs/production-deployment.md)。
 
 ## 技术栈与目录
 

@@ -2,155 +2,136 @@
 
 [English](production-deployment.en.md) | [简体中文](production-deployment.md)
 
-_更新时间：2026-09-18，Asia/Shanghai。_
+## 首次部署
 
-## 1. 范围与访问边界
-
-本项目首版生产运行使用 Docker Compose，服务代码位于 `~/work/server/labAssistant`，持久数据位于 `~/work/data/labAssistant`。
-
-当前经明确授权使用**无 TLS 的公网 HTTP 入口**：
-
-```text
-http://<公网 IPv4>:13501
-```
-
-仅 Nginx Web 服务映射宿主 `13501/TCP`；API、PostgreSQL 与 RustFS 均不映射宿主端口，数据库和对象存储仍位于内部网络。该方案不使用域名、证书、HTTPS、Secure Cookie 或 HSTS。
-
-> 警告：HTTP 不加密传输登录口令、会话 Cookie 与上传内容。它只适用于已知、少量用户且已接受该风险的场景；不能被表述为 TLS 安全的公网生产服务。若接入范围扩大、数据敏感度提高或需合规审计，应先恢复 HTTPS。
-
-生产不使用开发 Compose、开发数据、`DEV_TEST` 组织或开发账户。Redis 不在当前生产链路中；文档与附件正文存入项目专属 RustFS，PostgreSQL 保存元数据与关系。
-
-## 2. 生产资产
-
-| 资产 | 用途 |
-| --- | --- |
-| [生产 Compose](../infra/compose.production.yml) | PostgreSQL、RustFS、API、Web、一次性 bootstrap 与内部网络 |
-| [生产配置模板](../infra/.env.production.example) | 非敏感的 IP、端口、目录与身份参数 |
-| [生产脚本](../scripts/production.sh) | 首次部署、升级、重启、停用、预检、备份与恢复 |
-| [API Dockerfile](../infra/Dockerfile.api) | Java 构建与运行镜像 |
-| [Web Dockerfile](../infra/Dockerfile.web) | 前端构建与 HTTP Nginx 镜像 |
-| [隔离验收](../scripts/tests/production-acceptance.mjs) | HTTP、身份、文件、备份与空库恢复验收 |
-
-运行镜像由发布标签和发布清单约束：清单记录 Git SHA、API 镜像 ID 与 Web 镜像 ID；`up`、`upgrade`、`rollback` 均拒绝清单不匹配的镜像。运行期不从工作区构建镜像。
-
-## 3. 常用运维命令
-
-完成一次 `.env.production` 配置后，日常运维只使用下面的命令。脚本内部仍调用 Docker Compose、保留发布清单校验和升级备份；运维人员不必手工拆分这些步骤。
+服务器需安装 Git、Docker Engine 和 Docker Compose 插件，并能拉取基础镜像。使用同一个系统用户执行后续操作；首次安装需要构建镜像，会运行项目构建检查。
 
 ```bash
-cd ~/work/server/labAssistant
-LABASSISTANT_PROD_ENV="$PWD/.env.production"
-
-# 新服务器首次部署：生成缺失密钥、准备目录、构建镜像、初始化空库并启动
-bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" install --confirm materials-lab-production
-
-# 后续发布：先停写并创建 PostgreSQL + RustFS 恢复组，再启动新版本
-bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" upgrade --confirm materials-lab-production
-
-# 日常安全重启：仅重启 API/Web，等待健康检查
-bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" restart --confirm materials-lab-production
-
-# 停用并卸载服务：仅移除本项目容器和网络，数据、备份、密钥、镜像均保留
-bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" uninstall --confirm materials-lab-production
-```
-
-其中 `materials-lab-production` 必须替换为 `.env.production` 中的 `MATERIALS_LAB_COMPOSE_PROJECT` 实际值。`install` 只适用于空库，不能用于已有部署或升级；`upgrade` 需要先把新的已提交代码和新的发布标签同步到服务器。完整删除数据不由脚本提供，必须先确认恢复组后再执行受控人工操作。
-
-## 4. 首次部署前仅需一次的配置
-
-```bash
-cd ~/work/server/labAssistant
+mkdir -p ~/work/server
+cd ~/work/server
+git clone --branch main https://github.com/bujiuzhi/labAssistant.git
+cd labAssistant
 if [ ! -e .env.production ]; then
   (umask 077; cp infra/.env.production.example .env.production)
 fi
-chmod 600 .env.production
+bash scripts/deploy.sh install
 ```
 
-填写全部 `CHANGE_ME`。真实 `.env.production` 不提交 Git，不使用引号、变量展开、行内注释或首尾空格。
+默认配置可以直接使用，只在需要时修改：
 
 ```ini
-MATERIALS_LAB_PUBLIC_HOST=<服务器公网 IPv4>
-MATERIALS_LAB_PUBLIC_PORT=13501
-MATERIALS_LAB_HTTP_BIND_ADDRESS=0.0.0.0
-MATERIALS_LAB_HTTP_BIND_PORT=13501
+APP_PORT=13501
+ADMIN_USERNAME=admin
+ADMIN_DISPLAY_NAME=平台管理员
 ```
 
-`MATERIALS_LAB_PUBLIC_HOST` 为纯 IPv4，不带 `http://`、端口或路径。`HTTP_BIND_PORT` 必须与公开端口一致；仅隔离验收可使用 `0` 让 Docker 动态分配端口。
+访问 `http://服务器IPv4:13501`。无需手填 Git 提交号、用户名目录、数据库参数或公网 IP。可选 `PUBLIC_HOST=服务器IPv4` 将入口限制到指定 Host；默认 `auto` 接受有效 IPv4 Host，不支持域名或 IPv6。
 
-目录固定如下：
+配置是数据文件而不是 Shell：不使用引号、变量展开、行内注释或首尾空格；不要提交真实 `.env.production`。首次安装只创建平台管理员、内部平台组织及权限字典，业务组织、业务用户、项目与实验均为空。由平台管理员创建业务组织及首个组织管理员。
+
+初始密码在服务器上查看：
+
+```bash
+cat ~/work/server/labAssistant/data/production-secrets/bootstrap_platform_admin_password
+```
+
+密码随机生成，已有密钥不覆盖。修改配置、重启和升级不会修改已有账号的密码；账号改密后该文件也不会同步为新密码。
+
+> 仅 Web 映射宿主端口。API、PostgreSQL 和 RustFS 不对外开放，不使用 Redis。HTTP 不加密口令、Cookie 和上传内容，请在防火墙/安全组中限制入口到可信来源。该简易方案不代表加密的公网传输；敏感数据或扩大使用范围前应启用 HTTPS。
+
+## 升级与日常维护
+
+在项目目录执行。先评审目标版本和数据库迁移，并安排短暂停写窗口：
+
+```bash
+git pull --ff-only origin main
+bash scripts/deploy.sh upgrade
+```
+
+升级自动拉取固定版本的基础服务镜像、构建当前干净提交、生成独立发布标签，再停写并备份 PostgreSQL 与 RustFS，最后启动并检查健康状态。构建失败不会停止旧服务；进入停写阶段后失败会保持写入口停止，不自动回退数据库或启动旧代码。无需日常手工填写发布标签，也无需在升级前额外执行一次 `backup`。
+
+| 操作 | 命令 |
+| --- | --- |
+| 查看状态 | `bash scripts/deploy.sh status` |
+| 健康检查 | `bash scripts/deploy.sh check` |
+| 重启当前版本的 API/Web | `bash scripts/deploy.sh restart` |
+| 单独停写备份 | `bash scripts/deploy.sh backup` |
+| 备份后恢复服务 | `bash scripts/deploy.sh up` |
+| 继续启动失败部署的目标版本 | `bash scripts/deploy.sh resume` |
+| 卸载容器及网络，保留数据、密钥和镜像 | `bash scripts/deploy.sh uninstall` |
+
+`install` 仅用于首次空环境，拒绝已有部署记录、数据或项目容器。卸载后重新启用用 `up`，不要再次 `install`。脚本不提供完整删除数据的快捷命令。`backup` 完成后保持服务停止，适用于独立恢复点，不是升级的额外必做步骤。
+
+修改端口后用 `upgrade` 应用。`restart` 和 `up` 使用上次成功部署的版本与配置，不因拉取新代码而偷偷升级。固定 Compose 项目名为 `materials-lab-production`，同一 Docker daemon 只支持一套简洁部署，并始终由同一系统用户运维；多实例、自定义目录及离线镜像交付使用高级配置。
+
+## 数据、日志与状态
+
+所有路径自动按执行用户的 HOME 展开：
 
 ```text
 ~/work/server/labAssistant/
 ├── .env.production
-├── infra/ … scripts/ …
-└── data/production-secrets/
+└── data/
+    ├── production-secrets/       # 数据库、RustFS、初始管理员密钥
+    └── deployment/
+        ├── active.env            # 上次成功部署的完整配置
+        ├── incomplete.env        # 仅未完成上线时存在
+        └── release.env.*         # 每次构建的配置快照
 
 ~/work/data/labAssistant/
 ├── postgres/
 ├── rustfs/data/
 ├── rustfs/logs/
 ├── backups/
-└── releases/
+└── releases/                     # Git SHA 与镜像 ID 的发布清单
 ```
 
-首次 `install` 会自动创建不存在的密钥目录与持久目录；若密钥目录已经存在，脚本只校验并保留，绝不覆盖。密钥目录权限为 `0700`，文件为 `0444`，不会打印密码。Compose 文件型 secret 不是加密存储；Docker 管理权限和服务器管理员均可读取，必须保护宿主机与备份。
+API/Web 等标准输出由 Docker 日志驱动管理，并非所有日志都映射成文件。密钥目录权限为 `0700`；文件型 Compose secret 不是加密存储，宿主管理员和 Docker 管理员可以读取。
 
-在服务器防火墙/云安全组中仅允许可信来源访问 `13501/TCP`，不要暴露 `5432`、`8000`、`9000` 或 RustFS 控制台。若无法限制来源，任何互联网用户均可请求 HTTP 入口。
+备份包含数据库 dump、RustFS 数据归档、两份校验文件和元数据，五个文件组成完整恢复组。密钥另行安全保管；建立异机加密副本、容量监控和保留策略，脚本不会自动删除历史备份或镜像。
 
-预先在构建机或目标服务器获得以下锁定镜像，离线交付需校验完整 tag@digest：
+## 中断与恢复
+
+上线开始前写入 `incomplete.env`，成功后才切换 `active.env`。有未完成记录时，`install/upgrade/up/restart` 会阻止隐式使用旧版本。先检查错误和依赖，修复原因后：
 
 ```bash
-docker image inspect 'postgres:18.4-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15'
-docker image inspect 'rustfs/rustfs:v1.0.0-rc.5@sha256:b7014e0ce2bc703c1316b3ef760e29dfae61fe4a50d1a66fa89638e0f8ea211f'
+bash scripts/deploy.sh resume
 ```
 
-`install` 内部执行预检和 API/Web 构建测试，生成同标签镜像与 `releases/<标签>.json`，再在空库上执行 Flyway 和身份初始化。初始化只创建内部平台组织、平台管理员和全局权限字典；业务组织、项目、实验、文档和开发用户均为 0。若构建机与服务器不同，仍需受控分发两份镜像与对应清单，目标服务器使用 `up` 启动。
+此命令仅使用失败目标配置执行 `up` 和健康检查，**不重新构建、不重新执行 bootstrap、不回退数据库**。首次初始化未完成时不能仅靠 `resume` 修复：
 
-通过实际地址 `http://<公网 IPv4>:13501` 完成以下验收：
+1. 保留数据、密钥、失败配置和日志，确认 bootstrap 是否执行成功。
+2. 仅确认仍是空库时，使用底层脚本对失败配置执行受空库检查保护的初始化：
 
-| 检查 | 预期 |
-| --- | --- |
-| 网络 | 仅 `13501/TCP` 可访问；API、PostgreSQL、RustFS 无宿主端口 |
-| 登录与退出 | CSRF 生效；Session 为 HttpOnly，但不带 Secure 属性 |
-| 空库 | 项目、实验、文档为空；不存在 `DEV_TEST` 与开发账户 |
-| 业务 | 创建项目、上传下载文档、ELN 和权限操作按交付范围正常 |
-| 时间 | JVM、数据库服务与 JDBC 会话使用 Asia/Shanghai |
-| 恢复 | 完整恢复组可恢复到新隔离环境，身份与文件正文完整 |
+   ```bash
+   bash scripts/production.sh --env "$HOME/work/server/labAssistant/data/deployment/incomplete.env" bootstrap --confirm materials-lab-production
+   bash scripts/deploy.sh resume
+   ```
 
-验收后将初始化平台管理员密码转存到受控密码库。脚本不自动删除临时密钥文件、容器、镜像或数据目录。
+3. 若已有部分数据或迁移异常，不删除失败标记、不反复初始化，按具体错误向前修复或恢复到新的隔离环境。
 
-初始登录名取自 `MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME`。首次生成的密码保存在 `MATERIALS_LAB_SECRETS_DIR` 指定目录下的 `bootstrap_platform_admin_password` 文件中，通过服务器上的受控方式读取；重启或升级不会重置数据库内已有账号的密码。登录后由平台管理员开通业务组织及首个组织超级管理员，再使用组织账号开展业务。
+首版 V1 发布后不得修改已执行迁移，后续结构变更新增 V2、V3 等。数据库不兼容时必须向前修复或恢复到新环境，不能仅回退镜像。`production.sh restore-new` 只允许不同项目名、全新数据目录和空库目标；详细参数见 `bash scripts/production.sh --help`。
 
-## 5. 升级、回退与恢复
+高级 `rollback <旧标签> --schema-compatible` 只回退应用，要求事先核对数据库兼容性。不要直接拿 `active.env` 临时回退后继续使用简洁入口：底层回退不更新简洁入口的活动记录，应改用经核对的旧版完整配置管理后续运行，避免下一次重启恢复错误版本。
 
-每次升级使用新的发布标签，先评审变更、迁移与停写窗口，再执行上方的单命令 `upgrade`。脚本会只读检查身份、结构和发布清单，停止 API/Web 与 RustFS，对 PostgreSQL 与 RustFS 创建同一恢复组，然后启动新版本。停止 RustFS 是为了避免直接归档其仍在写入的底层数据目录。失败时保持写入口停止；不会自动回退数据库。
+## 旧配置与高级模式
 
-首版仅有 `V1__materials_lab_schema.sql`。生产发布后不得修改 V1，所有后续结构变化只能新增 V2、V3 等迁移。若新旧 schema 已经人工确认兼容，可只回退应用镜像：
+已有 `MATERIALS_LAB_*` 完整配置继续使用原文件，**不要用简洁模板覆盖**。简洁入口检测到旧格式时转交底层脚本，保留项目名、路径和显式标签；不迁移数据，也不自动管理版本。旧格式升级仍需设置新标签并先 `build`：
 
 ```bash
-bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" rollback <旧标签> \
-  --schema-compatible --confirm materials-lab-production
+bash scripts/production.sh --env "$PWD/.env.production" build
+bash scripts/deploy.sh upgrade
 ```
 
-这不会降级数据库；不兼容迁移应恢复到新隔离环境或向前修复。
+自定义项目名、目录、离线交付等参考[完整模板](../infra/.env.production.full.example)和[底层脚本](../scripts/production.sh)。旧流程需预先准备 Compose 中锁定的 PostgreSQL/RustFS 镜像。仅完整配置可直接用于生产 Compose；不要将三项简洁配置传给 `docker compose --env-file`。
 
-手工备份会停止 API/Web 与 RustFS，并在 `backups/` 生成 PostgreSQL `.dump`、RustFS `.rustfs-data.tar.gz`、两个校验文件和元数据文件；五个文件共同组成恢复组。备份完成后服务保持停止，使用 `up --confirm` 才恢复写入：
-
-```bash
-bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" backup --confirm materials-lab-production
-```
-
-备份目录无自动保留策略。完成备份后应建立异机加密副本、容量监控和经授权的清理策略。`restore-new` 仅恢复到不同 Compose 项目名、全新数据目录和空目标数据库；不使用 `--clean`、DROP 或覆盖已有目录。
-
-## 6. 本地与隔离验证
+## 验证与交付边界
 
 ```bash
-bash -n scripts/production.sh
+bash -n scripts/deploy.sh scripts/production.sh
 node --test scripts/tests/production.test.mjs
-node scripts/tests/production-acceptance.mjs \
-  --release <已构建标签> --manifest <发布清单绝对路径>
 ```
 
-隔离验收使用 Docker 动态 HTTP 端口与独立数据目录，不读取真实生产 `.env` 或数据库。自动化结果不替代目标服务器的防火墙、真实公网 IP、浏览器交互、备份介质和风险接受验收。
+脚本测试使用隔离 Git/Docker 替身，不访问生产数据。真实隔离集成验收使用 `scripts/tests/production-acceptance.mjs --release <标签> --manifest <清单绝对路径>`，不能替代目标服务器验收。
 
-每次生产操作在 `audit/logs/` 记录 Asia/Shanghai 时间、环境、Git/镜像版本、迁移、验证、备份与恢复策略；不得记录密码、令牌、Cookie 或业务正文。
+每次发布核验实际访问地址、登录退出、租户/项目权限、文档上传下载、ELN、端口暴露和备份恢复。健康检查只代表依赖与服务就绪。操作记录放入 `audit/logs/`，注明 Asia/Shanghai 时间、版本、迁移、恢复组和验证结果，不记录密码或业务正文。

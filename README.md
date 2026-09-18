@@ -24,7 +24,7 @@ Materials Lab Assistant brings organizations, projects, experiment plans, lab re
 
 ## Quick start
 
-Use the `main` branch for production. The server needs Docker Engine, Docker Compose **2.24.4+**, Git, Bash, OpenSSL, and standard archive tools. Docker images provide the Java and frontend build environments.
+The server needs Docker Engine, Docker Compose **2.24.4+**, Git, Bash, OpenSSL, and standard archive tools. Images provide the Java and frontend build environments.
 
 ### 1. Get the code and configuration
 
@@ -32,44 +32,33 @@ Use the `main` branch for production. The server needs Docker Engine, Docker Com
 mkdir -p ~/work/server
 git clone --branch main https://github.com/bujiuzhi/labAssistant.git ~/work/server/labAssistant
 cd ~/work/server/labAssistant
-
 if [ ! -e .env.production ]; then
   (umask 077; cp infra/.env.production.example .env.production)
 fi
-chmod 600 .env.production
 ```
 
-Edit `.env.production` and replace every `CHANGE_ME` value:
+The defaults work as provided; edit only what you need:
 
-| Setting | Value |
-| --- | --- |
-| `MATERIALS_LAB_RELEASE` | A unique release tag; the output of `git rev-parse --short HEAD` is suitable |
-| `MATERIALS_LAB_PUBLIC_HOST` | Public server IPv4, without a scheme or port |
-| `MATERIALS_LAB_DATA_ROOT` | Absolute data path, such as `/home/your-user/work/data/labAssistant` |
-| `MATERIALS_LAB_SECRETS_DIR` | Separate secret directory, such as `/home/your-user/work/server/labAssistant/data/production-secrets` |
-| `MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME` | Initial platform administrator login |
-| `MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_DISPLAY_NAME` | Initial platform administrator display name |
+```ini
+APP_PORT=13501
+ADMIN_USERNAME=admin
+ADMIN_DISPLAY_NAME=平台管理员
+```
 
-Use actual values, without quotes, a literal `~`, or shell expressions. See the full [configuration template](infra/.env.production.example).
+No public IP, directory paths, or Git revision needs to be entered. The script fetches dependency images, derives project-specific paths from the current user's home directory, generates missing secrets, and assigns a unique release tag to the current commit.
 
-Before the first installation, fetch the pinned database and object-storage images:
+### 2. Install and open the application
 
 ```bash
-docker compose --env-file .env.production -f infra/compose.production.yml pull postgres rustfs
+bash scripts/deploy.sh install
 ```
 
-### 2. Install with one command
+Open **`http://server-ip:13501`**. Installation creates only the platform administrator and internal platform organization, with **zero business organizations**, sample projects, or development accounts.
 
-```bash
-bash scripts/production.sh --env "$PWD/.env.production" install --confirm materials-lab-production
-```
-
-The script generates secrets, prepares directories, builds images, initializes the empty database, and starts the services. Open **`http://server-ip:13501`** in your browser.
-
-Installation creates only the platform administrator and internal platform organization, with **zero business organizations** and no sample projects, experiments, or development accounts. See the [deployment guide](docs/production-deployment.en.md) for credential storage and first-login instructions.
+The initial password is stored at `~/work/server/labAssistant/data/production-secrets/bootstrap_platform_admin_password`; the default login is `admin`. Upgrades preserve it. Changing administrator settings does not reset an existing account.
 
 > [!IMPORTANT]
-> `install` is for an empty database. Use the upgrade workflow for an existing deployment. Explicit port values in `.env.production` remain effective. The current HTTP entry does not encrypt passwords, sessions, or files; restrict `13501/TCP` to trusted sources.
+> `install` is for a new deployment. Existing full `MATERIALS_LAB_*` configurations remain supported; keep them instead of overwriting them with the new template. HTTP is unencrypted; restrict the entry port to trusted sources. Automatic access supports IPv4 addresses.
 
 ## Features
 
@@ -101,28 +90,26 @@ Roles grant actions; project membership and other relationships determine access
 
 ## Upgrades and maintenance
 
-Run commands from the project directory. The name after `--confirm` must match `MATERIALS_LAB_COMPOSE_PROJECT` in the configuration.
+Synchronize reviewed code from `main` in the project directory, then upgrade:
 
 ```bash
-LABASSISTANT_PROD_ENV="$PWD/.env.production"
+git pull --ff-only origin main
+bash scripts/deploy.sh upgrade
 ```
 
-To upgrade, synchronize reviewed code from `main` and set a **new release tag** in `.env.production`:
-
-```bash
-bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" build
-bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" upgrade --confirm materials-lab-production
-```
-
-`upgrade` stops writes, backs up PostgreSQL and RustFS, then starts the new release. Building requires a clean, committed checkout. An ordinary upgrade already includes a backup.
+An upgrade builds a new release, stops writes, backs up PostgreSQL and RustFS, then starts services. Build failures leave the old services running. Failures after entering the write-stop phase leave writers stopped to prevent an implicit rollback to potentially incompatible old code.
 
 | Operation | Command |
 | --- | --- |
-| View status | `bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" status` |
-| Restart services | `bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" restart --confirm materials-lab-production` |
-| Uninstall services, preserving data and images | `bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" uninstall --confirm materials-lab-production` |
+| View status | `bash scripts/deploy.sh status` |
+| Restart the deployed version | `bash scripts/deploy.sh restart` |
+| Check health | `bash scripts/deploy.sh check` |
+| Back up and keep writers stopped | `bash scripts/deploy.sh backup` |
+| Resume after a backup | `bash scripts/deploy.sh up` |
+| Continue starting a failed deployment's target version | `bash scripts/deploy.sh resume` |
+| Uninstall services, preserving data, secrets, and images | `bash scripts/deploy.sh uninstall` |
 
-An independent `backup` leaves services stopped until `up` is run. See the [deployment guide](docs/production-deployment.en.md) for backup, restore, and rollback procedures.
+Apply port changes with `upgrade`; `restart` always uses the last successfully deployed configuration and release. See the [deployment guide](docs/production-deployment.en.md) for interrupted initialization, legacy configuration, database recovery, and schema-compatible rollback.
 
 ## Technology and layout
 

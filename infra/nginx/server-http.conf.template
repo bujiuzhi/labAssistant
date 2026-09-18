@@ -1,9 +1,7 @@
 # 经明确授权的公网明文入口。仅 Web 映射宿主端口，内部服务不暴露。
 server {
     listen 8080 default_server;
-    server_name ${MATERIALS_LAB_PUBLIC_HOST};
-    if ($host != "${MATERIALS_LAB_PUBLIC_HOST}") {
-        return 421;
-    }
+    server_name ${MATERIALS_LAB_NGINX_SERVER_NAME};
+    ${MATERIALS_LAB_NGINX_HOST_CHECK}
     include /tmp/nginx/locations.conf;
 }

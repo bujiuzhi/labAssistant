@@ -7,7 +7,7 @@
 | Environment | Entry | Data rule |
 | --- | --- | --- |
 | Development | `infra/docker-compose.yml` | Uses isolated development fixtures; never connect it to production storage or databases. |
-| Production | `infra/compose.production.yml` through `scripts/production.sh` | Uses private `.env.production`, project-specific secrets, and dedicated data paths. |
+| Production | `infra/compose.production.yml` through `scripts/deploy.sh` | Uses a small private `.env.production`; directories, release tags, and secrets are managed automatically. `production.sh` remains the advanced engine. |
 
 Do not turn development Compose into production by changing a profile variable. The production Compose profile has separate networks, storage, bootstrap safeguards, and release-manifest checks.
 
@@ -35,7 +35,7 @@ Use separate project directories when deploying to a server:
 ~/work/data/labAssistant/    PostgreSQL, RustFS, backups, and release manifests
 ```
 
-`MATERIALS_LAB_DATA_ROOT` must be an absolute server path. Do not point a new deployment at another project's data directory or use a literal `~` in the environment value.
+The compact workflow derives these paths automatically. In advanced full configuration, `MATERIALS_LAB_DATA_ROOT` must be an absolute server path. Never point a new deployment at another project's data directory or use a literal `~` in the environment value.
 
 ## Operations boundary
 
@@ -47,6 +47,8 @@ Use separate project directories when deploying to a server:
 | `restart` | Restart current API/Web image | No version change and no backup. |
 | `backup` | Create a separate recovery unit | Stops writers; services remain stopped after completion. |
 | `restore-new` | Restore a recovery unit into an empty, isolated target | Never overwrites a running or existing production data directory. |
+
+This table describes the underlying engine. The compact `deploy.sh upgrade` also builds automatically; standalone `build` and `restore-new` remain advanced `production.sh` operations.
 
 Use [production deployment](production-deployment.en.md) for exact commands, network exposure, release tags, and recovery preconditions.
 

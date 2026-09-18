@@ -2,94 +2,131 @@
 
 [English](production-deployment.en.md) | [简体中文](production-deployment.md)
 
-## Scope and network boundary
+## First installation
 
-Production uses Docker Compose with code and private configuration in `~/work/server/labAssistant` and persistent data in `~/work/data/labAssistant`.
-
-The current minimal profile intentionally exposes one HTTP entry:
-
-```text
-http://<public-ipv4>:13501
-```
-
-Only Nginx/Web maps a host port. API, PostgreSQL, RustFS API, and the RustFS console are not host-published. This profile has no domain, TLS certificate, HTTPS, HSTS, or Secure cookie flag.
-
-> HTTP exposes credentials, session cookies, and uploaded content without transport encryption. Restrict `13501/TCP` to trusted sources. Move to HTTPS before broadening access, handling higher-sensitivity data, or claiming encrypted public transport.
-
-## Production assets
-
-| Asset | Purpose |
-| --- | --- |
-| [`infra/compose.production.yml`](../infra/compose.production.yml) | PostgreSQL, RustFS, API, Web, bootstrap task, and internal networks |
-| [`infra/.env.production.example`](../infra/.env.production.example) | Non-sensitive deployment template |
-| [`scripts/production.sh`](../scripts/production.sh) | Controlled install, build, upgrade, restart, backup, restore, and rollback operations |
-| [`infra/Dockerfile.api`](../infra/Dockerfile.api) | Java 25 API build and runtime image |
-| [`infra/Dockerfile.web`](../infra/Dockerfile.web) | Frontend test/build and Nginx runtime image |
-
-Release manifests bind a Git SHA to the API and Web image IDs. `up`, `upgrade`, and `rollback` reject a manifest/image mismatch. Runtime operations do not build from the working tree.
-
-## One-time configuration
+Install Git, Docker Engine, and the Docker Compose plugin on the server. Run subsequent operations as the same OS user. The server needs access to base images; installation builds the application and runs its build checks.
 
 ```bash
-cd ~/work/server/labAssistant
+mkdir -p ~/work/server
+cd ~/work/server
+git clone --branch main https://github.com/bujiuzhi/labAssistant.git
+cd labAssistant
 if [ ! -e .env.production ]; then
   (umask 077; cp infra/.env.production.example .env.production)
 fi
-chmod 600 .env.production
+bash scripts/deploy.sh install
 ```
 
-Set every `CHANGE_ME` value. Keep `.env.production` private: no quotes, shell expansion, inline comments, or Git tracking.
+The defaults work without editing. Change them only if needed:
 
 ```ini
-MATERIALS_LAB_PUBLIC_HOST=<public-ipv4>
-MATERIALS_LAB_PUBLIC_PORT=13501
-MATERIALS_LAB_HTTP_BIND_ADDRESS=0.0.0.0
-MATERIALS_LAB_HTTP_BIND_PORT=13501
+APP_PORT=13501
+ADMIN_USERNAME=admin
+ADMIN_DISPLAY_NAME=平台管理员
 ```
 
-The first installation creates only the internal platform organization, its platform-administrator account, and the permission catalog. It creates zero business organizations, tenant user accounts, projects, experiments, documents, or development fixtures.
+Open `http://server-ipv4:13501`. Paths, release tags, database settings, and secrets are automatic. Optional `PUBLIC_HOST=server-ipv4` restricts the accepted Host; the default `auto` accepts valid IPv4 Hosts, not domains or IPv6.
 
-The initial login is `MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME`. The generated password is stored in `bootstrap_platform_admin_password` under the configured `MATERIALS_LAB_SECRETS_DIR`; retrieve it securely on the server. Restarting or upgrading does not reset an existing account's database password. After signing in, provision a business organization and its first organization super administrator, then use an organization account for business operations.
+Configuration is data, not a shell script: no quotes, expansion, inline comments, or surrounding spaces. Never commit the real `.env.production`. Bootstrap creates only the platform administrator, internal platform organization, and permission catalog: zero business organizations, tenant users, projects, experiments, or development fixtures. Use the platform administrator to provision an organization and its first administrator.
 
-## Common commands
-
-Set the actual Compose project name from `.env.production` in every command.
+Read the generated initial password on the server:
 
 ```bash
-cd ~/work/server/labAssistant
-LABASSISTANT_PROD_ENV="$PWD/.env.production"
-
-# First deployment on an empty database
-bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" install --confirm materials-lab-production
-
-# Release reviewed source: use a new release tag, build, then deploy it
-bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" build
-bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" upgrade --confirm materials-lab-production
-
-# Restart the currently deployed release
-bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" restart --confirm materials-lab-production
-
-# Optional independent recovery point; writers stay stopped afterwards
-bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" backup --confirm materials-lab-production
+cat ~/work/server/labAssistant/data/production-secrets/bootstrap_platform_admin_password
 ```
 
-`install` is only for an empty database. `upgrade` already stops writers and makes a recovery unit, so do not make an additional manual backup as a routine prerequisite. `backup` is for an explicitly requested independent recovery point, migration, or higher-risk operation; use `up --confirm` to resume after it completes.
+Existing secrets are retained. Configuration edits, restarts, and upgrades do not reset existing account passwords. After changing the password in the application, this initial-password file is not updated.
 
-## Release, rollback, and recovery
+> Only Web publishes a host port. API, PostgreSQL, and RustFS remain private; Redis is not used. HTTP does not encrypt passwords, cookies, or uploaded content. Restrict the port to trusted sources using the firewall/security group. Enable HTTPS before broader access or sensitive-data use.
 
-Each release uses a new immutable tag. Review code, migration compatibility, and the write-stop window before `upgrade`. The script stops API/Web and RustFS, creates a consistent PostgreSQL dump plus RustFS archive, then starts the new images. A failed upgrade leaves writers stopped and does not automatically roll back the database.
+## Upgrades and maintenance
 
-Do not edit an executed Flyway migration. For a schema-compatible issue, only the application image may be rolled back:
+Review the release and migrations, arrange a brief maintenance window, then run from the project directory:
 
 ```bash
-bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" rollback <previous-tag> \
-  --schema-compatible --confirm materials-lab-production
+git pull --ff-only origin main
+bash scripts/deploy.sh upgrade
 ```
 
-For incompatible schema changes, restore to a new isolated environment or make a forward fix. `restore-new` refuses to overwrite an existing data directory or database.
+The wrapper pulls pinned infrastructure images, builds the clean checked-out commit with a unique tag, stops writers, backs up PostgreSQL and RustFS, then starts and checks the release. Build failures leave existing services running. Failures after entering the write-stop phase leave writers stopped; there is no automatic database or application rollback. No manual SHA lookup or additional routine `backup` is needed.
 
-## Required acceptance
+| Operation | Command |
+| --- | --- |
+| Status | `bash scripts/deploy.sh status` |
+| Health check | `bash scripts/deploy.sh check` |
+| Restart deployed API/Web | `bash scripts/deploy.sh restart` |
+| Independent backup; leaves services stopped | `bash scripts/deploy.sh backup` |
+| Resume services after backup | `bash scripts/deploy.sh up` |
+| Resume a failed deployment's target version | `bash scripts/deploy.sh resume` |
+| Remove containers/network, retain data, secrets, and images | `bash scripts/deploy.sh uninstall` |
 
-After first install or release, verify the public URL, login/logout, tenant and project authorization, document/attachment operations, ELN lifecycle, firewall exposure, and recovery media. Health checks alone do not prove business acceptance.
+`install` refuses existing deployment state, data, or project containers. Use `up` after uninstall, not another `install`. No shortcut permanently deletes data. Apply port edits with `upgrade`; `restart` and `up` retain the last successful release and configuration even after pulling new code.
 
-For the full Chinese operational detail, including persistent layout and recovery-unit contents, see [生产 Compose 部署](production-deployment.md).
+The compact workflow supports one instance per Docker daemon, with Compose project name `materials-lab-production`. Always operate it as the same OS user. Multiple instances, custom paths, and offline image delivery use advanced configuration.
+
+## Storage and state
+
+Paths are resolved from the executing user's HOME:
+
+```text
+~/work/server/labAssistant/
+├── .env.production
+└── data/
+    ├── production-secrets/
+    └── deployment/
+        ├── active.env          # last successful full configuration
+        ├── incomplete.env      # only while deployment is incomplete
+        └── release.env.*       # per-build configuration snapshots
+
+~/work/data/labAssistant/
+├── postgres/
+├── rustfs/data/
+├── rustfs/logs/
+├── backups/
+└── releases/                  # manifests binding Git SHA and image IDs
+```
+
+API/Web standard output is managed by Docker's logging driver, not mapped into individual files. Secret directories use mode `0700`; file-backed Compose secrets are not encrypted and are readable by host/Docker administrators.
+
+A recovery unit contains a database dump, RustFS archive, two checksum files, and metadata. Keep all five files together and preserve secrets separately. Arrange encrypted off-server copies, capacity monitoring, and a retention policy; historical backups and images are not automatically deleted.
+
+## Interrupted deployments and recovery
+
+`incomplete.env` is written before startup; `active.env` changes only after success. An incomplete deployment blocks `install/upgrade/up/restart` from implicitly starting old code. Inspect the failure and fix its cause, then run:
+
+```bash
+bash scripts/deploy.sh resume
+```
+
+This performs only target-version `up` and health checks: no rebuild, bootstrap, or database rollback. If first-time bootstrap never completed, retain data, secrets, logs, and the failed configuration. Only after confirming the database is still empty, run the guarded initialization:
+
+```bash
+bash scripts/production.sh --env "$HOME/work/server/labAssistant/data/deployment/incomplete.env" bootstrap --confirm materials-lab-production
+bash scripts/deploy.sh resume
+```
+
+For partial data or migration failures, do not remove the marker or repeatedly initialize. Make a forward fix or restore to a new isolated environment. Never edit an executed V1 migration; subsequent schema changes require V2, V3, and so on. `production.sh restore-new` requires a different project name, fresh data path, and empty database. See `bash scripts/production.sh --help` for advanced arguments.
+
+Advanced `rollback <previous-tag> --schema-compatible` rolls back application images only and requires verified schema compatibility. It does not update compact-workflow state. Do not temporarily roll back with `active.env` and then continue using the compact wrapper: switch to a verified full configuration for the selected older release, or a later restart could select the wrong image. Incompatible schemas require forward repair or isolated recovery.
+
+## Existing deployments and advanced mode
+
+Keep existing `MATERIALS_LAB_*` configuration files; **do not overwrite them with the compact template**. The wrapper detects legacy configuration and delegates to the existing engine, retaining project name, paths, secrets, and explicit release tags. It neither moves data nor manages legacy versions automatically. Legacy upgrades still require a new configured tag and an explicit build:
+
+```bash
+bash scripts/production.sh --env "$PWD/.env.production" build
+bash scripts/deploy.sh upgrade
+```
+
+Use the [full template](../infra/.env.production.full.example) and [advanced engine](../scripts/production.sh) for custom paths, multiple instances, and offline delivery. The legacy workflow requires the pinned PostgreSQL/RustFS images to be available in advance. Only a full configuration can be passed directly to production Compose; the three-field compact file cannot.
+
+## Validation
+
+```bash
+bash -n scripts/deploy.sh scripts/production.sh
+node --test scripts/tests/production.test.mjs
+```
+
+These tests use isolated Git/Docker doubles, not production data. Real isolated integration acceptance uses `scripts/tests/production-acceptance.mjs --release <tag> --manifest <absolute-path>`. Neither replaces target-server acceptance: verify public access, authentication, tenant/project authorization, document uploads/downloads, ELN, exposed ports, and recovery. Health checks prove readiness only.
+
+Record releases in `audit/logs/` with Asia/Shanghai timestamps, versions, migrations, recovery units, and verification results. Do not record credentials or business content.

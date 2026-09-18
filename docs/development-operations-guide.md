@@ -176,7 +176,7 @@ Spring Boot 使用环境变量、系统属性、命令行参数和应用配置�
 ## 📦 生产部署入口与交付门槛
 
 生产运行统一使用[生产 Compose 部署指南](production-deployment.md)，其中维护实际构建、
-公网 HTTP IP:13501、一次性身份初始化、升级、备份及空库恢复步骤。本节只保留交付门槛，不复制命令。
+公网 HTTP IP:13501、一次性身份初始化、升级、备份及空库恢复步骤。日常入口为 `scripts/deploy.sh`，底层 `production.sh` 保留高级恢复与旧配置兼容。本节只保留交付门槛，不复制命令。
 现有开发 Compose 不能通过单改 `SPRING_PROFILES_ACTIVE` 切成生产。
 
 | 待完成事项 | 原因及验收要求 |

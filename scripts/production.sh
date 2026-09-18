@@ -66,7 +66,7 @@ is_ipv4() {
   IFS=. read -r -a lab_parts <<< "$lab_ip"
   for lab_part in "${lab_parts[@]}"; do [[ $lab_part -le 255 ]] || return 1; done
 }
-is_ipv4 "$MATERIALS_LAB_PUBLIC_HOST" || fail '访问主机必须是公网 IPv4，不含协议、端口或路径'
+[[ $MATERIALS_LAB_PUBLIC_HOST == auto ]] || is_ipv4 "$MATERIALS_LAB_PUBLIC_HOST" || fail '访问主机必须是 auto 或公网 IPv4，不含协议、端口或路径'
 is_ipv4 "$MATERIALS_LAB_HTTP_BIND_ADDRESS" || fail 'HTTP 绑定地址必须是 IPv4'
 [[ $MATERIALS_LAB_OBJECT_STORAGE_BUCKET =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ && $MATERIALS_LAB_OBJECT_STORAGE_BUCKET != *..* ]] || fail '对象存储桶名必须为 3 至 63 位小写字母、数字、点或连字符'
 lab_public_port=${MATERIALS_LAB_PUBLIC_PORT:-13501}

@@ -40,7 +40,7 @@ if (args[0] === "info") finish(mode === "engine-fails" ? 23 : 0);
 if (args[0] === "image" && args[1] === "inspect") {
   const postgresImage = args.at(-1).startsWith("postgres:18.4-alpine@sha256:");
   const rustfsImage = args.at(-1).startsWith("rustfs/rustfs:v1.0.0-rc.5@sha256:");
-  const unavailable = mode === "missing-images" || (mode === "missing-postgres" && postgresImage) || (mode === "build-images-absent" && !postgresImage && !rustfsImage && !state.built);
+  const unavailable = mode === "missing-images" || (mode === "missing-postgres" && postgresImage) || (mode === "build-images-absent" && !postgresImage && !rustfsImage && !state.builtTags?.includes(args.at(-1)));
   if (unavailable) finish(33);
   if (args.includes("--format")) {
     const image = args.at(-1);
@@ -51,7 +51,9 @@ if (args[0] === "image" && args[1] === "inspect") {
 }
 if (args[0] === "build") {
   if (mode === "build-fails") finish(41);
-  state.built = true;
+  const tag = args[args.indexOf("--tag") + 1];
+  if (process.env.LAB_PRODUCTION_TEST_WEB_BUILD_FAILURE === "true" && tag.startsWith("materials-lab-web:")) finish(41);
+  state.builtTags = [...(state.builtTags || []), tag];
   writeFileSync(stateFile, JSON.stringify(state));
   finish();
 }
@@ -71,6 +73,7 @@ while (["--project-directory", "--env-file", "-p", "-f"].includes(args[offset]))
 const action = args[offset];
 const tail = args.slice(offset + 1);
 if (action === "config") finish(mode === "config-fails" ? 19 : 0);
+if (action === "pull") finish(mode === "pull-fails" ? 39 : 0);
 if (action === "ps") {
   if (mode === "ps-fails") finish(71);
   // 单服务查询用于备份来源；多服务查询用于检查写入口是否停止。
@@ -86,7 +89,7 @@ if (action === "down" && tail.join(" ") === "--remove-orphans") finish();
 if (action === "up" && tail.includes("api") && tail.includes("web")) {
   state.started = true;
   writeFileSync(stateFile, JSON.stringify(state));
-  finish(mode === "api-up-fails" ? 42 : 0);
+  finish(mode === "api-up-fails" || process.env.LAB_PRODUCTION_TEST_API_FAILURE === "true" ? 42 : 0);
 }
 if (action === "up" && (tail.includes("postgres") || tail.includes("rustfs")) && !tail.includes("api") && !tail.includes("web")) finish();
 if (action === "run" && tail.at(-1) === "bootstrap") finish();
@@ -132,8 +135,8 @@ const args = process.argv.slice(2);
 const mode = process.env.LAB_PRODUCTION_TEST_GIT_MODE || "clean";
 const finish = (code = 0, output = "") => { process.stdout.write(output); process.exit(code); };
 if (args.at(-1) === "--is-inside-work-tree") finish(0, "true\\n");
-if (args.includes("status") && args.includes("--porcelain=v1")) finish(0, mode === "dirty" ? " M backend/src/main/java/Example.java\\n" : "");
-if (args.includes("rev-parse") && args.includes("HEAD")) finish(0, "0123456789abcdef0123456789abcdef01234567\\n");
+if (args.includes("status") && args.includes("--porcelain=v1")) finish(mode === "status-fails" ? 29 : 0, mode === "dirty" ? " M backend/src/main/java/Example.java\\n" : "");
+if (args.includes("rev-parse") && args.includes("HEAD")) finish(0, (process.env.LAB_PRODUCTION_TEST_GIT_SHA || "0123456789abcdef0123456789abcdef01234567") + "\\n");
 finish(97);
 `;
 writeFileSync(join(fakeBin, "git"), fakeGit, { mode: 0o755 });
@@ -163,9 +166,9 @@ function fixture(overrides = {}) {
 }
 
 /** 执行真实运维脚本，但 PATH 首项始终为不能透传命令的 Docker 替身。 */
-function run(f, args, extraEnvironment = {}) {
+function run(f, args, extraEnvironment = {}, entry = script) {
   const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("MATERIALS_LAB_")));
-  const result = spawnSync("bash", [script, ...args], {
+  const result = spawnSync("bash", [entry, ...args], {
     cwd: repository,
     encoding: "utf8",
     timeout: 15_000,
@@ -968,6 +971,118 @@ test("隔离生产验收由 Docker 分配并回读 HTTP 端口", () => {
   assert.match(source, /work', 'data', 'labAssistant'/);
   assert.doesNotMatch(source, /git', \['rev-parse'/);
   assert.doesNotMatch(source, /server\.listen\(0|function availablePort/);
+});
+
+/** 简化入口仍调用真实 production.sh，Git/Docker 保持不可透传的替身。 */
+function simpleFixture() {
+  const f = fixture();
+  writeFileSync(f.envFile, 'APP_PORT=13501\nADMIN_USERNAME=admin\nADMIN_DISPLAY_NAME=平台管理员\n');
+  f.active = join(f.directory, 'work/server/labAssistant/data/deployment/active.env');
+  f.incomplete = join(f.directory, 'work/server/labAssistant/data/deployment/incomplete.env');
+  return f;
+}
+function simple(f, action, environment = {}) {
+  return run(f, ['--env', f.envFile, action], environment, join(repository, 'scripts/deploy.sh'));
+}
+const buildEnvironment = { LAB_PRODUCTION_TEST_DOCKER_MODE: 'build-images-absent' };
+
+test('部分镜像构建失败后可重试，不覆盖已构建标签或创建上线标记', () => {
+  const f = simpleFixture();
+  const failed = simple(f, 'install', { ...buildEnvironment, LAB_PRODUCTION_TEST_WEB_BUILD_FAILURE: 'true' });
+  assert.notEqual(failed.status, 0);
+  assert.equal(existsSync(f.active), false);
+  assert.equal(existsSync(f.incomplete), false);
+  const firstTags = JSON.parse(readFileSync(f.stateFile, 'utf8')).builtTags;
+  assert.equal(firstTags.length, 1);
+  const result = simple(f, 'install', buildEnvironment);
+  assert.equal(result.status, 0, result.output);
+  const tags = JSON.parse(readFileSync(f.stateFile, 'utf8')).builtTags;
+  assert.equal(tags.length, 3);
+  assert.equal(new Set(tags).size, 3);
+});
+
+test('简化部署三项配置自动生成目录版本，安装拉取依赖并初始化', () => {
+  const f = simpleFixture();
+  const result = simple(f, 'install', buildEnvironment);
+  assert.equal(result.status, 0, result.output);
+  const active = readFileSync(f.active, 'utf8');
+  assert.match(active, /MATERIALS_LAB_RELEASE=0123456789ab-\d{14}-\d+/);
+  assert.ok(active.includes(`MATERIALS_LAB_DATA_ROOT=${f.directory}/work/data/labAssistant`));
+  assert.match(active, /MATERIALS_LAB_PUBLIC_HOST=auto/);
+  assert.match(active, /MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME=admin/);
+  assert.ok(calls(f).some(c => composeAction(c)?.action === 'pull'));
+  assert.ok(calls(f).some(c => composeAction(c)?.action === 'run'));
+  assert.equal(existsSync(f.incomplete), false);
+  assert.equal(existsSync(join(f.directory, 'work/data/labAssistant/.operation-lock')), false);
+  assert.equal(simple(f, 'install').status, 1, '再次 install 必须拒绝');
+});
+
+test('修改源代码提交或端口后，restart 仍使用已部署版本', () => {
+  const f = simpleFixture();
+  assert.equal(simple(f, 'install', buildEnvironment).status, 0);
+  const oldConfig = readFileSync(f.active, 'utf8');
+  writeFileSync(f.envFile, 'APP_PORT=13502\n');
+  const before = calls(f).length;
+  const result = simple(f, 'restart', { LAB_PRODUCTION_TEST_GIT_SHA: 'f'.repeat(40) });
+  assert.equal(result.status, 0, result.output);
+  assert.equal(readFileSync(f.active, 'utf8'), oldConfig);
+  assert.ok(!calls(f).slice(before).some(c => c[0] === 'build' || composeAction(c)?.action === 'pull'));
+});
+
+test('upgrade 自动构建新标签且保留原有密钥，成功后切换活动配置', () => {
+  const f = simpleFixture();
+  assert.equal(simple(f, 'install', buildEnvironment).status, 0);
+  const secret = join(f.directory, 'work/server/labAssistant/data/production-secrets/bootstrap_platform_admin_password');
+  const password = readFileSync(secret);
+  writeFileSync(f.stateFile, '{}');
+  writeFileSync(f.envFile, 'APP_PORT=13502\n');
+  const result = simple(f, 'upgrade', { ...buildEnvironment, LAB_PRODUCTION_TEST_GIT_SHA: 'f'.repeat(40) });
+  assert.equal(result.status, 0, result.output);
+  assert.match(readFileSync(f.active, 'utf8'), /MATERIALS_LAB_RELEASE=ffffffffffff-/);
+  assert.match(readFileSync(f.active, 'utf8'), /MATERIALS_LAB_PUBLIC_PORT=13502/);
+  assert.deepEqual(readFileSync(secret), password);
+  assert.ok(readdirSync(join(f.directory, 'work/data/labAssistant/backups')).some(p => p.endsWith('.dump')));
+});
+
+test('升级上线失败阻止旧版本 up/restart，resume 只恢复失败目标版本', () => {
+  const f = simpleFixture();
+  assert.equal(simple(f, 'install', buildEnvironment).status, 0);
+  const oldConfig = readFileSync(f.active, 'utf8');
+  writeFileSync(f.stateFile, '{}');
+  const result = simple(f, 'upgrade', { ...buildEnvironment, LAB_PRODUCTION_TEST_GIT_SHA: 'e'.repeat(40), LAB_PRODUCTION_TEST_API_FAILURE: 'true' });
+  assert.notEqual(result.status, 0);
+  assert.equal(readFileSync(f.active, 'utf8'), oldConfig);
+  assert.match(readFileSync(f.incomplete, 'utf8'), /MATERIALS_LAB_RELEASE=eeeeeeeeeeee-/);
+  for (const action of ['up','restart','upgrade','install']) assert.match(simple(f, action).output, /上次上线未完成/);
+  const resumed = simple(f, 'resume');
+  assert.equal(resumed.status, 0, resumed.output);
+  assert.match(readFileSync(f.active, 'utf8'), /MATERIALS_LAB_RELEASE=eeeeeeeeeeee-/);
+  assert.equal(existsSync(f.incomplete), false);
+});
+
+test('简化入口拒绝混合配置、无效端口、命令注入和 Git 状态读取失败', () => {
+  for (const config of ['APP_PORT=0\n', 'APP_PORT=13501\nAPP_PORT=13502\n', 'APP_PORT=$(touch /tmp/forbidden)\n', 'APP_PORT=13501\nMATERIALS_LAB_RELEASE=test\n']) {
+    const f = simpleFixture(); writeFileSync(f.envFile, config);
+    assert.notEqual(simple(f,'install').status,0); assert.deepEqual(calls(f),[]);
+  }
+  for (const mode of ['dirty','status-fails']) {
+    const f=simpleFixture(); assert.notEqual(simple(f,'install',{LAB_PRODUCTION_TEST_GIT_MODE:mode}).status,0); assert.deepEqual(calls(f),[]);
+  }
+});
+
+test('已有数据或项目容器时，简化 install 不得切换到新配置', () => {
+  const f=simpleFixture(); const directory=join(f.directory,'work/data/labAssistant/postgres');
+  mkdirSync(directory,{recursive:true}); writeFileSync(join(directory,'PG_VERSION'),'18');
+  assert.match(simple(f,'install').output,/已有持久化数据/); assert.deepEqual(calls(f),[]);
+  const g=simpleFixture(); const result=simple(g,'install',{LAB_PRODUCTION_TEST_DOCKER_MODE:'running'});
+  assert.match(result.output,/已有容器/); assert.ok(!calls(g).some(c=>composeAction(c)?.action==='pull'||c[0]==='build'));
+});
+
+test('简化入口保留旧配置项目与目录，不生成新的运行状态', () => {
+  const f=fixture(); const result=simple(f,'status');
+  assert.equal(result.status,0,result.output);
+  assert.ok(calls(f).some(c=>c.includes(f.values.MATERIALS_LAB_COMPOSE_PROJECT)));
+  assert.equal(existsSync(join(f.directory,'work/server/labAssistant/data/deployment')),false);
 });
 
 after(() => {

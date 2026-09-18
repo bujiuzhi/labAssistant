@@ -7,9 +7,18 @@ materials_lab_fail() {
     exit 1
 }
 
-: "${MATERIALS_LAB_PUBLIC_HOST:?必须配置生产访问 IPv4 MATERIALS_LAB_PUBLIC_HOST}"
+: "${MATERIALS_LAB_PUBLIC_HOST:=auto}"
 : "${MATERIALS_LAB_PUBLIC_PORT:=13501}"
 
+if [ "$MATERIALS_LAB_PUBLIC_HOST" = auto ]; then
+    MATERIALS_LAB_NGINX_SERVER_NAME=_
+    # 自动模式仅接收 IPv4 Host，避免任意域名通过 DNS 指向该实例；端口使用请求中的实际端口。
+    materials_lab_octet='(25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])'
+    materials_lab_port='([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])'
+    MATERIALS_LAB_NGINX_HOST_CHECK="if (\$http_host !~ \"^${materials_lab_octet}\\.${materials_lab_octet}\\.${materials_lab_octet}\\.${materials_lab_octet}(:${materials_lab_port})?\$\") { return 421; }"
+    MATERIALS_LAB_PROXY_HOST='$http_host'
+    MATERIALS_LAB_PROXY_PORT='$materials_lab_request_port'
+else
 if ! printf '%s\n' "$MATERIALS_LAB_PUBLIC_HOST" | LC_ALL=C grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; then
     materials_lab_fail '访问主机仅允许 IPv4，不含协议、端口或路径'
 fi
@@ -20,6 +29,11 @@ fi
         [ "$materials_lab_octet" -le 255 ] || materials_lab_fail '访问主机仅允许有效 IPv4'
     done
 )
+    MATERIALS_LAB_NGINX_SERVER_NAME=$MATERIALS_LAB_PUBLIC_HOST
+    MATERIALS_LAB_NGINX_HOST_CHECK="if (\$host != \"$MATERIALS_LAB_PUBLIC_HOST\") { return 421; }"
+    MATERIALS_LAB_PROXY_HOST="$MATERIALS_LAB_PUBLIC_HOST:$MATERIALS_LAB_PUBLIC_PORT"
+    MATERIALS_LAB_PROXY_PORT=$MATERIALS_LAB_PUBLIC_PORT
+fi
 case "$MATERIALS_LAB_PUBLIC_PORT" in
     ''|*[!0-9]*) materials_lab_fail '公开端口必须为 1 到 65535 的整数' ;;
 esac
@@ -29,13 +43,13 @@ if [ "${#MATERIALS_LAB_PUBLIC_PORT}" -gt 5 ] \
     materials_lab_fail '公开端口必须为 1 到 65535 的整数'
 fi
 
-export MATERIALS_LAB_PUBLIC_HOST MATERIALS_LAB_PUBLIC_PORT
+export MATERIALS_LAB_NGINX_SERVER_NAME MATERIALS_LAB_NGINX_HOST_CHECK MATERIALS_LAB_PROXY_HOST MATERIALS_LAB_PROXY_PORT
 mkdir -p /tmp/nginx/client_body /tmp/nginx/proxy /tmp/nginx/fastcgi /tmp/nginx/uwsgi /tmp/nginx/scgi
 # 显式限定替换列表，保留 $uri、$remote_addr 等 Nginx 运行期变量。
-envsubst '${MATERIALS_LAB_PUBLIC_HOST} ${MATERIALS_LAB_PUBLIC_PORT}' \
+envsubst '${MATERIALS_LAB_NGINX_SERVER_NAME} ${MATERIALS_LAB_NGINX_HOST_CHECK}' \
     < "/etc/nginx/materials-lab/server-http.conf.template" \
     > /tmp/nginx/server.conf
-envsubst '${MATERIALS_LAB_PUBLIC_HOST} ${MATERIALS_LAB_PUBLIC_PORT}' \
+envsubst '${MATERIALS_LAB_PROXY_HOST} ${MATERIALS_LAB_PROXY_PORT}' \
     < /etc/nginx/materials-lab/locations.conf.template \
     > /tmp/nginx/locations.conf
 nginx -t
