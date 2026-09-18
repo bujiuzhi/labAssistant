@@ -903,7 +903,7 @@ test("生产 Compose 静态模型：固定 prod、只读应用、独立非公开
   const postgres = yamlBlock(services, "postgres");
   const web = yamlBlock(services, "web");
   const bootstrap = yamlBlock(services, "bootstrap");
-  assert.deepEqual([...services.matchAll(/^  ([a-z][a-z_-]*):$/gm)].map(match => match[1]), ["postgres", "api", "web", "rustfs-permissions", "rustfs", "bootstrap"]);
+  assert.deepEqual([...services.matchAll(/^  ([a-z][a-z_-]*):$/gm)].map(match => match[1]), ["postgres-permissions", "postgres", "api", "web", "rustfs-permissions", "rustfs", "bootstrap"]);
   assert.match(source, /SPRING_PROFILES_ACTIVE: prod/);
   assert.match(source, /SPRING_CONFIG_IMPORT: configtree:\/run\/secrets\//);
   assert.match(source, /SESSION_COOKIE_SECURE: "false"/);
@@ -930,6 +930,10 @@ test("生产 Compose 静态模型：固定 prod、只读应用、独立非公开
   assert.match(postgres, /POSTGRES_USER: postgres/);
   assert.match(postgres, /POSTGRES_PASSWORD_FILE: \/run\/secrets\/postgres_password/);
   assert.match(postgres, /target: \/var\/lib\/postgresql\n/);
+  const postgresPermissions = yamlBlock(services, "postgres-permissions");
+  assert.match(postgresPermissions, /user: "0:0"/);
+  assert.match(postgresPermissions, /chown -R 70:70 \/postgres/);
+  assert.match(postgres, /postgres-permissions:\n        condition: service_completed_successfully/);
   assert.match(source, /  database:\n    internal: true/);
   assert.match(api, /target: spring\.datasource\.password/);
   assert.match(web, /MATERIALS_LAB_HTTP_BIND_ADDRESS:-0\.0\.0\.0/);

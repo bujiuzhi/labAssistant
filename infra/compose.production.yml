@@ -25,6 +25,21 @@ x-api-environment: &api-environment
   OBJECT_STORAGE_REGION: us-east-1
 
 services:
+  # PostgreSQL Alpine 镜像以 UID/GID 70 运行；宿主 bind mount 初始由部署用户创建，
+  # 须在启动数据库前调整项目专属目录的所有权。
+  postgres-permissions:
+    image: busybox:1.37.0
+    restart: "no"
+    user: "0:0"
+    command: ["sh", "-ec", "mkdir -p /postgres/18/docker && chown -R 70:70 /postgres"]
+    volumes:
+      - type: bind
+        source: ${MATERIALS_LAB_DATA_ROOT:?请设置独立持久目录}/postgres
+        target: /postgres
+        bind:
+          create_host_path: false
+    networks: [database]
+
   postgres:
     # 标签便于审计，官方多架构索引摘要锁定实际内容，避免供应链标签漂移。
     image: postgres:18.4-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
@@ -53,6 +68,9 @@ services:
         source: ./postgres/10-create-application-database.sh
         target: /docker-entrypoint-initdb.d/10-create-application-database.sh
         read_only: true
+    depends_on:
+      postgres-permissions:
+        condition: service_completed_successfully
     networks: [database]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d \"$$MATERIALS_LAB_DB_NAME\""]
