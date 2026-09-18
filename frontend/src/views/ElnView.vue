@@ -1218,16 +1218,14 @@ onBeforeUnmount(() => {
           <div v-else class="basic-info-create">
             <label>
               <span>关联项目</span>
-              <select v-model="editor.project_id">
-                <option value="">请选择项目</option>
-                <option
+              <el-select v-model="editor.project_id" clearable placeholder="请选择项目">
+                <el-option
                   v-for="project in projects"
                   :key="project.id"
+                  :label="project.name"
                   :value="project.id"
-                >
-                  {{ project.name }}
-                </option>
-              </select>
+                />
+              </el-select>
             </label>
             <label>
               <span>实验名称</span>
@@ -1241,12 +1239,9 @@ onBeforeUnmount(() => {
             </label>
             <label>
               <span>实验类型</span>
-              <select v-model="editor.experiment_type">
-                <option value="">请选择实验类型</option>
-                <option v-for="item in experimentTypes" :key="item" :value="item">
-                  {{ item }}
-                </option>
-              </select>
+              <el-select v-model="editor.experiment_type" clearable placeholder="请选择实验类型">
+                <el-option v-for="item in experimentTypes" :key="item" :label="item" :value="item" />
+              </el-select>
             </label>
             <label>
               <span>预估开始时间</span>
@@ -2270,7 +2265,6 @@ onBeforeUnmount(() => {
 }
 
 .basic-info-create input:not(.el-input__inner),
-.basic-info-create select,
 .basic-info-create textarea,
 .formula-editor input,
 .process-copy textarea,
@@ -2286,7 +2280,15 @@ onBeforeUnmount(() => {
 }
 
 .basic-info-create input:not(.el-input__inner),
-.basic-info-create select {
+.basic-info-create .el-select {
+  width: 100%;
+}
+
+.basic-info-create :deep(.el-select__wrapper) {
+  min-height: 36px;
+}
+
+.basic-info-create input:not(.el-input__inner) {
   height: 36px;
   padding: 0 10px;
 }
@@ -2297,7 +2299,7 @@ onBeforeUnmount(() => {
   resize: vertical;
 }
 
-.basic-info-create :is(input:not(.el-input__inner), select, textarea):focus,
+.basic-info-create :is(input:not(.el-input__inner), textarea):focus,
 .formula-editor input:focus,
 .process-copy textarea:focus,
 .result-section > textarea:focus,

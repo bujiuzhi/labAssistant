@@ -23,8 +23,7 @@ body {
 
 button,
 input,
-textarea,
-select {
+textarea {
   font: inherit;
 }
 
@@ -34,8 +33,7 @@ a {
 }
 
 button,
-a,
-select {
+a {
   outline: 2px solid transparent;
   outline-offset: 2px;
 }

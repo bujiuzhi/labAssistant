@@ -777,11 +777,11 @@ watch(() => route.params.projectId, loadProject);
                   aria-label="计划时间"
                   style="width: 100%"
                 />
-                <select v-model="item.state" aria-label="里程碑状态">
-                  <option value="todo">未开始</option>
-                  <option value="current">当前阶段</option>
-                  <option value="done">已完成</option>
-                </select>
+                <el-select v-model="item.state" aria-label="里程碑状态" style="width: 100%">
+                  <el-option label="未开始" value="todo" />
+                  <el-option label="当前阶段" value="current" />
+                  <el-option label="已完成" value="done" />
+                </el-select>
                 <button
                   class="ui-button ui-button--danger ui-button--icon milestone-remove"
                   type="button"
@@ -1513,8 +1513,7 @@ watch(() => route.params.projectId, loadProject);
   gap: 10px;
 }
 
-.milestone-editor-row > input,
-.milestone-editor-row > select {
+.milestone-editor-row > input {
   width: 100%;
   height: 36px;
   padding: 0 11px;
@@ -1526,10 +1525,13 @@ watch(() => route.params.projectId, loadProject);
   outline: none;
 }
 
-.milestone-editor-row > input:focus,
-.milestone-editor-row > select:focus {
+.milestone-editor-row > input:focus {
   border-color: var(--color-accent);
   box-shadow: 0 0 0 2px var(--color-accent-soft);
+}
+
+.milestone-editor-row :deep(.el-select__wrapper) {
+  min-height: 36px;
 }
 
 .milestone-editor-row > input::placeholder {
@@ -1635,8 +1637,7 @@ watch(() => route.params.projectId, loadProject);
     grid-template-columns: minmax(0, 1fr) 40px;
   }
 
-  .milestone-editor-row > .el-date-editor,
-  .milestone-editor-row > select {
+  .milestone-editor-row > :is(.el-date-editor, .el-select) {
     grid-column: 1;
   }
 

@@ -433,25 +433,24 @@ onBeforeUnmount(() => {
         </label>
         <label>
           <span>负责人</span>
-          <select v-model="filters.ownerId" @change="applyFilters">
-            <option value="">全部</option>
-            <option
+          <el-select v-model="filters.ownerId" clearable placeholder="全部" @change="applyFilters">
+            <el-option label="全部" value="" />
+            <el-option
               v-for="user in userOptions"
               :key="user.id"
+              :label="`${user.display_name}（${user.username}）`"
               :value="user.id"
-            >
-              {{ user.display_name }}
-            </option>
-          </select>
+            />
+          </el-select>
         </label>
         <label>
           <span>排序</span>
-          <select v-model="filters.ordering" @change="applyFilters">
-            <option value="-updated_at">更新时间 ↓</option>
-            <option value="updated_at">更新时间 ↑</option>
-            <option value="project_no">项目编号 ↑</option>
-            <option value="-project_no">项目编号 ↓</option>
-          </select>
+          <el-select v-model="filters.ordering" @change="applyFilters">
+            <el-option label="更新时间 ↓" value="-updated_at" />
+            <el-option label="更新时间 ↑" value="updated_at" />
+            <el-option label="项目编号 ↑" value="project_no" />
+            <el-option label="项目编号 ↓" value="-project_no" />
+          </el-select>
         </label>
         <label class="search-field">
           <Icon icon="tabler:search" />
@@ -559,11 +558,11 @@ onBeforeUnmount(() => {
         <footer class="table-footer">
           <label>
             每页显示
-            <select v-model="filters.pageSize" @change="applyFilters">
-              <option :value="10">10</option>
-              <option :value="20">20</option>
-              <option :value="50">50</option>
-            </select>
+            <el-select v-model="filters.pageSize" @change="applyFilters">
+              <el-option :value="10" label="10" />
+              <el-option :value="20" label="20" />
+              <el-option :value="50" label="50" />
+            </el-select>
           </label>
           <el-pagination
             v-model:current-page="filters.page"
@@ -864,7 +863,6 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-.filter-panel select,
 .filter-panel input {
   height: 36px;
   color: var(--color-ink-2);
@@ -874,9 +872,12 @@ onBeforeUnmount(() => {
   outline: 0;
 }
 
-.filter-panel select {
-  min-width: 108px;
-  padding: 0 28px 0 9px;
+.filter-panel .el-select {
+  width: 128px;
+}
+
+.filter-panel :deep(.el-select__wrapper) {
+  min-height: 36px;
 }
 
 .search-field {
@@ -1085,12 +1086,12 @@ td small {
   gap: 7px;
 }
 
-.table-footer select {
-  height: 32px;
-  padding: 0 20px 0 8px;
-  background: var(--color-paper);
-  border: 1px solid var(--color-rule-2);
-  border-radius: 5px;
+.table-footer .el-select {
+  width: 76px;
+}
+
+.table-footer :deep(.el-select__wrapper) {
+  min-height: 32px;
 }
 
 .empty-projects {

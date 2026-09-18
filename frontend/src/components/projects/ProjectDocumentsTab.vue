@@ -260,20 +260,20 @@ onMounted(loadDocuments);
           />
         </label>
         <span />
-        <select v-model="fileType" aria-label="文件类型">
-          <option value="">全部类型</option>
-          <option value="word">Word</option>
-          <option value="pdf">PDF</option>
-          <option value="excel">Excel</option>
-          <option value="powerpoint">PowerPoint</option>
-          <option value="image">图片</option>
-          <option value="text">文本</option>
-        </select>
-        <select v-model="updatedRange" aria-label="更新时间">
-          <option value="">最近更新</option>
-          <option value="week">本周</option>
-          <option value="month">本月</option>
-        </select>
+        <el-select v-model="fileType" clearable aria-label="文件类型" placeholder="全部类型">
+          <el-option label="全部类型" value="" />
+          <el-option label="Word" value="word" />
+          <el-option label="PDF" value="pdf" />
+          <el-option label="Excel" value="excel" />
+          <el-option label="PowerPoint" value="powerpoint" />
+          <el-option label="图片" value="image" />
+          <el-option label="文本" value="text" />
+        </el-select>
+        <el-select v-model="updatedRange" clearable aria-label="更新时间" placeholder="最近更新">
+          <el-option label="最近更新" value="" />
+          <el-option label="本周" value="week" />
+          <el-option label="本月" value="month" />
+        </el-select>
         <button
           class="ui-button ui-button--light upload-button"
           type="button"
@@ -364,15 +364,14 @@ onMounted(loadDocuments);
         <div>
           <label>
             <span>文档分类 <i>*</i></span>
-            <select v-model="uploadForm.category">
-              <option
+            <el-select v-model="uploadForm.category" placeholder="请选择文档分类">
+              <el-option
                 v-for="item in categoryOptions.slice(1)"
                 :key="item.value"
+                :label="item.label"
                 :value="item.value"
-              >
-                {{ item.label }}
-              </option>
-            </select>
+              />
+            </el-select>
           </label>
           <label>
             <span>版本 <i>*</i></span>
@@ -512,9 +511,7 @@ onMounted(loadDocuments);
   outline: 0;
 }
 
-.documents-toolbar select,
 .upload-button,
-.upload-form select,
 .upload-form input {
   height: 38px;
   padding: 0 10px;
@@ -523,6 +520,16 @@ onMounted(loadDocuments);
   background: var(--color-paper);
   border: 1px solid var(--color-rule-2);
   border-radius: 5px;
+}
+
+.documents-toolbar .el-select,
+.upload-form .el-select {
+  width: 100%;
+}
+
+.documents-toolbar :deep(.el-select__wrapper),
+.upload-form :deep(.el-select__wrapper) {
+  min-height: 38px;
 }
 
 .upload-button {

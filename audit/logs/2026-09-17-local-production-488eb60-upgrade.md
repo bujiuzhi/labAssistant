@@ -1,0 +1,28 @@
+# 2026-09-17 本机生产 488eb60 升级
+
+记录时间：2026-09-17 17:52:03（Asia/Shanghai）
+仓库与分支：`labAssistant` / `dev`
+代码提交：`488eb60`
+环境：本机 Docker Compose 项目 `materials-lab-local-production`；不是目标公网服务器
+
+## 范围与操作
+
+- 原运行镜像为 `materials-lab-api:f0c5da4` 与 `materials-lab-web:f0c5da4`。
+- 仅更新本机私有 `.env.production` 中的发布标签为 `488eb60`；未提交该配置，也未输出密钥内容。
+- 使用受控 `build` 生成 API/Web 镜像及发布清单 `releases/488eb60.json`。前端容器内 25 项测试、TypeScript 检查和生产构建通过；API Docker 构建阶段复用了已验证 Maven 缓存。
+- 使用 `upgrade --confirm materials-lab-local-production` 停止 Web/API 写入口和 RustFS，创建恢复组后启动新版本。恢复组时间标识为 `20260917-175125-58622`，包含 PostgreSQL dump、RustFS 数据归档及其校验/元数据文件。
+
+未清空、覆盖或删除 PostgreSQL、RustFS、密钥、备份或映射数据目录；未操作远程服务器。
+
+## 验证
+
+- Compose 等待结果：PostgreSQL、RustFS、API、Web 均为 `healthy`；一次性 `rustfs-permissions` 正常退出。
+- 运行镜像：API 与 Web 均为 `488eb60`。
+- `production.sh check` 返回数据库和对象存储 `ready`。
+- `http://127.0.0.1:15105/` 返回 HTTP 200。
+
+以上仅证明本机服务、依赖连接和入口可用；未执行目标公网访问、登录、权限、上传下载或恢复演练验收。
+
+## 恢复边界
+
+如需恢复，先停止写入口，使用同一恢复组在不同 Compose 项目名、全新数据目录和空目标数据库执行 `restore-new`。不使用覆盖现有数据目录或直接回退数据库的方式。

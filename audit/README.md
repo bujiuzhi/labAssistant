@@ -117,3 +117,9 @@ _本目录保存来源、历史观察和变更记录；现行规范见 docs。_
 
 [2026-09-17 本机生产 f0c5da4 升级](logs/2026-09-17-local-production-f0c5da4-upgrade.md)
 记录本机从 `b6e9f1a` 升级至 `f0c5da4` 的恢复组、镜像切换与健康核验；不代表目标公网服务器验收。
+
+[2026-09-17 本机生产 488eb60 升级](logs/2026-09-17-local-production-488eb60-upgrade.md)
+记录本机将项目人员选项展示修复升级至 `488eb60` 的恢复组、镜像切换与健康核验；不代表目标公网服务器验收。
+
+[2026-09-18 Element Plus 下拉组件统一](logs/2026-09-18-element-plus-select-unification.md)
+记录业务下拉从浏览器原生控件统一为项目既有 Element Plus 组件的边界、兼容性语义及验证结果；未构建或部署。
