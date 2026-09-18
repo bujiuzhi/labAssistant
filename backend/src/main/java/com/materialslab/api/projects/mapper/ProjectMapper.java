@@ -104,6 +104,23 @@ public interface ProjectMapper {
     int addCreatorAsManager(@Param("id") UUID id, @Param("organizationId") UUID organizationId,
                             @Param("projectId") UUID projectId, @Param("userId") UUID userId);
 
+    /** 清除项目中由“人员组成”维护的普通实验员成员关系，保留负责人和项目管理成员。 */
+    @Update("""
+            DELETE FROM project_member
+            WHERE organization_id = #{organizationId} AND project_id = #{projectId} AND member_role = 'researcher'
+            """)
+    int deleteResearcherMembers(@Param("organizationId") UUID organizationId, @Param("projectId") UUID projectId);
+
+    /** 将当前组织的有效账号作为普通实验员加入项目。 */
+    @Insert("""
+            INSERT INTO project_member(id, organization_id, project_id, user_id, member_role, created_by_id)
+            VALUES (#{id}, #{organizationId}, #{projectId}, #{userId}, 'researcher', #{createdById})
+            ON CONFLICT (project_id, user_id) DO NOTHING
+            """)
+    int addResearcherMember(@Param("id") UUID id, @Param("organizationId") UUID organizationId,
+                            @Param("projectId") UUID projectId, @Param("userId") UUID userId,
+                            @Param("createdById") UUID createdById);
+
     /** 以版本号更新项目；返回零代表并发冲突。 */
     @Update("""
             UPDATE project SET name = #{name}, project_type_code = #{projectTypeCode}, description = #{description},

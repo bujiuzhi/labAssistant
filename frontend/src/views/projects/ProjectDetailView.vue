@@ -130,7 +130,7 @@ const canEdit = computed(
     editableStatuses.includes(apiProject.value.status),
 );
 const canManageMembers = computed(() =>
-  sessionStore.hasPermission("project.manage_members"),
+  sessionStore.hasPermission("project.update"),
 );
 const projectIsWritable = computed(
   () =>

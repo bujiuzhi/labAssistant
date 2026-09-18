@@ -98,8 +98,11 @@ public class ProjectService {
         accessControlService.requirePermission(principal, "project.create");
         ProjectWriteCommand command = command(null, principal.organizationId(), principal.userId(), payload, 0, nextProjectNo());
         requireOrganizationUser(principal.organizationId(), command.ownerId());
+        LinkedHashSet<UUID> memberIds = memberIds(payload, command.ownerId());
+        requireOrganizationMembers(principal.organizationId(), memberIds);
         projectMapper.insert(command);
         projectMapper.addCreatorAsManager(UUID.randomUUID(), principal.organizationId(), command.id(), principal.userId());
+        replaceResearcherMembers(principal, command.id(), memberIds);
         return get(principal, command.projectNo());
     }
 
@@ -111,7 +114,10 @@ public class ProjectService {
         requireManageAccess(principal, existing);
         ProjectWriteCommand command = command(existing, principal.organizationId(), principal.userId(), payload, version, existing.projectNo());
         requireOrganizationUser(principal.organizationId(), command.ownerId());
+        LinkedHashSet<UUID> memberIds = payload.has("member_ids") ? memberIds(payload, command.ownerId()) : null;
+        if (memberIds != null) requireOrganizationMembers(principal.organizationId(), memberIds);
         if (projectMapper.update(command) == 0) throw new BusinessException(HttpStatus.PRECONDITION_FAILED, "version_conflict", "项目已被其他用户更新，请刷新后重试");
+        if (memberIds != null) replaceResearcherMembers(principal, existing.id(), memberIds);
         return get(principal, projectNo);
     }
 
@@ -202,6 +208,55 @@ public class ProjectService {
     private void requireOrganizationUser(UUID organizationId, UUID userId) {
         if (!projectMapper.isActiveOrganizationUser(organizationId, userId)) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "项目负责人必须是当前组织的有效用户");
+        }
+    }
+
+    /**
+     * 读取项目人员组成。负责人本身通过项目 owner 字段获得访问范围，不重复写入普通成员关系。
+     *
+     * @param payload 项目创建或更新请求体
+     * @param ownerId 当前请求确定的项目负责人
+     * @return 去重后的普通成员主键集合
+     */
+    private LinkedHashSet<UUID> memberIds(JsonNode payload, UUID ownerId) {
+        JsonNode value = payload.get("member_ids");
+        if (value == null || !value.isArray()) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "member_ids 必须为 UUID 数组");
+        }
+        if (value.size() > 200) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "项目成员不能超过 200 人");
+        }
+        LinkedHashSet<UUID> members = new LinkedHashSet<>();
+        for (JsonNode item : value) {
+            if (!item.isTextual()) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "member_ids 必须为 UUID 数组");
+            }
+            try {
+                members.add(UUID.fromString(item.asText()));
+            } catch (IllegalArgumentException error) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "member_ids 必须为 UUID 数组");
+            }
+        }
+        members.remove(ownerId);
+        return members;
+    }
+
+    /** 校验所有普通项目成员都属于当前组织且处于启用状态。 */
+    private void requireOrganizationMembers(UUID organizationId, LinkedHashSet<UUID> memberIds) {
+        for (UUID memberId : memberIds) {
+            if (!projectMapper.isActiveOrganizationUser(organizationId, memberId)) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "validation_error", "项目成员必须是当前组织的有效用户");
+            }
+        }
+    }
+
+    /**
+     * 原子同步项目普通成员。创建者的 manager 关系和项目负责人的 owner 字段均不会被此流程删除。
+     */
+    private void replaceResearcherMembers(UserPrincipal principal, UUID projectId, LinkedHashSet<UUID> memberIds) {
+        projectMapper.deleteResearcherMembers(principal.organizationId(), projectId);
+        for (UUID memberId : memberIds) {
+            projectMapper.addResearcherMember(UUID.randomUUID(), principal.organizationId(), projectId, memberId, principal.userId());
         }
     }
 

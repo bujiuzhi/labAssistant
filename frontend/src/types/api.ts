@@ -28,7 +28,7 @@ export interface ProjectMilestone {
 export interface ProjectMember {
   user_id: string;
   display_name: string;
-  member_role: "owner" | "researcher" | "inspector" | "viewer";
+  member_role: "owner" | "manager" | "researcher" | "inspector" | "viewer";
 }
 
 export interface Project {
