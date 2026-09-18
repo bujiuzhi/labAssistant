@@ -123,3 +123,6 @@ _本目录保存来源、历史观察和变更记录；现行规范见 docs。_
 
 [2026-09-18 Element Plus 下拉组件统一](logs/2026-09-18-element-plus-select-unification.md)
 记录业务下拉从浏览器原生控件统一为项目既有 Element Plus 组件的边界、兼容性语义及验证结果；未构建或部署。
+
+[2026-09-18 本机生产 fe385a1 升级](logs/2026-09-18-local-production-fe385a1-upgrade.md)
+记录 Element Plus 下拉组件统一版本的本机构建、恢复组、镜像切换和健康核验；不代表目标公网服务器验收。
