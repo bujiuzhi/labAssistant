@@ -69,7 +69,7 @@ is_ipv4() {
 is_ipv4 "$MATERIALS_LAB_PUBLIC_HOST" || fail '访问主机必须是公网 IPv4，不含协议、端口或路径'
 is_ipv4 "$MATERIALS_LAB_HTTP_BIND_ADDRESS" || fail 'HTTP 绑定地址必须是 IPv4'
 [[ $MATERIALS_LAB_OBJECT_STORAGE_BUCKET =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ && $MATERIALS_LAB_OBJECT_STORAGE_BUCKET != *..* ]] || fail '对象存储桶名必须为 3 至 63 位小写字母、数字、点或连字符'
-lab_public_port=${MATERIALS_LAB_PUBLIC_PORT:-15105}
+lab_public_port=${MATERIALS_LAB_PUBLIC_PORT:-13501}
 [[ $lab_public_port =~ ^[1-9][0-9]{0,4}$ && $lab_public_port -le 65535 ]] || fail '公开端口必须为 1 到 65535 的整数'
 [[ $MATERIALS_LAB_HTTP_BIND_PORT =~ ^(0|[1-9][0-9]{0,4})$ && $MATERIALS_LAB_HTTP_BIND_PORT -le 65535 ]] || fail 'HTTP 宿主绑定端口必须为 0 到 65535 的整数'
 if [[ $MATERIALS_LAB_HTTP_BIND_PORT != 0 && $MATERIALS_LAB_HTTP_BIND_PORT != "$lab_public_port" ]]; then

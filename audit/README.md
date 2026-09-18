@@ -39,6 +39,15 @@ _本目录保存来源、历史观察和变更记录；现行规范见 docs。_
 
 ## 🔄 本次文档对齐
 
+[2026-09-18 采用 AGPL-3.0-only](logs/2026-09-18-agpl-license-adoption.md)
+记录用户选择 AGPL、官方许可证正文、双语说明、贡献及包元数据对齐；该协议允许商用并包含源码提供义务及专利许可条款。
+
+[2026-09-18 README 展示结构调整](logs/2026-09-18-readme-presentation-refresh.md)
+记录参考 DocWeave 的双语首页排版、生产入口补充及 GitHub Markdown 渲染验证；当时未定的许可证选型已由后续 AGPL 采用记录承接。
+
+[2026-09-18 生产默认端口与 README 部署入口调整](logs/2026-09-18-production-port-and-readme-entry.md)
+记录默认公网端口由 `15105` 调整为 `13501`、README 改为生产优先及本次验证边界；不代表已重启或更新任何服务器。
+
 [2026-09-18 公开仓库双语文档整理](logs/2026-09-18-open-source-documentation-bilingual-refresh.md)
 记录公开仓库的双语入口、文档导航、运维命令语义与未授予许可证边界；本次不变更运行配置或部署状态。
 

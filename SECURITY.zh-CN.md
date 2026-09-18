@@ -24,7 +24,7 @@
 - 使用独立强密钥和项目隔离的数据目录。
 - 不要将 PostgreSQL、RustFS 或 API 映射到宿主机端口。
 - 仅向可信来源开放 Web 入口。
-- `HTTP IP:15105` 是明文传输模式，仅适用于已接受风险的少量可信用户。
+- `HTTP IP:13501` 是明文传输模式，仅适用于已接受风险的少量可信用户。
 - 发布或其他计划内高风险操作前，将 PostgreSQL 与 RustFS 一并备份为同一恢复组；在独立空环境测试恢复。
 
 当前运维限制见[生产 Compose 部署](docs/production-deployment.md)。

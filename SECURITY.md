@@ -24,7 +24,7 @@ Maintainers should confirm scope, coordinate a fix and validation, then agree on
 - Use unique, strong secrets and project-isolated data directories.
 - Keep PostgreSQL, RustFS, and the API off host-published ports.
 - Restrict access to the documented Web entry point.
-- Treat the selected `HTTP IP:15105` profile as unencrypted transport; it is only appropriate for trusted, limited-access users who accept that risk.
+- Treat the selected `HTTP IP:13501` profile as unencrypted transport; it is only appropriate for trusted, limited-access users who accept that risk.
 - Back up PostgreSQL and RustFS as one recovery unit before a release or other planned high-risk operation; test restores in a separate empty environment.
 
 See the [production deployment guide](docs/production-deployment.en.md) for current operational constraints.

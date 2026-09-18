@@ -11,10 +11,10 @@ _更新时间：2026-09-18，Asia/Shanghai。_
 当前经明确授权使用**无 TLS 的公网 HTTP 入口**：
 
 ```text
-http://<公网 IPv4>:15105
+http://<公网 IPv4>:13501
 ```
 
-仅 Nginx Web 服务映射宿主 `15105/TCP`；API、PostgreSQL 与 RustFS 均不映射宿主端口，数据库和对象存储仍位于内部网络。该方案不使用域名、证书、HTTPS、Secure Cookie 或 HSTS。
+仅 Nginx Web 服务映射宿主 `13501/TCP`；API、PostgreSQL 与 RustFS 均不映射宿主端口，数据库和对象存储仍位于内部网络。该方案不使用域名、证书、HTTPS、Secure Cookie 或 HSTS。
 
 > 警告：HTTP 不加密传输登录口令、会话 Cookie 与上传内容。它只适用于已知、少量用户且已接受该风险的场景；不能被表述为 TLS 安全的公网生产服务。若接入范围扩大、数据敏感度提高或需合规审计，应先恢复 HTTPS。
 
@@ -70,9 +70,9 @@ chmod 600 .env.production
 
 ```ini
 MATERIALS_LAB_PUBLIC_HOST=<服务器公网 IPv4>
-MATERIALS_LAB_PUBLIC_PORT=15105
+MATERIALS_LAB_PUBLIC_PORT=13501
 MATERIALS_LAB_HTTP_BIND_ADDRESS=0.0.0.0
-MATERIALS_LAB_HTTP_BIND_PORT=15105
+MATERIALS_LAB_HTTP_BIND_PORT=13501
 ```
 
 `MATERIALS_LAB_PUBLIC_HOST` 为纯 IPv4，不带 `http://`、端口或路径。`HTTP_BIND_PORT` 必须与公开端口一致；仅隔离验收可使用 `0` 让 Docker 动态分配端口。
@@ -95,7 +95,7 @@ MATERIALS_LAB_HTTP_BIND_PORT=15105
 
 首次 `install` 会自动创建不存在的密钥目录与持久目录；若密钥目录已经存在，脚本只校验并保留，绝不覆盖。密钥目录权限为 `0700`，文件为 `0444`，不会打印密码。Compose 文件型 secret 不是加密存储；Docker 管理权限和服务器管理员均可读取，必须保护宿主机与备份。
 
-在服务器防火墙/云安全组中仅允许可信来源访问 `15105/TCP`，不要暴露 `5432`、`8000`、`9000` 或 RustFS 控制台。若无法限制来源，任何互联网用户均可请求 HTTP 入口。
+在服务器防火墙/云安全组中仅允许可信来源访问 `13501/TCP`，不要暴露 `5432`、`8000`、`9000` 或 RustFS 控制台。若无法限制来源，任何互联网用户均可请求 HTTP 入口。
 
 预先在构建机或目标服务器获得以下锁定镜像，离线交付需校验完整 tag@digest：
 
@@ -106,11 +106,11 @@ docker image inspect 'rustfs/rustfs:v1.0.0-rc.5@sha256:b7014e0ce2bc703c1316b3ef7
 
 `install` 内部执行预检和 API/Web 构建测试，生成同标签镜像与 `releases/<标签>.json`，再在空库上执行 Flyway 和身份初始化。初始化只创建内部平台组织、平台管理员和全局权限字典；业务组织、项目、实验、文档和开发用户均为 0。若构建机与服务器不同，仍需受控分发两份镜像与对应清单，目标服务器使用 `up` 启动。
 
-通过实际地址 `http://<公网 IPv4>:15105` 完成以下验收：
+通过实际地址 `http://<公网 IPv4>:13501` 完成以下验收：
 
 | 检查 | 预期 |
 | --- | --- |
-| 网络 | 仅 `15105/TCP` 可访问；API、PostgreSQL、RustFS 无宿主端口 |
+| 网络 | 仅 `13501/TCP` 可访问；API、PostgreSQL、RustFS 无宿主端口 |
 | 登录与退出 | CSRF 生效；Session 为 HttpOnly，但不带 Secure 属性 |
 | 空库 | 项目、实验、文档为空；不存在 `DEV_TEST` 与开发账户 |
 | 业务 | 创建项目、上传下载文档、ELN 和权限操作按交付范围正常 |
@@ -118,6 +118,8 @@ docker image inspect 'rustfs/rustfs:v1.0.0-rc.5@sha256:b7014e0ce2bc703c1316b3ef7
 | 恢复 | 完整恢复组可恢复到新隔离环境，身份与文件正文完整 |
 
 验收后将初始化平台管理员密码转存到受控密码库。脚本不自动删除临时密钥文件、容器、镜像或数据目录。
+
+初始登录名取自 `MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME`。首次生成的密码保存在 `MATERIALS_LAB_SECRETS_DIR` 指定目录下的 `bootstrap_platform_admin_password` 文件中，通过服务器上的受控方式读取；重启或升级不会重置数据库内已有账号的密码。登录后由平台管理员开通业务组织及首个组织超级管理员，再使用组织账号开展业务。
 
 ## 5. 升级、回退与恢复
 

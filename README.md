@@ -1,132 +1,182 @@
-# Materials Lab Assistant
+<div align="center">
+  <h1>🔬 Materials Lab Assistant</h1>
 
-[English](README.md) | [简体中文](README.zh-CN.md)
+### Project collaboration and electronic lab notebooks for materials R&D
 
-Materials Lab Assistant is a multi-tenant web application for material R&D teams. It combines organization administration, project collaboration, electronic laboratory notebooks (ELN), and controlled document storage in one self-hosted deployment.
+**Keep project plans, experiment records, and research files connected.**
 
-> This repository is public, but it is **not licensed for reuse yet**. See [License](#license) before copying, redistributing, or modifying the code.
+![Java](https://img.shields.io/badge/Java-25-ed8b00) ![Vue](https://img.shields.io/badge/Vue-3-42b883?logo=vuedotjs&logoColor=white) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169e1?logo=postgresql&logoColor=white) ![Deployment](https://img.shields.io/badge/Docker-Compose-2496ed?logo=docker&logoColor=white) [![GitHub Stars](https://img.shields.io/github/stars/bujiuzhi/labAssistant?style=flat&logo=github&label=Stars)](https://github.com/bujiuzhi/labAssistant/stargazers)
 
-## Highlights
+**English** · [简体中文](README.zh-CN.md)
 
-- **Tenant isolation and RBAC** — a platform administrator provisions organizations; each account belongs to one organization; organization roles grant actions while project membership limits data scope.
-- **Project collaboration** — projects, objectives, milestones, members, activity history, and document management.
-- **ELN workflow** — experiment plans, participants, process photos, result attachments, status transitions, and completed-record immutability.
-- **Private file storage** — PostgreSQL stores business metadata and authorization relationships; RustFS stores document and attachment bodies.
-- **Self-hosted operations** — production Docker Compose keeps PostgreSQL, RustFS, API, and Web isolated and provides controlled install, release, recovery, and rollback commands.
+[![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-663399)](LICENSE)
 
-Redis and LibreOffice-based document conversion are not part of the current release.
+[Quick start](#quick-start) · [Features](#features) · [Accounts and permissions](#accounts-and-permissions) · [Upgrades and maintenance](#upgrades-and-maintenance) · [Local development](#local-development) · [Documentation](#documentation)
+</div>
 
-## Architecture
+---
 
-```text
-Browser
-  │ HTTP (current production profile)
-  ▼
-Nginx / Web ─────────────► Spring Boot API
-                                  ├── PostgreSQL: business data, ELN, RBAC
-                                  └── RustFS: project documents and attachments
-```
+Materials Lab Assistant brings organizations, projects, experiment plans, lab records, and documents into one self-hosted workspace. It serves materials R&D teams that need organization-level data isolation, project-based collaboration, and a shared history of experimental work.
 
-Only the Web entry point is published by production Compose. The API, PostgreSQL, and RustFS remain on internal Docker networks.
+| 🧪 Experiment records | 👥 Team collaboration | 📦 Self-hosted deployment |
+| :---: | :---: | :---: |
+| Plans, process photos, and result attachments | Tenant isolation, roles, and project membership | Docker Compose with data on your own server |
 
-## Quick start for development
+## Quick start
 
-Development Compose is isolated from production and initializes development fixtures. Never point it at production PostgreSQL, RustFS, credentials, or data directories.
+Use the `main` branch for production. The server needs Docker Engine, Docker Compose **2.24.4+**, Git, Bash, OpenSSL, and standard archive tools. Docker images provide the Java and frontend build environments.
 
-### Prerequisites
-
-- Docker Engine with Docker Compose v2
-- JDK 25 only when running Maven directly on the host
-- Node.js with Corepack/pnpm only when running frontend commands on the host; use the pnpm version declared in [`frontend/package.json`](frontend/package.json)
+### 1. Get the code and configuration
 
 ```bash
-git clone https://github.com/bujiuzhi/labAssistant.git
-cd labAssistant
+mkdir -p ~/work/server
+git clone --branch main https://github.com/bujiuzhi/labAssistant.git ~/work/server/labAssistant
+cd ~/work/server/labAssistant
 
-if [ ! -e .env ]; then
-  (umask 077; cp .env.example .env)
+if [ ! -e .env.production ]; then
+  (umask 077; cp infra/.env.production.example .env.production)
 fi
-
-pnpm --dir frontend install --frozen-lockfile
-docker compose --env-file .env -f infra/docker-compose.yml config --quiet
-docker compose --env-file .env -f infra/docker-compose.yml up -d
-docker compose --env-file .env -f infra/docker-compose.yml ps
+chmod 600 .env.production
 ```
 
-- Web: `http://127.0.0.1:5173/`
-- API liveness: `http://127.0.0.1:8000/api/v1/health/live`
-- API readiness: `http://127.0.0.1:8000/api/v1/health/ready`
+Edit `.env.production` and replace every `CHANGE_ME` value:
 
-For environment variables, fixture behavior, data paths, and troubleshooting, read the [development and operations guide](docs/development-operations-guide.en.md).
+| Setting | Value |
+| --- | --- |
+| `MATERIALS_LAB_RELEASE` | A unique release tag; the output of `git rev-parse --short HEAD` is suitable |
+| `MATERIALS_LAB_PUBLIC_HOST` | Public server IPv4, without a scheme or port |
+| `MATERIALS_LAB_DATA_ROOT` | Absolute data path, such as `/home/your-user/work/data/labAssistant` |
+| `MATERIALS_LAB_SECRETS_DIR` | Separate secret directory, such as `/home/your-user/work/server/labAssistant/data/production-secrets` |
+| `MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME` | Initial platform administrator login |
+| `MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_DISPLAY_NAME` | Initial platform administrator display name |
 
-## Quality checks
+Use actual values, without quotes, a literal `~`, or shell expressions. See the full [configuration template](infra/.env.production.example).
+
+Before the first installation, fetch the pinned database and object-storage images:
 
 ```bash
-# Backend: requires JDK 25
-mvn -f backend/pom.xml verify
-
-# Frontend: requires locked dependencies
-pnpm --dir frontend test
-pnpm --dir frontend run build
-
-# Production-operation script tests
-node --test scripts/tests/production.test.mjs
-
-# Whitespace and patch integrity
-git diff --check
+docker compose --env-file .env.production -f infra/compose.production.yml pull postgres rustfs
 ```
 
-Passing these checks does not replace production acceptance for login, authorization, upload/download, firewall rules, or recovery.
+### 2. Install with one command
 
-## Production lifecycle
+```bash
+bash scripts/production.sh --env "$PWD/.env.production" install --confirm materials-lab-production
+```
 
-Production Compose expects code and private configuration in `~/work/server/labAssistant` and persistent data in `~/work/data/labAssistant`. Copy [`infra/.env.production.example`](infra/.env.production.example) to a private `.env.production`; do not commit it.
+The script generates secrets, prepares directories, builds images, initializes the empty database, and starts the services. Open **`http://server-ip:13501`** in your browser.
 
-| Situation | Command | Effect |
-| --- | --- | --- |
-| First deployment on an empty database | `install` | Creates missing secrets and directories, builds, initializes the empty production database, and starts services. |
-| Release a reviewed version | `build` then `upgrade` | Builds or imports immutable images; `upgrade` stops writes, creates a PostgreSQL + RustFS recovery unit, then starts the new version. |
-| Safe service restart | `restart` | Restarts API and Web only, then waits for health checks. |
-| Independent recovery point | `backup` | Stops writers and creates a recovery unit; services remain stopped until `up` is run. Not a routine online backup. |
+Installation creates only the platform administrator and internal platform organization, with **zero business organizations** and no sample projects, experiments, or development accounts. See the [deployment guide](docs/production-deployment.en.md) for credential storage and first-login instructions.
 
-Use the full commands and preconditions in the [production deployment guide](docs/production-deployment.en.md). `install` is only for an empty database. `upgrade` never builds from an unreviewed working tree and already creates its own recovery unit; do not run an extra manual `backup` before every ordinary upgrade.
+> [!IMPORTANT]
+> `install` is for an empty database. Use the upgrade workflow for an existing deployment. Explicit port values in `.env.production` remain effective. The current HTTP entry does not encrypt passwords, sessions, or files; restrict `13501/TCP` to trusted sources.
 
-The currently documented minimal deployment profile exposes trusted users through HTTP at `http://<public-ip>:15105`. HTTP sends credentials, cookies, and uploaded content without transport encryption. Restrict `15105/TCP` to trusted sources and move to HTTPS before expanding access or handling higher-sensitivity data.
+## Features
 
-## Documentation
-
-| English | 中文 |
+| Capability | Description |
 | --- | --- |
-| [Documentation index](docs/README.md) | [文档索引](docs/README.zh-CN.md) |
-| [System overview](docs/overview-design.en.md) | [系统概要设计](docs/overview-design.md) |
-| [Detailed design](docs/detailed-design.en.md) | [详细设计](docs/detailed-design.md) |
-| [Production deployment](docs/production-deployment.en.md) | [生产 Compose 部署](docs/production-deployment.md) |
-| [Development and operations](docs/development-operations-guide.en.md) | [开发与运维指南](docs/development-operations-guide.md) |
-| [OpenAPI contract](contracts/openapi.yaml) | [OpenAPI 契约](contracts/openapi.yaml) |
+| Project overview | View accessible project cards and project/experiment metrics |
+| Project collaboration | Manage objectives, milestones, owners, project members, and archiving |
+| Electronic lab notebooks | Record experiment plans, participants, process notes, photos, and result attachments |
+| Experiment lifecycle | Track not-started, in-progress, and completed states; completed records are read-only |
+| Document management | Categorize, upload, and download authorized documents; preview supported formats in the browser |
+| Multi-tenancy and RBAC | Organization isolation, role permissions, and project-membership data scope |
+| Account management | Invitation registration, administrator-created users, deactivation, logical deletion, and password management |
+| Deployment and recovery | Dedicated Compose services, upgrade backups, application rollback, and recovery into an empty target |
 
-Historical sources, decisions, and verification evidence live in [audit/](audit/README.md). They are historical records, not a description of the current runtime behavior.
+PostgreSQL stores business metadata; RustFS stores new document and attachment bodies. Redis and LibreOffice conversion are not part of the current release. See the [system overview](docs/overview-design.en.md) for scope and limitations.
 
-## Repository layout
+## Accounts and permissions
+
+The platform administrator provisions an organization and its first super administrator together. Organization administrators then manage their own members and invitations. Each account belongs to one organization.
+
+| Identity | Responsibility and scope |
+| --- | --- |
+| Platform administrator | List and provision organizations; no access to tenant business data |
+| Organization super administrator | Manage users, invitations, and business operations within the organization |
+| Project administrator | Manage authorized projects, members, documents, and experiments |
+| Researcher | Read assigned projects and work on related experiments where lifecycle rules allow |
+
+Roles grant actions; project membership and other relationships determine accessible data. The backend checks both. See the [authorization design](docs/detailed-design.en.md).
+
+## Upgrades and maintenance
+
+Run commands from the project directory. The name after `--confirm` must match `MATERIALS_LAB_COMPOSE_PROJECT` in the configuration.
+
+```bash
+LABASSISTANT_PROD_ENV="$PWD/.env.production"
+```
+
+To upgrade, synchronize reviewed code from `main` and set a **new release tag** in `.env.production`:
+
+```bash
+bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" build
+bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" upgrade --confirm materials-lab-production
+```
+
+`upgrade` stops writes, backs up PostgreSQL and RustFS, then starts the new release. Building requires a clean, committed checkout. An ordinary upgrade already includes a backup.
+
+| Operation | Command |
+| --- | --- |
+| View status | `bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" status` |
+| Restart services | `bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" restart --confirm materials-lab-production` |
+| Uninstall services, preserving data and images | `bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" uninstall --confirm materials-lab-production` |
+
+An independent `backup` leaves services stopped until `up` is run. See the [deployment guide](docs/production-deployment.en.md) for backup, restore, and rollback procedures.
+
+## Technology and layout
+
+| Layer | Technology |
+| --- | --- |
+| Frontend | Vue 3, TypeScript, Element Plus, Vite |
+| Backend | Java 25, Spring Boot, MyBatis |
+| Business data | PostgreSQL, Flyway |
+| File storage | RustFS |
+| Deployment | Docker Compose, Nginx |
 
 ```text
 labAssistant/
-├── backend/       Spring Boot API, MyBatis, Flyway, and JUnit tests
-├── frontend/      Vue application, TypeScript types, and frontend tests
-├── infra/         Compose files, Dockerfiles, Nginx, and configuration templates
-├── scripts/       Production operation script and isolated tests
-├── contracts/     OpenAPI contract
-├── docs/          Current design and operations documentation
-└── audit/         Historical sources, decisions, and verification evidence
+├── backend/       # API, business logic, database migrations, and tests
+├── frontend/      # Pages, components, and frontend tests
+├── infra/         # Compose, Dockerfiles, Nginx, and configuration templates
+├── scripts/       # Production operations and isolated tests
+├── contracts/     # OpenAPI contract
+├── docs/          # Current design and operations documentation
+└── audit/         # Historical sources, changes, and verification records
 ```
 
-## Contributing
+Production code and private configuration live in `~/work/server/labAssistant`; persistent data lives in `~/work/data/labAssistant`. Each project has its own directories.
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening an issue or pull request. Changes affecting authorization, data, storage, configuration, migrations, or production operations require matching tests and documentation.
+## Local development
 
-## Security
+Use `dev` for development. Host backend commands require JDK 25; frontend commands use the project's locked pnpm version. Development Compose initializes fixtures and must use separate databases and storage.
 
-Do not report vulnerabilities, credentials, session data, or business data in public issues. See [SECURITY.md](SECURITY.md) for the private reporting expectations and deployment responsibilities.
+See the [development and operations guide](docs/development-operations-guide.en.md) for setup and startup commands. Run checks appropriate to the changed area:
+
+```bash
+mvn -f backend/pom.xml verify
+pnpm --dir frontend test
+pnpm --dir frontend run build
+node --test scripts/tests/production.test.mjs
+git diff --check
+```
+
+Read the [contributing guide](CONTRIBUTING.md) before making changes. Successful tests, builds, and health checks do not replace target-server acceptance for login, permissions, attachments, and recovery.
+
+## Documentation
+
+| Document | Contents |
+| --- | --- |
+| [Documentation index](docs/README.md) | English and Chinese documentation |
+| [Production deployment](docs/production-deployment.en.md) | Installation, upgrades, backups, restore, and rollback |
+| [System overview](docs/overview-design.en.md) | Product scope, roles, and architecture |
+| [Detailed design](docs/detailed-design.en.md) | Data, API, authorization, and lifecycle rules |
+| [Development and operations](docs/development-operations-guide.en.md) | Environment setup, configuration, verification, and troubleshooting |
+| [OpenAPI](contracts/openapi.yaml) | HTTP API contract |
+| [Security policy](SECURITY.md) | Vulnerability reporting and deployment responsibilities |
 
 ## License
 
-No open-source license has been granted for this repository. Public visibility does not grant permission to reuse, redistribute, or sublicense its contents. A license must be added by the rights holder before such permissions exist.
+Materials Lab Assistant is licensed under the [GNU Affero General Public License v3.0 only](LICENSE) (`AGPL-3.0-only`). Commercial use is permitted under the license. Distribution of covered works carries corresponding-source obligations; modified versions offered over a network must also offer their corresponding source to users interacting with them remotely.
+
+The license includes the contributor patent grant in section 11. Third-party components remain subject to their own licenses. See [LICENSE](LICENSE) for the complete terms, including the warranty disclaimer.

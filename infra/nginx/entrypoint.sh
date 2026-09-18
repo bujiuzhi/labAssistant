@@ -8,7 +8,7 @@ materials_lab_fail() {
 }
 
 : "${MATERIALS_LAB_PUBLIC_HOST:?必须配置生产访问 IPv4 MATERIALS_LAB_PUBLIC_HOST}"
-: "${MATERIALS_LAB_PUBLIC_PORT:=15105}"
+: "${MATERIALS_LAB_PUBLIC_PORT:=13501}"
 
 if ! printf '%s\n' "$MATERIALS_LAB_PUBLIC_HOST" | LC_ALL=C grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; then
     materials_lab_fail '访问主机仅允许 IPv4，不含协议、端口或路径'

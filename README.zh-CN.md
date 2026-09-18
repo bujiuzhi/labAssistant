@@ -1,132 +1,182 @@
-# 材料实验助手
+<div align="center">
+  <h1>🔬 材料实验助手</h1>
 
-[English](README.md) | [简体中文](README.zh-CN.md)
+### 面向材料研发团队的项目协作与电子实验记录本
 
-材料实验助手是面向材料研发团队的多租户 Web 应用，提供组织管理、项目协作、电子实验记录本（ELN）与受控文件管理能力，可通过自托管 Docker Compose 部署。
+**从项目计划到实验结果，让团队协作与研发资料有迹可循。**
 
-> 仓库已公开，但当前**尚未授予开源许可证**。在复制、分发、修改或再利用代码前，请先阅读[许可证](#许可证)。
+![Java](https://img.shields.io/badge/Java-25-ed8b00) ![Vue](https://img.shields.io/badge/Vue-3-42b883?logo=vuedotjs&logoColor=white) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169e1?logo=postgresql&logoColor=white) ![Deployment](https://img.shields.io/badge/Docker-Compose-2496ed?logo=docker&logoColor=white) [![GitHub Stars](https://img.shields.io/github/stars/bujiuzhi/labAssistant?style=flat&logo=github&label=Stars)](https://github.com/bujiuzhi/labAssistant/stargazers)
+
+[English](README.md) · **简体中文**
+
+[![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-663399)](LICENSE)
+
+[快速部署](#快速部署) · [核心能力](#核心能力) · [账号与权限](#账号与权限) · [升级与维护](#升级与维护) · [本地开发](#本地开发) · [文档导航](#文档导航)
+</div>
+
+---
+
+材料实验助手将组织、项目、实验计划、过程记录与文件资料集中在一个自托管工作台中。适合需要按组织隔离数据、按项目分配人员，并持续积累实验记录的材料研发团队。
+
+| 🧪 实验记录 | 👥 团队协作 | 📦 自主部署 |
+| :---: | :---: | :---: |
+| 计划、过程图片与结果附件统一管理 | 组织隔离、角色权限与项目成员范围 | Docker Compose，数据保存在自己的服务器 |
+
+## 快速部署
+
+生产部署使用 `main` 分支。服务器需要 Docker Engine、Docker Compose **2.24.4+**、Git、Bash、OpenSSL 和常用归档工具；Java 与前端构建环境由 Docker 镜像提供。
+
+### 1. 获取代码与配置
+
+```bash
+mkdir -p ~/work/server
+git clone --branch main https://github.com/bujiuzhi/labAssistant.git ~/work/server/labAssistant
+cd ~/work/server/labAssistant
+
+if [ ! -e .env.production ]; then
+  (umask 077; cp infra/.env.production.example .env.production)
+fi
+chmod 600 .env.production
+```
+
+编辑 `.env.production`，填写全部 `CHANGE_ME`：
+
+| 配置 | 填写说明 |
+| --- | --- |
+| `MATERIALS_LAB_RELEASE` | 本次唯一发布标签，可使用 `git rev-parse --short HEAD` 的结果 |
+| `MATERIALS_LAB_PUBLIC_HOST` | 服务器公网 IPv4，不含协议和端口 |
+| `MATERIALS_LAB_DATA_ROOT` | 当前用户的绝对路径，如 `/home/你的用户名/work/data/labAssistant` |
+| `MATERIALS_LAB_SECRETS_DIR` | 独立密钥目录，如 `/home/你的用户名/work/server/labAssistant/data/production-secrets` |
+| `MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME` | 初始平台管理员登录名 |
+| `MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_DISPLAY_NAME` | 初始平台管理员显示名 |
+
+配置文件只填写实际值，不使用引号、字面量 `~` 或 shell 表达式。完整模板见 [infra/.env.production.example](infra/.env.production.example)。
+
+首次部署先获取锁定的数据库与对象存储镜像：
+
+```bash
+docker compose --env-file .env.production -f infra/compose.production.yml pull postgres rustfs
+```
+
+### 2. 一条命令安装
+
+```bash
+bash scripts/production.sh --env "$PWD/.env.production" install --confirm materials-lab-production
+```
+
+脚本完成密钥生成、目录准备、镜像构建、空库初始化与服务启动。浏览器打开 **`http://服务器IP:13501`**。
+
+首次安装只创建平台管理员及内部平台组织，业务组织数量为 **0**，不初始化示例项目、实验或开发账号。管理员凭据的保存位置与首次登录步骤见[生产部署指南](docs/production-deployment.md)。
+
+> [!IMPORTANT]
+> `install` 仅用于空库。已有部署使用下方升级流程；`.env.production` 中若显式配置了其他端口，将继续使用该值。当前 HTTP 入口不加密口令、会话与文件内容，应将 `13501/TCP` 限制到可信来源。
 
 ## 核心能力
 
-- **多租户与 RBAC**：平台管理员开通组织；一个账号仅属于一个组织；组织角色决定动作权限，项目成员关系决定业务数据范围。
-- **项目协作**：项目、目标、里程碑、成员、操作记录与项目文档管理。
-- **ELN 工作流**：实验计划、参与人、过程图片、结果附件、状态流转及完成后只读。
-- **私有文件存储**：PostgreSQL 保存业务元数据和授权关系，RustFS 保存项目文档与实验附件正文。
-- **自托管运维**：生产 Compose 隔离 PostgreSQL、RustFS、API 与 Web，提供受控安装、发布、恢复和回退入口。
-
-当前版本不使用 Redis，也未接入 LibreOffice 文档转换。
-
-## 架构
-
-```text
-浏览器
-  │ HTTP（当前生产方案）
-  ▼
-Nginx / Web ─────────────► Spring Boot API
-                                  ├── PostgreSQL：业务数据、ELN、RBAC
-                                  └── RustFS：项目文档与实验附件
-```
-
-生产 Compose 只映射 Web 入口到宿主机；API、PostgreSQL 与 RustFS 保持在内部 Docker 网络。
-
-## 开发快速开始
-
-开发 Compose 与生产环境隔离，且会初始化开发夹具。严禁连接生产 PostgreSQL、RustFS、凭据或持久化目录。
-
-### 前置条件
-
-- Docker Engine 与 Docker Compose v2
-- 仅在宿主机直接执行 Maven 时需要 JDK 25
-- 仅在宿主机执行前端命令时需要 Node.js 与 Corepack/pnpm；pnpm 版本以 [`frontend/package.json`](frontend/package.json) 为准
-
-```bash
-git clone https://github.com/bujiuzhi/labAssistant.git
-cd labAssistant
-
-if [ ! -e .env ]; then
-  (umask 077; cp .env.example .env)
-fi
-
-pnpm --dir frontend install --frozen-lockfile
-docker compose --env-file .env -f infra/docker-compose.yml config --quiet
-docker compose --env-file .env -f infra/docker-compose.yml up -d
-docker compose --env-file .env -f infra/docker-compose.yml ps
-```
-
-- Web：`http://127.0.0.1:5173/`
-- API 存活检查：`http://127.0.0.1:8000/api/v1/health/live`
-- API 就绪检查：`http://127.0.0.1:8000/api/v1/health/ready`
-
-环境变量、初始化行为、数据目录与排障方式见[开发与运维指南](docs/development-operations-guide.md)。
-
-## 质量检查
-
-```bash
-# 后端：需要 JDK 25
-mvn -f backend/pom.xml verify
-
-# 前端：需要已安装锁定依赖
-pnpm --dir frontend test
-pnpm --dir frontend run build
-
-# 生产运维脚本测试
-node --test scripts/tests/production.test.mjs
-
-# 文本与补丁完整性
-git diff --check
-```
-
-通过这些检查不等同于生产登录、权限、上传下载、防火墙或恢复验收。
-
-## 生产生命周期
-
-生产代码与私有配置位于 `~/work/server/labAssistant`，持久化数据位于 `~/work/data/labAssistant`。将 [`infra/.env.production.example`](infra/.env.production.example) 复制为私有 `.env.production` 后填写实际值；该文件不得提交 Git。
-
-| 场景 | 命令 | 行为 |
-| --- | --- | --- |
-| 空库首次部署 | `install` | 创建缺失密钥和目录、构建、初始化空生产库并启动服务。 |
-| 发布已评审版本 | `build` 后执行 `upgrade` | 构建或导入不可变镜像；`upgrade` 停写、创建 PostgreSQL + RustFS 恢复组，再启动新版本。 |
-| 安全重启服务 | `restart` | 仅重启 API/Web，等待健康检查。 |
-| 独立恢复点 | `backup` | 停止写入并创建恢复组；服务保持停止，需执行 `up` 恢复。它不是无感的日常在线备份。 |
-
-完整命令和前置条件见[生产 Compose 部署](docs/production-deployment.md)。`install` 只能用于空库；`upgrade` 不会使用未评审工作区构建镜像，且它本身已经创建恢复组，正常升级前无需再额外执行一次手工 `backup`。
-
-当前最简部署方案使用 `http://<公网 IPv4>:15105` 向少量可信用户开放。HTTP 会明文传输登录口令、会话 Cookie 与上传内容；必须限制 `15105/TCP` 来源。扩大访问范围或处理更高敏感度数据前，应切换到 HTTPS。
-
-## 文档
-
-| English | 中文 |
+| 能力 | 说明 |
 | --- | --- |
-| [Documentation index](docs/README.md) | [文档索引](docs/README.zh-CN.md) |
-| [System overview](docs/overview-design.en.md) | [系统概要设计](docs/overview-design.md) |
-| [Detailed design](docs/detailed-design.en.md) | [详细设计](docs/detailed-design.md) |
-| [Production deployment](docs/production-deployment.en.md) | [生产 Compose 部署](docs/production-deployment.md) |
-| [Development and operations](docs/development-operations-guide.en.md) | [开发与运维指南](docs/development-operations-guide.md) |
-| [OpenAPI contract](contracts/openapi.yaml) | [OpenAPI 契约](contracts/openapi.yaml) |
+| 项目总览 | 查看有权限访问的项目卡片、项目与实验指标 |
+| 项目协作 | 管理目标、里程碑、负责人、项目成员与归档状态 |
+| 电子实验记录本 | 记录实验计划、参与人、实验过程、图片和结果附件 |
+| 实验状态管理 | 跟踪未开始、进行中和已完成状态；完成后记录只读 |
+| 资料管理 | 项目文档分类、上传、授权下载及支持格式的浏览器预览 |
+| 多租户与 RBAC | 组织隔离、角色动作权限与项目成员数据范围 |
+| 账号管理 | 邀请码注册、管理员创建账号、停用、逻辑删除和密码管理 |
+| 部署与恢复 | 项目独立 Compose，支持升级备份、应用回退与空目标恢复 |
 
-[audit/](audit/README.md) 保存历史来源、决策与验证证据；它们是历史记录，不能替代当前运行行为说明。
+PostgreSQL 保存业务元数据，RustFS 保存新上传的文档与附件正文。当前版本不依赖 Redis，也未接入 LibreOffice 文档转换。能力边界见[概要设计](docs/overview-design.md)。
 
-## 目录结构
+## 账号与权限
+
+平台管理员开通组织时，同时创建该组织首个超级管理员。组织管理员随后管理本组织成员与邀请码；一个账号只属于一个组织。
+
+| 身份 | 职责与范围 |
+| --- | --- |
+| 平台管理员 | 查看和开通组织，不读取租户业务数据 |
+| 组织超级管理员 | 管理本组织人员、邀请码及组织内业务 |
+| 项目管理员 | 管理有权限的项目、成员、文档与实验 |
+| 实验员 | 查看分配的项目，操作与自己相关且状态允许的实验 |
+
+角色决定可执行的动作，项目成员等关联关系决定可访问的数据；后端同时校验这两个条件。完整规则见[授权设计](docs/detailed-design.md)。
+
+## 升级与维护
+
+在项目目录中执行，`--confirm` 后的名称应与配置里的 `MATERIALS_LAB_COMPOSE_PROJECT` 一致。
+
+```bash
+LABASSISTANT_PROD_ENV="$PWD/.env.production"
+```
+
+升级前同步已评审的 `main` 代码，并在 `.env.production` 中设置**新的发布标签**：
+
+```bash
+bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" build
+bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" upgrade --confirm materials-lab-production
+```
+
+`upgrade` 会停写、备份 PostgreSQL 与 RustFS，再启动新版本。构建要求干净且已提交的代码；正常升级无需额外手工执行 `backup`。
+
+| 操作 | 命令 |
+| --- | --- |
+| 查看状态 | `bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" status` |
+| 重启服务 | `bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" restart --confirm materials-lab-production` |
+| 卸载服务，保留数据与镜像 | `bash scripts/production.sh --env "$LABASSISTANT_PROD_ENV" uninstall --confirm materials-lab-production` |
+
+独立备份 `backup` 完成后服务保持停止，需要 `up` 恢复。备份、恢复和回退的完整步骤见[生产部署指南](docs/production-deployment.md)。
+
+## 技术栈与目录
+
+| 层级 | 技术 |
+| --- | --- |
+| 前端 | Vue 3、TypeScript、Element Plus、Vite |
+| 后端 | Java 25、Spring Boot、MyBatis |
+| 业务数据 | PostgreSQL、Flyway |
+| 文件存储 | RustFS |
+| 部署 | Docker Compose、Nginx |
 
 ```text
 labAssistant/
-├── backend/       Spring Boot API、MyBatis、Flyway 与 JUnit 测试
-├── frontend/      Vue 应用、TypeScript 类型与前端测试
-├── infra/         Compose、Dockerfile、Nginx 与配置模板
-├── scripts/       生产运维脚本与隔离测试
-├── contracts/     OpenAPI 契约
-├── docs/          当前设计与运维文档
-└── audit/         历史来源、决策与验证证据
+├── backend/       # API、业务逻辑、数据库迁移与测试
+├── frontend/      # 页面、组件与前端测试
+├── infra/         # Compose、Dockerfile、Nginx 与配置模板
+├── scripts/       # 生产运维脚本与隔离测试
+├── contracts/     # OpenAPI 接口契约
+├── docs/          # 当前设计与运维文档
+└── audit/         # 历史来源、重要变更与验证记录
 ```
 
-## 贡献
+生产代码与私有配置放在 `~/work/server/labAssistant`，持久化数据放在 `~/work/data/labAssistant`，分别按项目隔离。
 
-提交 Issue 或 Pull Request 前请阅读 [CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md)。授权、数据、存储、配置、迁移或生产运维相关变更必须补充对应测试和文档。
+## 本地开发
 
-## 安全
+日常开发使用 `dev` 分支。宿主机运行后端需要 JDK 25，前端使用项目锁定的 pnpm 版本。开发 Compose 会初始化开发数据，应使用独立数据库和存储。
 
-不要在公开 Issue 中披露漏洞细节、真实凭据、会话信息或业务数据。报告方式与部署责任见 [SECURITY.zh-CN.md](SECURITY.zh-CN.md)。
+环境初始化与启动命令见[开发与运维指南](docs/development-operations-guide.md)。按改动范围执行检查：
+
+```bash
+mvn -f backend/pom.xml verify
+pnpm --dir frontend test
+pnpm --dir frontend run build
+node --test scripts/tests/production.test.mjs
+git diff --check
+```
+
+贡献流程见[贡献指南](CONTRIBUTING.zh-CN.md)。构建、测试和健康检查通过，不能替代目标服务器的登录、权限、附件和恢复验收。
+
+## 文档导航
+
+| 文档 | 内容 |
+| --- | --- |
+| [文档索引](docs/README.zh-CN.md) | 中英文技术文档入口 |
+| [生产部署](docs/production-deployment.md) | 首次部署、升级、备份、恢复与回退 |
+| [概要设计](docs/overview-design.md) | 产品范围、角色与架构 |
+| [详细设计](docs/detailed-design.md) | 数据、接口、授权与状态规则 |
+| [开发与运维](docs/development-operations-guide.md) | 开发环境、配置、验证与排障 |
+| [OpenAPI](contracts/openapi.yaml) | HTTP 接口契约 |
+| [安全策略](SECURITY.zh-CN.md) | 漏洞报告方式与部署责任 |
 
 ## 许可证
 
-仓库当前未授予开源许可证。公开可见不等同于允许复制、分发、修改或再许可；只有权利人补充许可证后，相关授权才会生效。
+材料实验助手采用 [GNU Affero General Public License v3.0 only](LICENSE)（`AGPL-3.0-only`）。允许在遵守许可证的前提下商用；分发受协议约束的作品时须履行对应源码提供义务，修改版通过网络向用户提供服务时，也须向这些用户提供对应源代码。
+
+许可证包含第 11 条规定的贡献者专利许可。第三方组件仍遵循各自的许可证。完整授权条件及免责声明以 [LICENSE](LICENSE) 为准。

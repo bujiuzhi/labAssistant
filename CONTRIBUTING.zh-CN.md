@@ -21,6 +21,8 @@ docker compose --env-file .env -f infra/docker-compose.yml config --quiet
 
 ## 变更要求
 
+提交到本项目并拟合入的贡献须采用 [AGPL-3.0-only](LICENSE)。仅提交你有权按该协议授权的内容，并保留适用的第三方版权和许可证声明。
+
 - 不提交 `.env`、凭据、生产连接信息、生成产物、依赖目录、业务数据或敏感日志。
 - 结构变更只能通过新增 Flyway 迁移完成；不得改写可能已经执行的迁移。
 - 行为变更时同步更新相关设计文档、OpenAPI、配置模板和/或审计记录。

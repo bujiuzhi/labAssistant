@@ -98,11 +98,11 @@ services:
     security_opt: [no-new-privileges:true]
     environment:
       MATERIALS_LAB_PUBLIC_HOST: ${MATERIALS_LAB_PUBLIC_HOST:?请设置访问 IP}
-      MATERIALS_LAB_PUBLIC_PORT: ${MATERIALS_LAB_PUBLIC_PORT:-15105}
+      MATERIALS_LAB_PUBLIC_PORT: ${MATERIALS_LAB_PUBLIC_PORT:-13501}
       TZ: Asia/Shanghai
     # 仅此 Web 入口映射到公网；API、PostgreSQL 和 RustFS 无宿主端口。
     ports:
-      - "${MATERIALS_LAB_HTTP_BIND_ADDRESS:-0.0.0.0}:${MATERIALS_LAB_HTTP_BIND_PORT:-15105}:8080"
+      - "${MATERIALS_LAB_HTTP_BIND_ADDRESS:-0.0.0.0}:${MATERIALS_LAB_HTTP_BIND_PORT:-13501}:8080"
     depends_on:
       api:
         condition: service_healthy

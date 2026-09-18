@@ -21,6 +21,8 @@ Host Maven requires JDK 25. Use the pnpm version locked by `frontend/package.jso
 
 ## Change requirements
 
+Contributions intended for inclusion in this project must be submitted under [AGPL-3.0-only](LICENSE). Submit only material you are authorized to license on these terms, and retain applicable third-party copyright and license notices.
+
 - Do not commit `.env` files, credentials, production connection details, generated artifacts, dependencies, business data, or sensitive logs.
 - Add schema changes only through a new Flyway migration. Never rewrite a migration that may already have run.
 - Update the matching design document, OpenAPI contract, configuration template, and/or audit record when behavior changes.

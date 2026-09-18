@@ -9,12 +9,12 @@ Production uses Docker Compose with code and private configuration in `~/work/se
 The current minimal profile intentionally exposes one HTTP entry:
 
 ```text
-http://<public-ipv4>:15105
+http://<public-ipv4>:13501
 ```
 
 Only Nginx/Web maps a host port. API, PostgreSQL, RustFS API, and the RustFS console are not host-published. This profile has no domain, TLS certificate, HTTPS, HSTS, or Secure cookie flag.
 
-> HTTP exposes credentials, session cookies, and uploaded content without transport encryption. Restrict `15105/TCP` to trusted sources. Move to HTTPS before broadening access, handling higher-sensitivity data, or claiming encrypted public transport.
+> HTTP exposes credentials, session cookies, and uploaded content without transport encryption. Restrict `13501/TCP` to trusted sources. Move to HTTPS before broadening access, handling higher-sensitivity data, or claiming encrypted public transport.
 
 ## Production assets
 
@@ -42,12 +42,14 @@ Set every `CHANGE_ME` value. Keep `.env.production` private: no quotes, shell ex
 
 ```ini
 MATERIALS_LAB_PUBLIC_HOST=<public-ipv4>
-MATERIALS_LAB_PUBLIC_PORT=15105
+MATERIALS_LAB_PUBLIC_PORT=13501
 MATERIALS_LAB_HTTP_BIND_ADDRESS=0.0.0.0
-MATERIALS_LAB_HTTP_BIND_PORT=15105
+MATERIALS_LAB_HTTP_BIND_PORT=13501
 ```
 
 The first installation creates only the internal platform organization, its platform-administrator account, and the permission catalog. It creates zero business organizations, tenant user accounts, projects, experiments, documents, or development fixtures.
+
+The initial login is `MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME`. The generated password is stored in `bootstrap_platform_admin_password` under the configured `MATERIALS_LAB_SECRETS_DIR`; retrieve it securely on the server. Restarting or upgrading does not reset an existing account's database password. After signing in, provision a business organization and its first organization super administrator, then use an organization account for business operations.
 
 ## Common commands
 

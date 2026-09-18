@@ -154,7 +154,7 @@ async function prepareTarget(label) {
     COMPOSE_PROJECT: target.project, RELEASE: release, DATA_ROOT: target.dataRoot,
     SECRETS_DIR: target.secrets, DB_NAME: `materials_lab_acceptance_${runId}_${label}`,
     DB_USER: `materials_lab_acceptance_${runId}_${label}`, DB_POOL_SIZE: '5',
-    PUBLIC_HOST: '127.0.0.1', PUBLIC_PORT: '15105', HTTP_BIND_ADDRESS: '127.0.0.1', HTTP_BIND_PORT: '0',
+    PUBLIC_HOST: '127.0.0.1', PUBLIC_PORT: '13501', HTTP_BIND_ADDRESS: '127.0.0.1', HTTP_BIND_PORT: '0',
     BOOTSTRAP_PLATFORM_ADMIN_USERNAME: `platform_${runId}`,
     BOOTSTRAP_PLATFORM_ADMIN_DISPLAY_NAME: '隔离部署验收平台管理员',
   };

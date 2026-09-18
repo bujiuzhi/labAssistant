@@ -151,7 +151,7 @@ function fixture(overrides = {}) {
     MATERIALS_LAB_OBJECT_STORAGE_BUCKET: "materials-lab-test",
     MATERIALS_LAB_PUBLIC_HOST: "198.51.100.10",
     MATERIALS_LAB_HTTP_BIND_ADDRESS: "0.0.0.0",
-    MATERIALS_LAB_HTTP_BIND_PORT: "15105",
+    MATERIALS_LAB_HTTP_BIND_PORT: "13501",
     MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_USERNAME: "fixture_platform",
     MATERIALS_LAB_BOOTSTRAP_PLATFORM_ADMIN_DISPLAY_NAME: "隔离测试平台管理员",
     ...overrides,
@@ -947,7 +947,7 @@ test("生产 Compose 静态模型：固定 prod、只读应用、独立非公开
 test("生产 Compose 仅发布明确的公网 HTTP Web 端口", () => {
   const source = readFileSync(join(repository, "infra/compose.production.yml"), "utf8");
   assert.match(source, /MATERIALS_LAB_HTTP_BIND_ADDRESS:-0\.0\.0\.0/);
-  assert.match(source, /MATERIALS_LAB_HTTP_BIND_PORT:-15105/);
+  assert.match(source, /MATERIALS_LAB_HTTP_BIND_PORT:-13501/);
   assert.match(source, /:8080/);
   assert.doesNotMatch(source, /8443|tls\/fullchain|privkey/);
 });

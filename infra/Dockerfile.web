@@ -12,7 +12,7 @@ RUN pnpm test && pnpm build
 # 来源：https://nginx.org/en/download.html 和 https://hub.docker.com/_/nginx
 FROM nginx:1.30.4-alpine@sha256:dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c AS runtime
 ENV TZ=Asia/Shanghai \
-    MATERIALS_LAB_PUBLIC_PORT=15105
+    MATERIALS_LAB_PUBLIC_PORT=13501
 COPY infra/nginx/nginx.conf /etc/nginx/nginx.conf
 COPY infra/nginx/ /etc/nginx/materials-lab/
 COPY --from=build /workspace/dist/ /usr/share/nginx/html/
